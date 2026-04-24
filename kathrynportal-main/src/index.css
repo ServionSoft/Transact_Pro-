@@ -1,0 +1,120 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 20% 98%;
+    --foreground: 215 30% 15%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 215 30% 15%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 30% 15%;
+
+    --primary: 215 45% 20%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 210 20% 95%;
+    --secondary-foreground: 215 30% 15%;
+
+    --muted: 210 15% 93%;
+    --muted-foreground: 215 12% 50%;
+
+    --accent: 38 92% 50%;
+    --accent-foreground: 215 45% 12%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 40% 98%;
+
+    --success: 152 60% 40%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 215 45% 12%;
+
+    --info: 205 80% 50%;
+    --info-foreground: 0 0% 100%;
+
+    --border: 214 20% 90%;
+    --input: 214 20% 90%;
+    --ring: 215 45% 20%;
+
+    --radius: 0.625rem;
+
+    --sidebar-background: 215 45% 15%;
+    --sidebar-foreground: 210 20% 85%;
+    --sidebar-primary: 38 92% 50%;
+    --sidebar-primary-foreground: 215 45% 12%;
+    --sidebar-accent: 215 40% 22%;
+    --sidebar-accent-foreground: 210 20% 92%;
+    --sidebar-border: 215 35% 22%;
+    --sidebar-ring: 38 92% 50%;
+    --sidebar-muted: 215 25% 35%;
+
+    --status-pending: 38 92% 50%;
+    --status-signed: 152 60% 40%;
+    --status-needs-sig: 25 95% 53%;
+    --status-out-sig: 205 80% 50%;
+    --status-uploaded: 262 60% 55%;
+    --status-complete: 152 60% 40%;
+
+    --font-display: 'Plus Jakarta Sans', system-ui, sans-serif;
+    --font-body: 'Inter', system-ui, sans-serif;
+  }
+
+  .dark {
+    --background: 215 35% 9%;
+    --foreground: 210 20% 92%;
+    --card: 215 35% 12%;
+    --card-foreground: 210 20% 92%;
+    --popover: 215 35% 12%;
+    --popover-foreground: 210 20% 92%;
+    --primary: 38 92% 50%;
+    --primary-foreground: 215 45% 12%;
+    --secondary: 215 30% 18%;
+    --secondary-foreground: 210 20% 92%;
+    --muted: 215 25% 18%;
+    --muted-foreground: 215 15% 55%;
+    --accent: 38 92% 50%;
+    --accent-foreground: 215 45% 12%;
+    --destructive: 0 62% 45%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 215 25% 20%;
+    --input: 215 25% 20%;
+    --ring: 38 92% 50%;
+    --sidebar-background: 215 45% 8%;
+    --sidebar-foreground: 210 20% 80%;
+    --sidebar-primary: 38 92% 50%;
+    --sidebar-primary-foreground: 215 45% 12%;
+    --sidebar-accent: 215 40% 15%;
+    --sidebar-accent-foreground: 210 20% 92%;
+    --sidebar-border: 215 30% 15%;
+    --sidebar-ring: 38 92% 50%;
+    --sidebar-muted: 215 20% 30%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-body);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+  }
+}
+
+@layer utilities {
+  .text-display {
+    font-family: var(--font-display);
+  }
+}

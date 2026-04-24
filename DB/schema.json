@@ -1,0 +1,871 @@
+{
+  "meta": {
+    "project": "Kathryn Portal — Real Estate Transaction Management",
+    "phase": 1,
+    "schema_version": "1.1.0",
+    "product_spec": "Docs/product-summary.md",
+    "changelog_1_1": "Document sets (M:N), template library file scope on stored_files, conditional_rule_sets, project checklist provenance, google_drive_library_roots.",
+    "conventions": {
+      "naming": "snake_case",
+      "table_naming": "plural",
+      "timestamps": ["created_at", "updated_at"],
+      "soft_delete": "deleted_at on meaningful entities only",
+      "fk_suffix": "_id"
+    },
+    "legend": {
+      "pk": "primary key",
+      "fk": "foreign key",
+      "uk": "unique key",
+      "nullable": "column allows NULL"
+    }
+  },
+
+  "enums": {
+    "user_role":                 ["admin", "coordinator"],
+    "user_status":               ["active", "invited", "inactive"],
+    "contact_role":              ["listing_agent", "buyers_agent", "buyer", "seller", "escrow_officer", "escrow_assistant", "lender", "other"],
+    "client_status":             ["active", "inactive", "prospect"],
+    "transaction_type":          ["listing", "buyer_file"],
+    "project_stage":             ["listing_prep", "listing_complete", "in_escrow", "ready_to_close", "closed"],
+    "party_role":                ["buyer", "seller", "listing_agent", "buyers_agent", "escrow_officer", "escrow_assistant", "lender", "other"],
+    "document_status":           ["pending", "needs_buyer_signature", "needs_seller_signature", "out_for_signature", "signed_needs_upload", "uploaded_to_brokerage", "completed", "other"],
+    "task_status":               ["pending", "in_progress", "complete"],
+    "file_source":               ["manual_upload", "docusign_signed_return", "google_drive_sync", "email_inbound"],
+    "docusign_field_role":       ["seller", "buyer", "listing_agent", "buyers_agent", "escrow_officer", "other"],
+    "docusign_field_type":       ["signature", "initial", "date", "text", "checkbox"],
+    "docusign_envelope_status":  ["created", "sent", "delivered", "completed", "declined", "voided"],
+    "docusign_recipient_status": ["created", "sent", "delivered", "signed", "declined"],
+    "email_direction":           ["outbound", "inbound"],
+    "deadline_type":             ["deadline", "reminder", "task"],
+    "reminder_status":           ["draft", "sent", "dismissed"],
+    "integration_provider":      ["docusign", "gmail", "google_drive"],
+    "conditional_property_type": ["single_family", "condo", "any"],
+    "file_storage_scope":     ["transaction", "template_library"],
+    "rule_kind":              ["standard", "conditional"],
+    "library_folder_purpose": ["master_templates"]
+  },
+
+  "tables": {
+
+    "users": {
+      "description": "Team members that log into the portal (Kathryn + coordinators).",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "name", "type": "string" },
+        { "name": "email", "type": "string", "uk": true },
+        { "name": "password_hash", "type": "string" },
+        { "name": "role", "type": "enum:user_role" },
+        { "name": "status", "type": "enum:user_status" },
+        { "name": "last_active_at", "type": "datetime", "nullable": true },
+        { "name": "joined_at", "type": "datetime", "nullable": true },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" },
+        { "name": "deleted_at", "type": "datetime", "nullable": true }
+      ],
+      "foreign_keys": []
+    },
+
+    "user_invites": {
+      "description": "Email invites to new team members.",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "email", "type": "string" },
+        { "name": "invited_by_user_id", "type": "bigint", "fk": { "table": "users", "column": "id" } },
+        { "name": "token", "type": "string", "uk": true },
+        { "name": "expires_at", "type": "datetime" },
+        { "name": "accepted_at", "type": "datetime", "nullable": true },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" }
+      ],
+      "foreign_keys": [
+        { "column": "invited_by_user_id", "references": "users.id", "on_delete": "SET NULL" }
+      ]
+    },
+
+    "project_assignments": {
+      "description": "Join table: which user works which transaction.",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "project_id", "type": "bigint", "fk": { "table": "projects", "column": "id" } },
+        { "name": "user_id", "type": "bigint", "fk": { "table": "users", "column": "id" } },
+        { "name": "assigned_by_user_id", "type": "bigint", "fk": { "table": "users", "column": "id" }, "nullable": true },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" }
+      ],
+      "unique": [["project_id", "user_id"]],
+      "foreign_keys": [
+        { "column": "project_id", "references": "projects.id", "on_delete": "CASCADE" },
+        { "column": "user_id", "references": "users.id", "on_delete": "CASCADE" },
+        { "column": "assigned_by_user_id", "references": "users.id", "on_delete": "SET NULL" }
+      ]
+    },
+
+    "contacts": {
+      "description": "Everyone Kathryn deals with (agents, buyers, sellers, escrow, lenders) for autocomplete.",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "full_name", "type": "string" },
+        { "name": "email", "type": "string", "nullable": true },
+        { "name": "phone", "type": "string", "nullable": true },
+        { "name": "company", "type": "string", "nullable": true },
+        { "name": "role", "type": "enum:contact_role" },
+        { "name": "notes", "type": "text", "nullable": true },
+        { "name": "created_by_user_id", "type": "bigint", "fk": { "table": "users", "column": "id" }, "nullable": true },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" },
+        { "name": "deleted_at", "type": "datetime", "nullable": true }
+      ],
+      "foreign_keys": [
+        { "column": "created_by_user_id", "references": "users.id", "on_delete": "SET NULL" }
+      ]
+    },
+
+    "clients": {
+      "description": "Agents Kathryn repeatedly works for (owning agent of a transaction).",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "name", "type": "string" },
+        { "name": "email", "type": "string", "nullable": true },
+        { "name": "phone", "type": "string", "nullable": true },
+        { "name": "company", "type": "string", "nullable": true },
+        { "name": "agent_role_text", "type": "string", "nullable": true },
+        { "name": "status", "type": "enum:client_status" },
+        { "name": "notes", "type": "text", "nullable": true },
+        { "name": "primary_address", "type": "string", "nullable": true },
+        { "name": "city", "type": "string", "nullable": true },
+        { "name": "state", "type": "string", "nullable": true },
+        { "name": "zip", "type": "string", "nullable": true },
+        { "name": "created_by_user_id", "type": "bigint", "fk": { "table": "users", "column": "id" }, "nullable": true },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" },
+        { "name": "deleted_at", "type": "datetime", "nullable": true }
+      ],
+      "foreign_keys": [
+        { "column": "created_by_user_id", "references": "users.id", "on_delete": "SET NULL" }
+      ]
+    },
+
+    "projects": {
+      "description": "Transactions. Core entity that almost everything else references.",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "name", "type": "string" },
+        { "name": "client_id", "type": "bigint", "fk": { "table": "clients", "column": "id" } },
+        { "name": "transaction_type", "type": "enum:transaction_type" },
+        { "name": "stage", "type": "enum:project_stage" },
+        { "name": "property_address", "type": "string" },
+        { "name": "city", "type": "string", "nullable": true },
+        { "name": "state", "type": "string", "nullable": true },
+        { "name": "zip", "type": "string", "nullable": true },
+        { "name": "year_built", "type": "string", "nullable": true },
+        { "name": "property_type", "type": "string", "nullable": true },
+        { "name": "representation_side", "type": "string", "nullable": true },
+        { "name": "list_price", "type": "decimal(14,2)", "nullable": true },
+        { "name": "escrow_officer_contact_id", "type": "bigint", "fk": { "table": "contacts", "column": "id" }, "nullable": true },
+        { "name": "escrow_company", "type": "string", "nullable": true },
+        { "name": "next_step_text", "type": "string", "nullable": true },
+        { "name": "next_step_date", "type": "date", "nullable": true },
+        { "name": "created_by_user_id", "type": "bigint", "fk": { "table": "users", "column": "id" }, "nullable": true },
+        { "name": "closed_at", "type": "datetime", "nullable": true },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" },
+        { "name": "deleted_at", "type": "datetime", "nullable": true }
+      ],
+      "foreign_keys": [
+        { "column": "client_id", "references": "clients.id", "on_delete": "RESTRICT" },
+        { "column": "escrow_officer_contact_id", "references": "contacts.id", "on_delete": "SET NULL" },
+        { "column": "created_by_user_id", "references": "users.id", "on_delete": "SET NULL" }
+      ]
+    },
+
+    "project_parties": {
+      "description": "All parties tied to a transaction (buyer, seller, co-agent, escrow staff, etc.).",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "project_id", "type": "bigint", "fk": { "table": "projects", "column": "id" } },
+        { "name": "contact_id", "type": "bigint", "fk": { "table": "contacts", "column": "id" } },
+        { "name": "party_role", "type": "enum:party_role" },
+        { "name": "is_primary", "type": "boolean" },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" }
+      ],
+      "unique": [["project_id", "contact_id", "party_role"]],
+      "foreign_keys": [
+        { "column": "project_id", "references": "projects.id", "on_delete": "CASCADE" },
+        { "column": "contact_id", "references": "contacts.id", "on_delete": "RESTRICT" }
+      ]
+    },
+
+    "document_types": {
+      "description": "Master list of ~50–60 CAR forms + custom types.",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "code", "type": "string", "uk": true },
+        { "name": "display_name", "type": "string" },
+        { "name": "description", "type": "text", "nullable": true },
+        { "name": "is_standard_car_form", "type": "boolean" },
+        { "name": "form_number", "type": "string", "nullable": true },
+        { "name": "form_version", "type": "string", "nullable": true },
+        { "name": "is_active", "type": "boolean" },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" }
+      ],
+      "foreign_keys": []
+    },
+
+    "document_sets": {
+      "description": "Named bundles of document_types (e.g. Standard Listing SFR). Same document_type can belong to many sets (M:N via document_set_members). Rules attach sets to transactions.",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "name", "type": "string" },
+        { "name": "description", "type": "text", "nullable": true },
+        { "name": "sort_order", "type": "integer", "nullable": true },
+        { "name": "is_active", "type": "boolean" },
+        { "name": "created_by_user_id", "type": "bigint", "fk": { "table": "users", "column": "id" }, "nullable": true },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" },
+        { "name": "deleted_at", "type": "datetime", "nullable": true }
+      ],
+      "foreign_keys": [
+        { "column": "created_by_user_id", "references": "users.id", "on_delete": "SET NULL" }
+      ]
+    },
+
+    "document_set_members": {
+      "description": "M:N — which document_types are in which set, with required flag and ordering.",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "document_set_id", "type": "bigint", "fk": { "table": "document_sets", "column": "id" } },
+        { "name": "document_type_id", "type": "bigint", "fk": { "table": "document_types", "column": "id" } },
+        { "name": "required", "type": "boolean" },
+        { "name": "sort_order", "type": "integer", "nullable": true },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" }
+      ],
+      "unique": [["document_set_id", "document_type_id"]],
+      "foreign_keys": [
+        { "column": "document_set_id", "references": "document_sets.id", "on_delete": "CASCADE" },
+        { "column": "document_type_id", "references": "document_types.id", "on_delete": "RESTRICT" }
+      ]
+    },
+
+    "conditional_rules": {
+      "description": "Checklist rules: triggers (see triggers_json) + links to document_sets and/or inline document rows. Drives project checklist at creation.",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "name", "type": "string" },
+        { "name": "kind", "type": "enum:rule_kind" },
+        { "name": "triggers_json", "type": "json", "nullable": true, "description": "Array of {field, value} for AND matching (transactionType, propertyType, hoa, county, ...)." },
+        { "name": "transaction_type", "type": "enum:transaction_type", "nullable": true },
+        { "name": "property_type", "type": "enum:conditional_property_type", "nullable": true },
+        { "name": "is_active", "type": "boolean" },
+        { "name": "created_by_user_id", "type": "bigint", "fk": { "table": "users", "column": "id" }, "nullable": true },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" }
+      ],
+      "foreign_keys": [
+        { "column": "created_by_user_id", "references": "users.id", "on_delete": "SET NULL" }
+      ]
+    },
+
+    "conditional_rule_sets": {
+      "description": "When a rule matches, these document_sets are merged into the checklist (union of members).",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "rule_id", "type": "bigint", "fk": { "table": "conditional_rules", "column": "id" } },
+        { "name": "document_set_id", "type": "bigint", "fk": { "table": "document_sets", "column": "id" } },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" }
+      ],
+      "unique": [["rule_id", "document_set_id"]],
+      "foreign_keys": [
+        { "column": "rule_id", "references": "conditional_rules.id", "on_delete": "CASCADE" },
+        { "column": "document_set_id", "references": "document_sets.id", "on_delete": "CASCADE" }
+      ]
+    },
+
+    "conditional_rule_documents": {
+      "description": "Which documents a rule requires.",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "rule_id", "type": "bigint", "fk": { "table": "conditional_rules", "column": "id" } },
+        { "name": "document_type_id", "type": "bigint", "fk": { "table": "document_types", "column": "id" } },
+        { "name": "required", "type": "boolean" },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" }
+      ],
+      "unique": [["rule_id", "document_type_id"]],
+      "foreign_keys": [
+        { "column": "rule_id", "references": "conditional_rules.id", "on_delete": "CASCADE" },
+        { "column": "document_type_id", "references": "document_types.id", "on_delete": "RESTRICT" }
+      ]
+    },
+
+    "project_documents": {
+      "description": "Per-transaction document instance (checklist row). source_document_set_id records which resolved set contributed this row (audit / provenance).",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "project_id", "type": "bigint", "fk": { "table": "projects", "column": "id" } },
+        { "name": "document_type_id", "type": "bigint", "fk": { "table": "document_types", "column": "id" }, "nullable": true },
+        { "name": "source_document_set_id", "type": "bigint", "fk": { "table": "document_sets", "column": "id" }, "nullable": true },
+        { "name": "display_name", "type": "string" },
+        { "name": "status", "type": "enum:document_status" },
+        { "name": "custom_status_text", "type": "string", "nullable": true },
+        { "name": "required", "type": "boolean" },
+        { "name": "current_file_id", "type": "bigint", "fk": { "table": "stored_files", "column": "id" }, "nullable": true },
+        { "name": "created_by_user_id", "type": "bigint", "fk": { "table": "users", "column": "id" }, "nullable": true },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" },
+        { "name": "deleted_at", "type": "datetime", "nullable": true }
+      ],
+      "foreign_keys": [
+        { "column": "project_id", "references": "projects.id", "on_delete": "CASCADE" },
+        { "column": "document_type_id", "references": "document_types.id", "on_delete": "SET NULL" },
+        { "column": "source_document_set_id", "references": "document_sets.id", "on_delete": "SET NULL" },
+        { "column": "current_file_id", "references": "stored_files.id", "on_delete": "SET NULL" },
+        { "column": "created_by_user_id", "references": "users.id", "on_delete": "SET NULL" }
+      ]
+    },
+
+    "project_document_notes": {
+      "description": "Threaded notes per checklist document.",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "project_document_id", "type": "bigint", "fk": { "table": "project_documents", "column": "id" } },
+        { "name": "author_user_id", "type": "bigint", "fk": { "table": "users", "column": "id" } },
+        { "name": "body", "type": "text" },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" }
+      ],
+      "foreign_keys": [
+        { "column": "project_document_id", "references": "project_documents.id", "on_delete": "CASCADE" },
+        { "column": "author_user_id", "references": "users.id", "on_delete": "SET NULL" }
+      ]
+    },
+
+    "project_document_status_history": {
+      "description": "Audit trail for document status transitions.",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "project_document_id", "type": "bigint", "fk": { "table": "project_documents", "column": "id" } },
+        { "name": "from_status", "type": "string", "nullable": true },
+        { "name": "to_status", "type": "string" },
+        { "name": "changed_by_user_id", "type": "bigint", "fk": { "table": "users", "column": "id" }, "nullable": true },
+        { "name": "reason", "type": "string", "nullable": true },
+        { "name": "created_at", "type": "datetime" }
+      ],
+      "foreign_keys": [
+        { "column": "project_document_id", "references": "project_documents.id", "on_delete": "CASCADE" },
+        { "column": "changed_by_user_id", "references": "users.id", "on_delete": "SET NULL" }
+      ]
+    },
+
+    "project_tasks": {
+      "description": "Stage-by-stage task roadmap per transaction.",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "project_id", "type": "bigint", "fk": { "table": "projects", "column": "id" } },
+        { "name": "title", "type": "string" },
+        { "name": "stage", "type": "enum:project_stage" },
+        { "name": "status", "type": "enum:task_status" },
+        { "name": "due_date", "type": "date", "nullable": true },
+        { "name": "completed_at", "type": "datetime", "nullable": true },
+        { "name": "assigned_to_user_id", "type": "bigint", "fk": { "table": "users", "column": "id" }, "nullable": true },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" }
+      ],
+      "foreign_keys": [
+        { "column": "project_id", "references": "projects.id", "on_delete": "CASCADE" },
+        { "column": "assigned_to_user_id", "references": "users.id", "on_delete": "SET NULL" }
+      ]
+    },
+
+    "project_folders": {
+      "description": "Auto-created folder tree per transaction (supports subfolders).",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "project_id", "type": "bigint", "fk": { "table": "projects", "column": "id" } },
+        { "name": "parent_folder_id", "type": "bigint", "fk": { "table": "project_folders", "column": "id" }, "nullable": true },
+        { "name": "name", "type": "string" },
+        { "name": "is_system", "type": "boolean" },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" }
+      ],
+      "unique": [["project_id", "parent_folder_id", "name"]],
+      "foreign_keys": [
+        { "column": "project_id", "references": "projects.id", "on_delete": "CASCADE" },
+        { "column": "parent_folder_id", "references": "project_folders.id", "on_delete": "CASCADE" }
+      ]
+    },
+
+    "google_drive_library_roots": {
+      "description": "Org-level Google Drive folder(s) for template-library masters (separate from per-transaction google_drive_folder_links).",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "purpose", "type": "enum:library_folder_purpose" },
+        { "name": "label", "type": "string", "nullable": true },
+        { "name": "drive_folder_id", "type": "string" },
+        { "name": "drive_account_user_id", "type": "bigint", "fk": { "table": "users", "column": "id" } },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" }
+      ],
+      "foreign_keys": [
+        { "column": "drive_account_user_id", "references": "users.id", "on_delete": "CASCADE" }
+      ]
+    },
+
+    "stored_files": {
+      "description": "Transaction files and template-library master PDFs. storage_scope=transaction requires project_id; template_library uses null project_id (library masters for DocuSign template builder).",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "storage_scope", "type": "enum:file_storage_scope" },
+        { "name": "project_id", "type": "bigint", "fk": { "table": "projects", "column": "id" }, "nullable": true },
+        { "name": "folder_id", "type": "bigint", "fk": { "table": "project_folders", "column": "id" }, "nullable": true },
+        { "name": "google_drive_library_root_id", "type": "bigint", "fk": { "table": "google_drive_library_roots", "column": "id" }, "nullable": true, "description": "When library file is placed under an org Drive root." },
+        { "name": "name", "type": "string" },
+        { "name": "storage_key", "type": "string" },
+        { "name": "size_bytes", "type": "bigint" },
+        { "name": "mime_type", "type": "string" },
+        { "name": "uploaded_by_user_id", "type": "bigint", "fk": { "table": "users", "column": "id" }, "nullable": true },
+        { "name": "source", "type": "enum:file_source" },
+        { "name": "drive_file_id", "type": "string", "nullable": true },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" },
+        { "name": "deleted_at", "type": "datetime", "nullable": true }
+      ],
+      "foreign_keys": [
+        { "column": "project_id", "references": "projects.id", "on_delete": "CASCADE" },
+        { "column": "folder_id", "references": "project_folders.id", "on_delete": "SET NULL" },
+        { "column": "google_drive_library_root_id", "references": "google_drive_library_roots.id", "on_delete": "SET NULL" },
+        { "column": "uploaded_by_user_id", "references": "users.id", "on_delete": "SET NULL" }
+      ]
+    },
+
+    "google_drive_folder_links": {
+      "description": "Optional mapping between portal folders and Google Drive folders.",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "project_id", "type": "bigint", "fk": { "table": "projects", "column": "id" } },
+        { "name": "project_folder_id", "type": "bigint", "fk": { "table": "project_folders", "column": "id" }, "nullable": true },
+        { "name": "drive_folder_id", "type": "string" },
+        { "name": "drive_account_user_id", "type": "bigint", "fk": { "table": "users", "column": "id" } },
+        { "name": "synced_at", "type": "datetime", "nullable": true },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" }
+      ],
+      "foreign_keys": [
+        { "column": "project_id", "references": "projects.id", "on_delete": "CASCADE" },
+        { "column": "project_folder_id", "references": "project_folders.id", "on_delete": "CASCADE" },
+        { "column": "drive_account_user_id", "references": "users.id", "on_delete": "CASCADE" }
+      ]
+    },
+
+    "docusign_templates": {
+      "description": "One saved template per document_type (signature coords live here).",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "document_type_id", "type": "bigint", "uk": true, "fk": { "table": "document_types", "column": "id" } },
+        { "name": "docusign_template_id", "type": "string", "nullable": true },
+        { "name": "pdf_reference_file_id", "type": "bigint", "fk": { "table": "stored_files", "column": "id" }, "nullable": true },
+        { "name": "version", "type": "integer" },
+        { "name": "created_by_user_id", "type": "bigint", "fk": { "table": "users", "column": "id" }, "nullable": true },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" }
+      ],
+      "foreign_keys": [
+        { "column": "document_type_id", "references": "document_types.id", "on_delete": "CASCADE" },
+        { "column": "pdf_reference_file_id", "references": "stored_files.id", "on_delete": "SET NULL" },
+        { "column": "created_by_user_id", "references": "users.id", "on_delete": "SET NULL" }
+      ]
+    },
+
+    "docusign_template_fields": {
+      "description": "Saved field coordinates (tabs) for signature / initial / date / text / checkbox.",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "template_id", "type": "bigint", "fk": { "table": "docusign_templates", "column": "id" } },
+        { "name": "role", "type": "enum:docusign_field_role" },
+        { "name": "field_type", "type": "enum:docusign_field_type" },
+        { "name": "page_number", "type": "integer" },
+        { "name": "x_anchor", "type": "float", "nullable": true },
+        { "name": "y_anchor", "type": "float", "nullable": true },
+        { "name": "width", "type": "float", "nullable": true },
+        { "name": "height", "type": "float", "nullable": true },
+        { "name": "anchor_string", "type": "string", "nullable": true },
+        { "name": "is_required", "type": "boolean" },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" }
+      ],
+      "foreign_keys": [
+        { "column": "template_id", "references": "docusign_templates.id", "on_delete": "CASCADE" }
+      ]
+    },
+
+    "docusign_envelopes": {
+      "description": "Each send to DocuSign.",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "project_id", "type": "bigint", "fk": { "table": "projects", "column": "id" } },
+        { "name": "docusign_envelope_id", "type": "string", "nullable": true },
+        { "name": "status", "type": "enum:docusign_envelope_status" },
+        { "name": "sent_by_user_id", "type": "bigint", "fk": { "table": "users", "column": "id" }, "nullable": true },
+        { "name": "sent_at", "type": "datetime", "nullable": true },
+        { "name": "completed_at", "type": "datetime", "nullable": true },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" }
+      ],
+      "foreign_keys": [
+        { "column": "project_id", "references": "projects.id", "on_delete": "CASCADE" },
+        { "column": "sent_by_user_id", "references": "users.id", "on_delete": "SET NULL" }
+      ]
+    },
+
+    "docusign_envelope_documents": {
+      "description": "Which project_documents are in an envelope + which template was applied.",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "envelope_id", "type": "bigint", "fk": { "table": "docusign_envelopes", "column": "id" } },
+        { "name": "project_document_id", "type": "bigint", "fk": { "table": "project_documents", "column": "id" } },
+        { "name": "template_id", "type": "bigint", "fk": { "table": "docusign_templates", "column": "id" }, "nullable": true },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" }
+      ],
+      "unique": [["envelope_id", "project_document_id"]],
+      "foreign_keys": [
+        { "column": "envelope_id", "references": "docusign_envelopes.id", "on_delete": "CASCADE" },
+        { "column": "project_document_id", "references": "project_documents.id", "on_delete": "RESTRICT" },
+        { "column": "template_id", "references": "docusign_templates.id", "on_delete": "SET NULL" }
+      ]
+    },
+
+    "docusign_envelope_recipients": {
+      "description": "Recipients on each envelope (seller/buyer/agent/escrow).",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "envelope_id", "type": "bigint", "fk": { "table": "docusign_envelopes", "column": "id" } },
+        { "name": "contact_id", "type": "bigint", "fk": { "table": "contacts", "column": "id" }, "nullable": true },
+        { "name": "email", "type": "string" },
+        { "name": "name", "type": "string" },
+        { "name": "role", "type": "enum:docusign_field_role" },
+        { "name": "routing_order", "type": "integer" },
+        { "name": "status", "type": "enum:docusign_recipient_status" },
+        { "name": "signed_at", "type": "datetime", "nullable": true },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" }
+      ],
+      "foreign_keys": [
+        { "column": "envelope_id", "references": "docusign_envelopes.id", "on_delete": "CASCADE" },
+        { "column": "contact_id", "references": "contacts.id", "on_delete": "SET NULL" }
+      ]
+    },
+
+    "docusign_webhook_events": {
+      "description": "Raw audit of DocuSign callbacks (envelope status, signed, declined...).",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "envelope_id", "type": "bigint", "fk": { "table": "docusign_envelopes", "column": "id" } },
+        { "name": "event_type", "type": "string" },
+        { "name": "raw_payload", "type": "json" },
+        { "name": "received_at", "type": "datetime" },
+        { "name": "created_at", "type": "datetime" }
+      ],
+      "foreign_keys": [
+        { "column": "envelope_id", "references": "docusign_envelopes.id", "on_delete": "CASCADE" }
+      ]
+    },
+
+    "email_templates": {
+      "description": "Reusable email bodies with variable placeholders.",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "name", "type": "string" },
+        { "name": "category", "type": "string" },
+        { "name": "subject", "type": "string" },
+        { "name": "body", "type": "text" },
+        { "name": "created_by_user_id", "type": "bigint", "fk": { "table": "users", "column": "id" }, "nullable": true },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" }
+      ],
+      "foreign_keys": [
+        { "column": "created_by_user_id", "references": "users.id", "on_delete": "SET NULL" }
+      ]
+    },
+
+    "emails": {
+      "description": "Sent/received emails logged on the transaction communication thread.",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "project_id", "type": "bigint", "fk": { "table": "projects", "column": "id" }, "nullable": true },
+        { "name": "client_id", "type": "bigint", "fk": { "table": "clients", "column": "id" }, "nullable": true },
+        { "name": "template_id", "type": "bigint", "fk": { "table": "email_templates", "column": "id" }, "nullable": true },
+        { "name": "direction", "type": "enum:email_direction" },
+        { "name": "subject", "type": "string" },
+        { "name": "body", "type": "text" },
+        { "name": "from_address", "type": "string" },
+        { "name": "to_address", "type": "string" },
+        { "name": "cc", "type": "string", "nullable": true },
+        { "name": "bcc", "type": "string", "nullable": true },
+        { "name": "gmail_message_id", "type": "string", "nullable": true },
+        { "name": "sent_by_user_id", "type": "bigint", "fk": { "table": "users", "column": "id" }, "nullable": true },
+        { "name": "sent_at", "type": "datetime", "nullable": true },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" }
+      ],
+      "foreign_keys": [
+        { "column": "project_id", "references": "projects.id", "on_delete": "SET NULL" },
+        { "column": "client_id", "references": "clients.id", "on_delete": "SET NULL" },
+        { "column": "template_id", "references": "email_templates.id", "on_delete": "SET NULL" },
+        { "column": "sent_by_user_id", "references": "users.id", "on_delete": "SET NULL" }
+      ]
+    },
+
+    "email_attachments": {
+      "description": "Files attached to outbound/inbound emails.",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "email_id", "type": "bigint", "fk": { "table": "emails", "column": "id" } },
+        { "name": "stored_file_id", "type": "bigint", "fk": { "table": "stored_files", "column": "id" } },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" }
+      ],
+      "foreign_keys": [
+        { "column": "email_id", "references": "emails.id", "on_delete": "CASCADE" },
+        { "column": "stored_file_id", "references": "stored_files.id", "on_delete": "RESTRICT" }
+      ]
+    },
+
+    "project_deadlines": {
+      "description": "Transaction deadlines surfaced on the calendar.",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "project_id", "type": "bigint", "fk": { "table": "projects", "column": "id" } },
+        { "name": "title", "type": "string" },
+        { "name": "due_date", "type": "date" }, 
+        { "name": "type", "type": "enum:deadline_type" },
+        { "name": "is_completed", "type": "boolean" },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" }
+      ],
+      "foreign_keys": [
+        { "column": "project_id", "references": "projects.id", "on_delete": "CASCADE" }
+      ]
+    },
+
+    "reminder_drafts": {
+      "description": "Auto-drafted reminder emails awaiting Kathryn's review (never auto-sent).",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "project_id", "type": "bigint", "fk": { "table": "projects", "column": "id" } },
+        { "name": "project_deadline_id", "type": "bigint", "fk": { "table": "project_deadlines", "column": "id" }, "nullable": true },
+        { "name": "reminder_type", "type": "string" },
+        { "name": "subject", "type": "string" },
+        { "name": "body", "type": "text" },
+        { "name": "to_address", "type": "string" },
+        { "name": "status", "type": "enum:reminder_status" },
+        { "name": "sent_by_user_id", "type": "bigint", "fk": { "table": "users", "column": "id" }, "nullable": true },
+        { "name": "sent_at", "type": "datetime", "nullable": true },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" }
+      ],
+      "foreign_keys": [
+        { "column": "project_id", "references": "projects.id", "on_delete": "CASCADE" },
+        { "column": "project_deadline_id", "references": "project_deadlines.id", "on_delete": "SET NULL" },
+        { "column": "sent_by_user_id", "references": "users.id", "on_delete": "SET NULL" }
+      ]
+    },
+
+    "calendar_events": {
+      "description": "Unified calendar (can also be implemented as a view over deadlines/tasks/reminders).",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "project_id", "type": "bigint", "fk": { "table": "projects", "column": "id" } },
+        { "name": "title", "type": "string" },
+        { "name": "event_date", "type": "date" },
+        { "name": "type", "type": "enum:deadline_type" },
+        { "name": "source_ref_type", "type": "string" },
+        { "name": "source_ref_id", "type": "bigint", "nullable": true },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" }
+      ],
+      "foreign_keys": [
+        { "column": "project_id", "references": "projects.id", "on_delete": "CASCADE" }
+      ]
+    },
+
+    "integration_accounts": {
+      "description": "Per-user OAuth tokens for DocuSign/Gmail/Google Drive.",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "user_id", "type": "bigint", "fk": { "table": "users", "column": "id" } },
+        { "name": "provider", "type": "enum:integration_provider" },
+        { "name": "account_email", "type": "string" },
+        { "name": "access_token_encrypted", "type": "text" },
+        { "name": "refresh_token_encrypted", "type": "text", "nullable": true },
+        { "name": "token_expires_at", "type": "datetime", "nullable": true },
+        { "name": "scope", "type": "string", "nullable": true },
+        { "name": "is_active", "type": "boolean" },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" }
+      ],
+      "unique": [["user_id", "provider"]],
+      "foreign_keys": [
+        { "column": "user_id", "references": "users.id", "on_delete": "CASCADE" }
+      ]
+    },
+
+    "notifications": {
+      "description": "In-app notifications (document signed, reminder drafted, etc.).",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "user_id", "type": "bigint", "fk": { "table": "users", "column": "id" } },
+        { "name": "type", "type": "string" },
+        { "name": "title", "type": "string" },
+        { "name": "body", "type": "text", "nullable": true },
+        { "name": "ref_project_id", "type": "bigint", "fk": { "table": "projects", "column": "id" }, "nullable": true },
+        { "name": "ref_document_id", "type": "bigint", "fk": { "table": "project_documents", "column": "id" }, "nullable": true },
+        { "name": "read_at", "type": "datetime", "nullable": true },
+        { "name": "created_at", "type": "datetime" },
+        { "name": "updated_at", "type": "datetime" }
+      ],
+      "foreign_keys": [
+        { "column": "user_id", "references": "users.id", "on_delete": "CASCADE" },
+        { "column": "ref_project_id", "references": "projects.id", "on_delete": "SET NULL" },
+        { "column": "ref_document_id", "references": "project_documents.id", "on_delete": "SET NULL" }
+      ]
+    },
+
+    "activity_logs": {
+      "description": "SOW: all user activity is logged. Broad-scope audit trail.",
+      "columns": [
+        { "name": "id", "type": "bigint", "pk": true },
+        { "name": "user_id", "type": "bigint", "fk": { "table": "users", "column": "id" }, "nullable": true },
+        { "name": "project_id", "type": "bigint", "fk": { "table": "projects", "column": "id" }, "nullable": true },
+        { "name": "action", "type": "string" },
+        { "name": "entity_type", "type": "string", "nullable": true },
+        { "name": "entity_id", "type": "bigint", "nullable": true },
+        { "name": "meta", "type": "json", "nullable": true },
+        { "name": "created_at", "type": "datetime" }
+      ],
+      "foreign_keys": [
+        { "column": "user_id", "references": "users.id", "on_delete": "SET NULL" },
+        { "column": "project_id", "references": "projects.id", "on_delete": "SET NULL" }
+      ]
+    }
+  },
+
+  "relationships": [
+    { "from": "user_invites.invited_by_user_id",                "to": "users.id",              "type": "many_to_one", "on_delete": "SET NULL" },
+    { "from": "project_assignments.project_id",                 "to": "projects.id",           "type": "many_to_one", "on_delete": "CASCADE"  },
+    { "from": "project_assignments.user_id",                    "to": "users.id",              "type": "many_to_one", "on_delete": "CASCADE"  },
+    { "from": "project_assignments.assigned_by_user_id",        "to": "users.id",              "type": "many_to_one", "on_delete": "SET NULL" },
+
+    { "from": "contacts.created_by_user_id",                    "to": "users.id",              "type": "many_to_one", "on_delete": "SET NULL" },
+    { "from": "clients.created_by_user_id",                     "to": "users.id",              "type": "many_to_one", "on_delete": "SET NULL" },
+
+    { "from": "projects.client_id",                             "to": "clients.id",            "type": "many_to_one", "on_delete": "RESTRICT" },
+    { "from": "projects.escrow_officer_contact_id",             "to": "contacts.id",           "type": "many_to_one", "on_delete": "SET NULL" },
+    { "from": "projects.created_by_user_id",                    "to": "users.id",              "type": "many_to_one", "on_delete": "SET NULL" },
+
+    { "from": "project_parties.project_id",                     "to": "projects.id",           "type": "many_to_one", "on_delete": "CASCADE"  },
+    { "from": "project_parties.contact_id",                     "to": "contacts.id",           "type": "many_to_one", "on_delete": "RESTRICT" },
+
+    { "from": "conditional_rules.created_by_user_id",           "to": "users.id",              "type": "many_to_one", "on_delete": "SET NULL" },
+    { "from": "document_sets.created_by_user_id",               "to": "users.id",              "type": "many_to_one", "on_delete": "SET NULL" },
+    { "from": "document_set_members.document_set_id",           "to": "document_sets.id",      "type": "many_to_one", "on_delete": "CASCADE"  },
+    { "from": "document_set_members.document_type_id",          "to": "document_types.id",     "type": "many_to_one", "on_delete": "RESTRICT" },
+    { "from": "conditional_rule_sets.rule_id",                  "to": "conditional_rules.id",  "type": "many_to_one", "on_delete": "CASCADE"  },
+    { "from": "conditional_rule_sets.document_set_id",          "to": "document_sets.id",      "type": "many_to_one", "on_delete": "CASCADE"  },
+    { "from": "conditional_rule_documents.rule_id",             "to": "conditional_rules.id",  "type": "many_to_one", "on_delete": "CASCADE"  },
+    { "from": "conditional_rule_documents.document_type_id",    "to": "document_types.id",     "type": "many_to_one", "on_delete": "RESTRICT" },
+
+    { "from": "project_documents.project_id",                   "to": "projects.id",           "type": "many_to_one", "on_delete": "CASCADE"  },
+    { "from": "project_documents.document_type_id",             "to": "document_types.id",     "type": "many_to_one", "on_delete": "SET NULL" },
+    { "from": "project_documents.source_document_set_id",       "to": "document_sets.id",      "type": "many_to_one", "on_delete": "SET NULL" },
+    { "from": "project_documents.current_file_id",              "to": "stored_files.id",       "type": "many_to_one", "on_delete": "SET NULL" },
+    { "from": "project_documents.created_by_user_id",           "to": "users.id",              "type": "many_to_one", "on_delete": "SET NULL" },
+
+    { "from": "project_document_notes.project_document_id",     "to": "project_documents.id",  "type": "many_to_one", "on_delete": "CASCADE"  },
+    { "from": "project_document_notes.author_user_id",          "to": "users.id",              "type": "many_to_one", "on_delete": "SET NULL" },
+
+    { "from": "project_document_status_history.project_document_id", "to": "project_documents.id", "type": "many_to_one", "on_delete": "CASCADE" },
+    { "from": "project_document_status_history.changed_by_user_id",  "to": "users.id",             "type": "many_to_one", "on_delete": "SET NULL" },
+
+    { "from": "project_tasks.project_id",                       "to": "projects.id",           "type": "many_to_one", "on_delete": "CASCADE"  },
+    { "from": "project_tasks.assigned_to_user_id",              "to": "users.id",              "type": "many_to_one", "on_delete": "SET NULL" },
+
+    { "from": "project_folders.project_id",                     "to": "projects.id",           "type": "many_to_one", "on_delete": "CASCADE"  },
+    { "from": "project_folders.parent_folder_id",               "to": "project_folders.id",    "type": "many_to_one", "on_delete": "CASCADE", "self_reference": true },
+
+    { "from": "stored_files.project_id",                        "to": "projects.id",           "type": "many_to_one", "on_delete": "CASCADE"  },
+    { "from": "stored_files.folder_id",                         "to": "project_folders.id",    "type": "many_to_one", "on_delete": "SET NULL" },
+    { "from": "stored_files.google_drive_library_root_id",      "to": "google_drive_library_roots.id", "type": "many_to_one", "on_delete": "SET NULL" },
+    { "from": "stored_files.uploaded_by_user_id",               "to": "users.id",              "type": "many_to_one", "on_delete": "SET NULL" },
+
+    { "from": "google_drive_library_roots.drive_account_user_id", "to": "users.id",            "type": "many_to_one", "on_delete": "CASCADE"  },
+
+    { "from": "google_drive_folder_links.project_id",           "to": "projects.id",           "type": "many_to_one", "on_delete": "CASCADE"  },
+    { "from": "google_drive_folder_links.project_folder_id",    "to": "project_folders.id",    "type": "many_to_one", "on_delete": "CASCADE"  },
+    { "from": "google_drive_folder_links.drive_account_user_id","to": "users.id",              "type": "many_to_one", "on_delete": "CASCADE"  },
+
+    { "from": "docusign_templates.document_type_id",            "to": "document_types.id",     "type": "one_to_one",  "on_delete": "CASCADE"  },
+    { "from": "docusign_templates.pdf_reference_file_id",       "to": "stored_files.id",       "type": "many_to_one", "on_delete": "SET NULL" },
+    { "from": "docusign_templates.created_by_user_id",          "to": "users.id",              "type": "many_to_one", "on_delete": "SET NULL" },
+
+    { "from": "docusign_template_fields.template_id",           "to": "docusign_templates.id", "type": "many_to_one", "on_delete": "CASCADE"  },
+
+    { "from": "docusign_envelopes.project_id",                  "to": "projects.id",           "type": "many_to_one", "on_delete": "CASCADE"  },
+    { "from": "docusign_envelopes.sent_by_user_id",             "to": "users.id",              "type": "many_to_one", "on_delete": "SET NULL" },
+
+    { "from": "docusign_envelope_documents.envelope_id",        "to": "docusign_envelopes.id", "type": "many_to_one", "on_delete": "CASCADE"  },
+    { "from": "docusign_envelope_documents.project_document_id","to": "project_documents.id",  "type": "many_to_one", "on_delete": "RESTRICT" },
+    { "from": "docusign_envelope_documents.template_id",        "to": "docusign_templates.id", "type": "many_to_one", "on_delete": "SET NULL" },
+
+    { "from": "docusign_envelope_recipients.envelope_id",       "to": "docusign_envelopes.id", "type": "many_to_one", "on_delete": "CASCADE"  },
+    { "from": "docusign_envelope_recipients.contact_id",        "to": "contacts.id",           "type": "many_to_one", "on_delete": "SET NULL" },
+
+    { "from": "docusign_webhook_events.envelope_id",            "to": "docusign_envelopes.id", "type": "many_to_one", "on_delete": "CASCADE"  },
+
+    { "from": "email_templates.created_by_user_id",             "to": "users.id",              "type": "many_to_one", "on_delete": "SET NULL" },
+    { "from": "emails.project_id",                              "to": "projects.id",           "type": "many_to_one", "on_delete": "SET NULL" },
+    { "from": "emails.client_id",                               "to": "clients.id",            "type": "many_to_one", "on_delete": "SET NULL" },
+    { "from": "emails.template_id",                             "to": "email_templates.id",    "type": "many_to_one", "on_delete": "SET NULL" },
+    { "from": "emails.sent_by_user_id",                         "to": "users.id",              "type": "many_to_one", "on_delete": "SET NULL" },
+    { "from": "email_attachments.email_id",                     "to": "emails.id",             "type": "many_to_one", "on_delete": "CASCADE"  },
+    { "from": "email_attachments.stored_file_id",               "to": "stored_files.id",       "type": "many_to_one", "on_delete": "RESTRICT" },
+
+    { "from": "project_deadlines.project_id",                   "to": "projects.id",           "type": "many_to_one", "on_delete": "CASCADE"  },
+    { "from": "reminder_drafts.project_id",                     "to": "projects.id",           "type": "many_to_one", "on_delete": "CASCADE"  },
+    { "from": "reminder_drafts.project_deadline_id",            "to": "project_deadlines.id",  "type": "many_to_one", "on_delete": "SET NULL" },
+    { "from": "reminder_drafts.sent_by_user_id",                "to": "users.id",              "type": "many_to_one", "on_delete": "SET NULL" },
+    { "from": "calendar_events.project_id",                     "to": "projects.id",           "type": "many_to_one", "on_delete": "CASCADE"  },
+
+    { "from": "integration_accounts.user_id",                   "to": "users.id",              "type": "many_to_one", "on_delete": "CASCADE"  },
+
+    { "from": "notifications.user_id",                          "to": "users.id",              "type": "many_to_one", "on_delete": "CASCADE"  },
+    { "from": "notifications.ref_project_id",                   "to": "projects.id",           "type": "many_to_one", "on_delete": "SET NULL" },
+    { "from": "notifications.ref_document_id",                  "to": "project_documents.id",  "type": "many_to_one", "on_delete": "SET NULL" },
+
+    { "from": "activity_logs.user_id",                          "to": "users.id",              "type": "many_to_one", "on_delete": "SET NULL" },
+    { "from": "activity_logs.project_id",                       "to": "projects.id",           "type": "many_to_one", "on_delete": "SET NULL" }
+  ],
+
+  "summary": {
+    "total_tables": 36,
+    "hub_tables": [
+      { "table": "projects", "reason": "Referenced by almost every transactional table (documents, tasks, folders, files, emails, envelopes, deadlines, notifications, logs)." },
+      { "table": "users",    "reason": "Referenced by every audit/ownership column (created_by, sent_by, assigned_to, etc.)." },
+      { "table": "contacts", "reason": "Central directory for agents, buyers, sellers, escrow, lenders — reused across parties and recipients." },
+      { "table": "document_sets", "reason": "Bundles document_types; rules attach sets; checklist rows can record source_document_set_id." }
+    ],
+    "self_referencing_tables": ["project_folders"],
+    "join_tables": [
+      "project_assignments",
+      "project_parties",
+      "document_set_members",
+      "conditional_rule_sets",
+      "conditional_rule_documents",
+      "docusign_envelope_documents",
+      "email_attachments"
+    ]
+  }
+}

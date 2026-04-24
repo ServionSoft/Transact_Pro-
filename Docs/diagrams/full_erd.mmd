@@ -1,0 +1,49 @@
+%% Kathryn Portal — full ERD (connectivity overview)
+%% Source: DB/schema.md section 0 · schema v1.1.0
+erDiagram
+    USERS ||--o{ PROJECT_ASSIGNMENTS : works
+    USERS ||--o{ INTEGRATION_ACCOUNTS : connects
+    USERS ||--o{ NOTIFICATIONS : receives
+    USERS ||--o{ ACTIVITY_LOGS : acts
+
+    CLIENTS ||--o{ PROJECTS : owns
+    CONTACTS ||--o{ PROJECT_PARTIES : is_party_in
+    PROJECTS ||--o{ PROJECT_PARTIES : has_parties
+    PROJECTS ||--o{ PROJECT_ASSIGNMENTS : assigned_to
+
+    PROJECTS ||--o{ PROJECT_DOCUMENTS : has
+    PROJECTS ||--o{ PROJECT_FOLDERS : organizes
+    PROJECTS ||--o{ STORED_FILES : txn_files
+    PROJECTS ||--o{ PROJECT_TASKS : has
+    PROJECTS ||--o{ PROJECT_DEADLINES : has
+    PROJECTS ||--o{ EMAILS : logs
+    PROJECTS ||--o{ DOCUSIGN_ENVELOPES : sends
+    PROJECTS ||--o{ GOOGLE_DRIVE_FOLDER_LINKS : mirrors
+
+    DOCUMENT_TYPES ||--o{ PROJECT_DOCUMENTS : instance_of
+    DOCUMENT_TYPES ||--|| DOCUSIGN_TEMPLATES : template_for
+    DOCUSIGN_TEMPLATES ||--o{ DOCUSIGN_TEMPLATE_FIELDS : field_coords
+
+    DOCUMENT_SETS ||--o{ DOCUMENT_SET_MEMBERS : contains
+    DOCUMENT_TYPES ||--o{ DOCUMENT_SET_MEMBERS : in_set
+    CONDITIONAL_RULES ||--o{ CONDITIONAL_RULE_SETS : applies_sets
+    DOCUMENT_SETS ||--o{ CONDITIONAL_RULE_SETS : via_rule
+    DOCUMENT_SETS ||--o{ PROJECT_DOCUMENTS : checklist_source
+
+    CONDITIONAL_RULES ||--o{ CONDITIONAL_RULE_DOCUMENTS : requires
+    DOCUMENT_TYPES ||--o{ CONDITIONAL_RULE_DOCUMENTS : included_in
+
+    GOOGLE_DRIVE_LIBRARY_ROOTS ||--o{ STORED_FILES : library_files
+    USERS ||--o{ GOOGLE_DRIVE_LIBRARY_ROOTS : owns_drive_root
+
+    DOCUSIGN_ENVELOPES ||--o{ DOCUSIGN_ENVELOPE_DOCUMENTS : bundles
+    DOCUSIGN_ENVELOPES ||--o{ DOCUSIGN_ENVELOPE_RECIPIENTS : routes_to
+    DOCUSIGN_ENVELOPES ||--o{ DOCUSIGN_WEBHOOK_EVENTS : callbacks
+    PROJECT_DOCUMENTS ||--o{ DOCUSIGN_ENVELOPE_DOCUMENTS : sent_in
+
+    EMAIL_TEMPLATES ||--o{ EMAILS : renders
+    EMAILS ||--o{ EMAIL_ATTACHMENTS : has
+    STORED_FILES ||--o{ EMAIL_ATTACHMENTS : attached_as
+
+    PROJECT_DEADLINES ||--o{ REMINDER_DRAFTS : triggers
+    PROJECTS ||--o{ CALENDAR_EVENTS : surfaces_on

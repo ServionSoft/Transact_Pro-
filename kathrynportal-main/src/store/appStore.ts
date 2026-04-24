@@ -1,0 +1,540 @@
+// Session-only in-memory store backed by Zustand. Acts as a single source of
+// truth for clients, projects, tasks, calendar events, reminders, sent emails,
+// and email templates. Seeds itself from the existing mock data so the rest of
+// the app keeps working unchanged.
+
+import { create } from "zustand";
+import {
+  clients as seedClients,
+  projects as seedProjects,
+  calendarEvents as seedCalendar,
+  reminderDrafts as seedReminders,
+  emailTemplates as seedTemplates,
+  type Client,
+  type Project,
+  type ProjectStage,
+  type ProjectTask,
+  type CalendarEvent,
+  type ReminderDraft,
+  type EmailTemplate,
+  type EmailThread,
+  type ProjectDocument,
+  type TaskStatus,
+  type DocumentStatus,
+  type FileAttachment,
+  type ProjectFolder,
+  CRM_DOCUMENT_VAULT_PROJECT_ID,
+} from "@/data/mockData";
+
+const uid = (prefix: string) =>
+  `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+
+const formatFileSize = (bytes: number) => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const defaultFileFolders = (): ProjectFolder[] => [];
+
+const docUploadedSnapshot = (attachments: FileAttachment[], attachedFileIds: string[]) => {
+  if (!attachedFileIds.length) return undefined;
+  const first = attachments.find((a) => a.id === attachedFileIds[0]);
+  return first?.name;
+};
+
+interface SentEmail {
+  id: string;
+  to: string;
+  subject: string;
+  body: string;
+  date: string;
+  projectId?: string;
+}
+
+interface AppState {
+  clients: Client[];
+  projects: Project[];
+  calendarEvents: CalendarEvent[];
+  reminderDrafts: ReminderDraft[];
+  emailTemplates: EmailTemplate[];
+  sentEmails: SentEmail[];
+
+  // ---- Clients ----
+  addClient: (input: Omit<Client, "id" | "createdAt" | "projectCount">) => Client;
+  updateClient: (id: string, patch: Partial<Client>) => void;
+  deleteClient: (id: string) => void;
+
+  // ---- Projects ----
+  addProject: (input: Omit<Project, "id" | "createdAt" | "documents" | "tasks" | "emails" | "deadlines" | "attachments" | "fileFolders"> & {
+    documents?: ProjectDocument[];
+    tasks?: ProjectTask[];
+    deadlines?: Project["deadlines"];
+    fileFolders?: ProjectFolder[];
+  }) => Project;
+  updateProject: (id: string, patch: Partial<Project>) => void;
+  deleteProject: (id: string) => void;
+  setProjectStage: (id: string, stage: ProjectStage) => void;
+  setNextStep: (id: string, nextStep: string, nextStepDate: string) => void;
+
+  // ---- Documents on a project ----
+  setDocStatus: (projectId: string, docId: string, status: DocumentStatus, customStatus?: string) => void;
+  addProjectDocument: (projectId: string, name: string) => void;
+  bulkSetDocStatus: (projectId: string, docIds: string[], status: DocumentStatus) => void;
+
+  // ---- Stored file pool + checklist links ----
+  addStoredFileToPool: (projectId: string, file: File, folderId: string | null, uploadedBy: string) => void;
+  /** Replace pool + folders from GET; drops checklist links to ids that no longer exist */
+  hydrateProjectFilePool: (
+    projectId: string,
+    payload: { attachments: FileAttachment[]; fileFolders?: ProjectFolder[] }
+  ) => void;
+  appendProjectAttachments: (projectId: string, files: FileAttachment[]) => void;
+  /** Returns `"ok"` | `"linked"` | `"missing"` */
+  deleteStoredFile: (projectId: string, fileId: string) => "ok" | "linked" | "missing";
+  moveStoredFileToFolder: (projectId: string, fileId: string, folderId: string | null) => void;
+  addProjectFileFolder: (projectId: string, name: string, parentId: string | null) => void;
+  removeProjectFileFolder: (projectId: string, folderId: string) => void;
+  attachStoredFilesToDocument: (projectId: string, docId: string, fileIds: string[]) => void;
+  detachStoredFileFromDocument: (projectId: string, docId: string, fileId: string) => void;
+  uploadFileToDocument: (projectId: string, docId: string, file: File, uploadedBy: string) => void;
+
+  // ---- Tasks ----
+  addProjectTask: (projectId: string, task: Omit<ProjectTask, "id">) => void;
+  setTaskStatus: (projectId: string, taskId: string, status: TaskStatus) => void;
+
+  // ---- Calendar / deadlines ----
+  addCalendarEvent: (e: Omit<CalendarEvent, "id">) => void;
+  addProjectDeadline: (projectId: string, title: string, date: string, type: "deadline" | "reminder") => void;
+
+  // ---- Reminders ----
+  dismissReminder: (id: string) => void;
+  sendReminder: (id: string) => void;
+
+  // ---- Email ----
+  sendEmail: (input: Omit<SentEmail, "id" | "date"> & { date?: string }) => void;
+  addEmailTemplate: (t: Omit<EmailTemplate, "id">) => void;
+  updateEmailTemplate: (id: string, patch: Partial<EmailTemplate>) => void;
+  deleteEmailTemplate: (id: string) => void;
+}
+
+export const useAppStore = create<AppState>((set, get) => ({
+  clients: seedClients,
+  projects: seedProjects,
+  calendarEvents: seedCalendar,
+  reminderDrafts: seedReminders,
+  emailTemplates: seedTemplates,
+  sentEmails: [],
+
+  addClient: (input) => {
+    const newClient: Client = {
+      ...input,
+      id: uid("c"),
+      createdAt: new Date().toISOString().split("T")[0],
+      projectCount: 0,
+    };
+    set((s) => ({ clients: [newClient, ...s.clients] }));
+    return newClient;
+  },
+  updateClient: (id, patch) =>
+    set((s) => ({ clients: s.clients.map((c) => (c.id === id ? { ...c, ...patch } : c)) })),
+  deleteClient: (id) =>
+    set((s) => ({
+      clients: s.clients.filter((c) => c.id !== id),
+      projects: s.projects.filter((p) => p.clientId !== id),
+    })),
+
+  addProject: (input) => {
+    const newProject: Project = {
+      ...input,
+      id: uid("p"),
+      createdAt: new Date().toISOString().split("T")[0],
+      emails: [],
+      documents: (input.documents ?? []).map((d) => ({
+        ...d,
+        attachedFileIds: d.attachedFileIds ?? [],
+      })),
+      tasks: input.tasks ?? [],
+      deadlines: input.deadlines ?? [],
+      attachments: input.attachments ?? [],
+      fileFolders: input.fileFolders ?? defaultFileFolders(),
+    };
+    set((s) => {
+      // bump project count on linked client
+      const clients = s.clients.map((c) =>
+        c.id === newProject.clientId ? { ...c, projectCount: c.projectCount + 1 } : c
+      );
+      return { projects: [newProject, ...s.projects], clients };
+    });
+    return newProject;
+  },
+  updateProject: (id, patch) =>
+    set((s) => ({ projects: s.projects.map((p) => (p.id === id ? { ...p, ...patch } : p)) })),
+  deleteProject: (id) => {
+    if (id === CRM_DOCUMENT_VAULT_PROJECT_ID) return;
+    set((s) => ({ projects: s.projects.filter((p) => p.id !== id) }));
+  },
+  setProjectStage: (id, stage) =>
+    set((s) => ({ projects: s.projects.map((p) => (p.id === id ? { ...p, stage } : p)) })),
+  setNextStep: (id, nextStep, nextStepDate) =>
+    set((s) => ({ projects: s.projects.map((p) => (p.id === id ? { ...p, nextStep, nextStepDate } : p)) })),
+
+  setDocStatus: (projectId, docId, status, customStatus) =>
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id !== projectId
+          ? p
+          : {
+              ...p,
+              documents: p.documents.map((d) =>
+                d.id === docId ? { ...d, status, ...(customStatus !== undefined ? { customStatus } : {}) } : d
+              ),
+            }
+      ),
+    })),
+  addProjectDocument: (projectId, name) =>
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id !== projectId
+          ? p
+          : {
+              ...p,
+              documents: [
+                ...p.documents,
+                { id: uid("doc"), name, status: "Pending", required: false, notes: [], attachedFileIds: [] },
+              ],
+            }
+      ),
+    })),
+  bulkSetDocStatus: (projectId, docIds, status) =>
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id !== projectId
+          ? p
+          : {
+              ...p,
+              documents: p.documents.map((d) =>
+                docIds.includes(d.id) ? { ...d, status } : d
+              ),
+            }
+      ),
+    })),
+
+  addStoredFileToPool: (projectId, file, folderId, uploadedBy) => {
+    const today = new Date().toISOString().split("T")[0];
+    set((s) => ({
+      projects: s.projects.map((p) => {
+        if (p.id !== projectId) return p;
+        const id = uid("sf");
+        const localObjectUrl = URL.createObjectURL(file);
+        const newFile: FileAttachment = {
+          id,
+          name: file.name,
+          size: formatFileSize(file.size),
+          uploadedBy,
+          uploadedAt: today,
+          type: file.type || "application/octet-stream",
+          folderId: folderId ?? null,
+          localObjectUrl,
+        };
+        return { ...p, attachments: [newFile, ...p.attachments] };
+      }),
+    }));
+  },
+
+  hydrateProjectFilePool: (projectId, { attachments, fileFolders }) =>
+    set((s) => ({
+      projects: s.projects.map((p) => {
+        if (p.id !== projectId) return p;
+        const ids = new Set(attachments.map((a) => a.id));
+        const documents = p.documents.map((d) => {
+          const attachedFileIds = (d.attachedFileIds ?? []).filter((id) => ids.has(id));
+          return {
+            ...d,
+            attachedFileIds,
+            uploadedFile: docUploadedSnapshot(attachments, attachedFileIds),
+          };
+        });
+        return {
+          ...p,
+          attachments,
+          fileFolders: fileFolders ?? p.fileFolders ?? [],
+          documents,
+        };
+      }),
+    })),
+
+  appendProjectAttachments: (projectId, files) =>
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id !== projectId ? p : { ...p, attachments: [...files, ...p.attachments] }
+      ),
+    })),
+
+  deleteStoredFile: (projectId, fileId) => {
+    const p = get().projects.find((x) => x.id === projectId);
+    if (!p) return "missing";
+    if (p.documents.some((d) => (d.attachedFileIds ?? []).includes(fileId))) return "linked";
+    const file = p.attachments.find((a) => a.id === fileId);
+    if (!file) return "missing";
+    if (file.localObjectUrl) URL.revokeObjectURL(file.localObjectUrl);
+    set((s) => ({
+      projects: s.projects.map((proj) =>
+        proj.id !== projectId
+          ? proj
+          : { ...proj, attachments: proj.attachments.filter((a) => a.id !== fileId) }
+      ),
+    }));
+    return "ok";
+  },
+
+  moveStoredFileToFolder: (projectId, fileId, folderId) =>
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id !== projectId
+          ? p
+          : {
+              ...p,
+              attachments: p.attachments.map((a) =>
+                a.id === fileId ? { ...a, folderId: folderId ?? null } : a
+              ),
+            }
+      ),
+    })),
+
+  addProjectFileFolder: (projectId, name, parentId) =>
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id !== projectId
+          ? p
+          : {
+              ...p,
+              fileFolders: [
+                ...(p.fileFolders ?? []),
+                { id: uid("fld"), name: name.trim(), parentId: parentId ?? null },
+              ],
+            }
+      ),
+    })),
+
+  removeProjectFileFolder: (projectId, folderId) =>
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id !== projectId
+          ? p
+          : {
+              ...p,
+              fileFolders: (p.fileFolders ?? []).filter((f) => f.id !== folderId),
+            }
+      ),
+    })),
+
+  attachStoredFilesToDocument: (projectId, docId, fileIds) =>
+    set((s) => ({
+      projects: s.projects.map((p) => {
+        if (p.id !== projectId) return p;
+        const uniq = new Set(fileIds);
+        const docs = p.documents.map((d) => {
+          if (d.id !== docId) return d;
+          const merged = [...new Set([...(d.attachedFileIds ?? []), ...uniq])];
+          return {
+            ...d,
+            attachedFileIds: merged,
+            uploadedFile: docUploadedSnapshot(p.attachments, merged),
+          };
+        });
+        return { ...p, documents: docs };
+      }),
+    })),
+
+  detachStoredFileFromDocument: (projectId, docId, fileId) =>
+    set((s) => ({
+      projects: s.projects.map((p) => {
+        if (p.id !== projectId) return p;
+        const docs = p.documents.map((d) => {
+          if (d.id !== docId) return d;
+          const attachedFileIds = (d.attachedFileIds ?? []).filter((id) => id !== fileId);
+          return {
+            ...d,
+            attachedFileIds,
+            uploadedFile: docUploadedSnapshot(p.attachments, attachedFileIds),
+          };
+        });
+        return { ...p, documents: docs };
+      }),
+    })),
+
+  uploadFileToDocument: (projectId, docId, file, uploadedBy) => {
+    const today = new Date().toISOString().split("T")[0];
+    set((s) => ({
+      projects: s.projects.map((p) => {
+        if (p.id !== projectId) return p;
+        const id = uid("sf");
+        const localObjectUrl = URL.createObjectURL(file);
+        const newFile: FileAttachment = {
+          id,
+          name: file.name,
+          size: formatFileSize(file.size),
+          uploadedBy,
+          uploadedAt: today,
+          type: file.type || "application/octet-stream",
+          folderId: null,
+          localObjectUrl,
+        };
+        const attachments = [newFile, ...p.attachments];
+        const documents = p.documents.map((d) => {
+          if (d.id !== docId) return d;
+          const attachedFileIds = [...new Set([...(d.attachedFileIds ?? []), id])];
+          return {
+            ...d,
+            attachedFileIds,
+            uploadedFile: docUploadedSnapshot(attachments, attachedFileIds),
+          };
+        });
+        return { ...p, attachments, documents };
+      }),
+    }));
+  },
+
+  addProjectTask: (projectId, task) =>
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id !== projectId ? p : { ...p, tasks: [...p.tasks, { ...task, id: uid("t") }] }
+      ),
+    })),
+  setTaskStatus: (projectId, taskId, status) =>
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id !== projectId
+          ? p
+          : {
+              ...p,
+              tasks: p.tasks.map((t) =>
+                t.id === taskId
+                  ? { ...t, status, completedDate: status === "Complete" ? new Date().toISOString().split("T")[0] : undefined }
+                  : t
+              ),
+            }
+      ),
+    })),
+
+  addCalendarEvent: (e) =>
+    set((s) => ({ calendarEvents: [...s.calendarEvents, { ...e, id: uid("ce") }] })),
+  addProjectDeadline: (projectId, title, date, type) =>
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id !== projectId
+          ? p
+          : { ...p, deadlines: [...p.deadlines, { id: uid("dl"), title, date, type }] }
+      ),
+      calendarEvents: (() => {
+        const project = s.projects.find((p) => p.id === projectId);
+        if (!project) return s.calendarEvents;
+        return [
+          ...s.calendarEvents,
+          {
+            id: uid("ce"),
+            title,
+            date,
+            projectId,
+            projectName: project.name,
+            type,
+            propertyAddress: project.propertyAddress,
+          },
+        ];
+      })(),
+    })),
+
+  dismissReminder: (id) =>
+    set((s) => ({ reminderDrafts: s.reminderDrafts.filter((r) => r.id !== id) })),
+  sendReminder: (id) =>
+    set((s) => {
+      const r = s.reminderDrafts.find((x) => x.id === id);
+      if (!r) return {};
+      const sent: SentEmail = {
+        id: uid("se"),
+        to: r.clientName,
+        subject: r.subject,
+        body: r.body,
+        date: new Date().toISOString().split("T")[0],
+        projectId: r.projectId,
+      };
+      const projects = r.projectId
+        ? s.projects.map((p) =>
+            p.id !== r.projectId
+              ? p
+              : {
+                  ...p,
+                  emails: [
+                    ...p.emails,
+                    {
+                      id: sent.id,
+                      subject: sent.subject,
+                      from: "kathryn@portal.com",
+                      to: sent.to,
+                      date: sent.date,
+                      body: sent.body,
+                      direction: "outbound" as const,
+                    } satisfies EmailThread,
+                  ],
+                }
+          )
+        : s.projects;
+      return {
+        reminderDrafts: s.reminderDrafts.filter((x) => x.id !== id),
+        sentEmails: [sent, ...s.sentEmails],
+        projects,
+      };
+    }),
+
+  sendEmail: (input) => {
+    const sent: SentEmail = {
+      id: uid("se"),
+      date: input.date ?? new Date().toISOString().split("T")[0],
+      to: input.to,
+      subject: input.subject,
+      body: input.body,
+      projectId: input.projectId,
+    };
+    set((s) => {
+      let projects = s.projects;
+      if (input.projectId) {
+        projects = s.projects.map((p) =>
+          p.id !== input.projectId
+            ? p
+            : {
+                ...p,
+                emails: [
+                  ...p.emails,
+                  {
+                    id: sent.id,
+                    subject: sent.subject,
+                    from: "kathryn@portal.com",
+                    to: sent.to,
+                    date: sent.date,
+                    body: sent.body,
+                    direction: "outbound" as const,
+                  } satisfies EmailThread,
+                ],
+              }
+        );
+      }
+      return { sentEmails: [sent, ...s.sentEmails], projects };
+    });
+  },
+
+  addEmailTemplate: (t) =>
+    set((s) => ({ emailTemplates: [...s.emailTemplates, { ...t, id: uid("et") }] })),
+  updateEmailTemplate: (id, patch) =>
+    set((s) => ({
+      emailTemplates: s.emailTemplates.map((t) => (t.id === id ? { ...t, ...patch } : t)),
+    })),
+  deleteEmailTemplate: (id) =>
+    set((s) => ({ emailTemplates: s.emailTemplates.filter((t) => t.id !== id) })),
+}));
+
+// Convenience hook for a single project
+export const useProject = (id: string | undefined) =>
+  useAppStore((s) => s.projects.find((p) => p.id === id));
+export const useClient = (id: string | undefined) =>
+  useAppStore((s) => s.clients.find((c) => c.id === id));

@@ -1,0 +1,420 @@
+
+
+--- PAGE 1 ---
+
+I   ·   E X E C U T I V E  S U M M A R Y  
+ 
+ 
+This is the final Statement of Work for the Real Estate Transaction Management Portal — a purpose-
+built web platform for Kathryn Santos, an independent Transaction Coordinator managing 80+ 
+active California real estate transactions simultaneously. This version reflects all scope items 
+confirmed across multiple discovery sessions including the April 10, 2026 meeting, and incorporates 
+a fully resolved technical approach for the DocuSign e-signature workflow. 
+Kathryn currently manages her entire business across four disconnected platforms: Excel 
+spreadsheets, Google Drive, Glide (for document creation and e-signing), and DocuSign. Every task 
+requires switching between tools, manually rebuilding folder structures, copying and pasting data, 
+and placing signature fields by hand on dozens of documents at a time. This portal replaces all of 
+that with a single, unified system. 
+The most significant clarification in this final version is the DocuSign integration approach. 
+Following detailed technical analysis of Kathryn's workflow — specifically how she currently 
+handles both seller-side and buyer-side documents — a clean, fully buildable solution has been 
+identified that replicates the signature field auto-placement she currently relies on in Glide, without 
+requiring any special platform partnerships or licensing.  
+I I   ·   T H E  D O C U S I G N  S O L U T I O N  —  F U L L Y  R E S O L V E D  
+ 
+ 
+The most important feature to get right in this portal is the e-signature workflow. This section 
+explains exactly how it works, why it works, and what Kathryn's experience will be — in plain 
+terms. 
+The Problem Being Solved 
+Kathryn currently uses Glide connected to DocuSign. When she uploads a document and clicks send 
+for signature, the signature, date, and initials fields automatically appear in the correct positions — 
+she never has to drag and drop them manually. This saves her enormous time given she manages up 
+to 100 documents per transaction across 80+ active files simultaneously. Replicating this experience 
+inside the custom portal is the core requirement of the DocuSign module. 
+Understanding Kathryn's Two Document Scenarios 
+After careful analysis of Kathryn's workflow, there are two distinct situations she deals with: 
+ 
+◆ Seller Side — Listing Files — Kathryn prepares and sends the documents herself. These are 
+always the same standard California Association of Realtors (CAR) forms — the Transfer 
+Disclosure Statement, Natural Hazard Disclosure, Listing Agreement, and so on. The 
+document never changes. Only the client name, property address, and dates are different each 
+time. 
+
+--- PAGE 2 ---
+
+◆ Buyer Side — Buyer Representation Files — Documents arrive to Kathryn from the other 
+party, already filled in as PDFs. She does not create these — they come from the seller's agent. 
+However, they are still the same standard CAR forms, just with someone else's client data 
+already on them. The document structure, layout, and where the signature lines sit are 
+identical every single time. 
+ 
+This distinction is the key insight. Because California real estate uses fully standardized forms across the entire 
+industry, Kathryn is always dealing with the same 50–60 document types — regardless of which side of the 
+transaction she is on. This makes a complete, elegant solution possible. 
+ 
+The Solution — DocuSign Template Engine 
+The portal will include a Document Template Engine — a system that stores the exact position of 
+every signature, date, and initials field for each of Kathryn's 50–60 standard documents. Here is how 
+it works: 
+ 
+◆ One-time setup at kickoff — During the project kickoff session, Kathryn provides all 50–60 
+standard document templates. Each document is loaded into the portal's template manager. 
+The signature, date, and initials fields are placed once on each document — this takes 
+approximately one full working day total and never needs to be repeated unless CAR updates 
+a form. 
+◆ Every send after that is automatic — When Kathryn clicks Send for Signature on any 
+document — whether she created it herself or received it from the other party — the portal 
+identifies the document type, retrieves the saved field positions, and passes them to DocuSign 
+automatically. DocuSign places the fields in exactly the right spots. Kathryn never drags or 
+drops a single field again. 
+◆ Incoming PDFs from the other side — Because standard CAR forms always contain their 
+own title and form number within the document, the portal can read the uploaded PDF, 
+identify which document type it is, and apply the correct saved template automatically. Buyer-
+side documents are handled identically to seller-side documents — same experience, same 
+automation. 
+◆ Truly unknown documents (rare edge case) — On the rare occasion a non-standard 
+document arrives — a custom lender addendum or a one-off agreement that is not a standard 
+CAR form — Kathryn sees a simple prompt to confirm which template to apply, or she places 
+fields manually in DocuSign as she does today. Based on her described workflow this is an 
+uncommon occurrence. 
+ 
+What Kathryn's Experience Looks Like 
+The flow is identical regardless of document type — seller side, buyer side, standard form, or 
+externally received PDF: 
+ 
+
+--- PAGE 3 ---
+
+◆ Kathryn opens the DocuSign module inside the portal. 
+◆ She either selects a document already in the transaction checklist, or uploads a PDF she 
+received from the other party. 
+◆ The portal identifies the document type and applies the saved signature field positions 
+automatically. 
+◆ She assigns the recipients — Seller, Buyer, Agent, or Escrow — from the contacts already 
+saved in the transaction record. 
+◆ She clicks Send. DocuSign emails each recipient with the document pre-configured with fields 
+in the right places. 
+◆ The recipient opens the DocuSign link, signs, and submits. 
+◆ The signed document returns to the portal automatically. The document status in the checklist 
+updates to Signed. The signed PDF is saved to the correct transaction folder. Kathryn receives 
+a notification. 
+ 
+No special platform partnerships, no Glide dependency, no exotic technology required. This is built entirely on 
+DocuSign's standard public API which is available to any developer. The auto-placement is achieved by saving field 
+coordinates during the one-time setup and passing them to DocuSign programmatically on every send. 
+I I I   ·   T H E  P R O B L E M  W E  A R E  S O L V I N G  
+ 
+ 
+Kathryn currently runs her entire transaction coordination business across four separate platforms: 
+an Excel spreadsheet, Google Drive, Glide (for document creation and e-signature), and DocuSign. 
+Every task requires switching between platforms, manually copying data, re-uploading files, and 
+rebuilding folder structures from scratch for every new transaction. The result is an unsustainable 
+amount of repetitive manual work — and real risk of things falling through the cracks at 80+ active 
+transactions. 
+ 
+◆ Spreadsheet overload — Managing 80+ transactions in Excel tabs with manual copy-paste, 
+formula management, and status tracking is time-consuming and not scalable. 
+◆ Drive folder creation — Every new transaction requires manually downloading a master 
+folder, renaming it, re-uploading it to Drive, and linking it back to the spreadsheet. 
+◆ Disconnected e-signature workflow — Documents must be sent through Glide to DocuSign, 
+then tracked manually back in the spreadsheet once signed. There is no single place where 
+signature status and document storage live together. 
+◆ Manual signature field placement — When uploading PDFs externally to DocuSign, Kathryn 
+must manually drag and drop signature and date fields for every document — extremely 
+time-consuming at 80+ documents per file. 
+◆ No centralized task view — There is no single place to see what needs to be done today across 
+all active transactions. 
+
+--- PAGE 4 ---
+
+◆ Manual email composition — Every outbound email to agents and clients must be written 
+from scratch, even when the content follows a standard template. 
+◆ Manual deadline reminders — Client deadline reminders are manually composed and sent, 
+even though the content rarely changes. 
+ 
+The portal we are building replaces all of this with one unified system. Kathryn may still use Glide for initial 
+document creation (since that requires a third-party library license she does not yet have) — but every other part of 
+her workflow will be handled inside the portal. 
+I V   ·   C O M P L E T E  P R O J E C T  S C O P E  —  P H A S E  1  
+ 
+ 
+Phase 1 is a complete, production-ready web portal built from scratch using React (frontend) and 
+Node.js (backend). The following modules are included in full: 
+ 
+M O D U L E  W H A T  I T  D O E S  F O R  Y O U  
+Client Management Add and manage client profiles with full contact details — agent 
+name, buyer/seller info, escrow officer, escrow assistant, and all 
+associated parties. Known contacts auto-complete from a saved 
+contact directory. Search and filter across all clients. 
+Project / Transaction 
+Module 
+Create a new project linked to a client — all client details auto-
+populate instantly. Select transaction type (Listing / Buyer 
+Representation) and fill in property details. The system generates 
+the document checklist automatically based on 10–12 conditional 
+rules replicated from Kathryn's Excel logic. 
+Smart Document 
+Checklist 
+For each transaction, the system automatically determines which 
+documents are required based on property attributes (year built, 
+property type, representation side, etc.). Each document is listed 
+with its current status, upload area, and notes thread. Documents 
+not required for this transaction are hidden. 
+Document Status 
+Tracker 
+Per-document status tracked via a searchable dropdown: Pending, 
+Needs Buyer Signature, Needs Seller Signature, Out for Signature, 
+Signed — Needs Upload, Uploaded to Brokerage, Completed. 
+Status updates automatically when a document is returned signed 
+via DocuSign. 
+Per-Transaction 
+Document Storage 
+Each transaction has a dedicated document storage area — a built-
+in file manager where Kathryn uploads, stores, organizes, and 
+downloads PDFs throughout the transaction lifecycle. Replaces the 
+
+--- PAGE 5 ---
+
+M O D U L E  W H A T  I T  D O E S  F O R  Y O U  
+need for a separate Google Drive folder. Supports upload of 
+partially signed, fully signed, or externally received documents. 
+Auto-Created Folder 
+Structure 
+When a new transaction is created, the system automatically 
+generates a standard set of storage folders (e.g., Received — Needs 
+Signature, Buyer Signed, Seller Signed, Completed, Sent to 
+Brokerage). Additional folders can be created manually at any 
+time. 
+Google Drive Integration Optional: the portal can be linked to Kathryn's Google Drive 
+(Google Workspace account) so transaction folders are 
+automatically created in Drive when a transaction is opened, and 
+documents uploaded in the portal are synced to the corresponding 
+Drive folder. Final approach confirmed after API research. 
+DocuSign Integration Kathryn's DocuSign account is connected to the portal. From the 
+transaction page she selects any document and clicks Send for 
+Signature — the portal identifies the document type, applies the 
+saved field positions, and pushes it to DocuSign automatically. The 
+recipient receives a DocuSign email with signature fields already 
+placed in the correct spots. Once signed, the document returns to 
+the portal automatically, status updates, and Kathryn is notified. 
+She never needs to visit DocuSign's website. 
+Document Template 
+Engine 
+The core of the signature automation. All 50–60 of Kathryn's 
+standard CAR documents are configured once during kickoff — 
+signature, date, and initials fields are placed on each document one 
+time and saved permanently. Every subsequent send of that 
+document type — whether Kathryn created it or received it from 
+the other party — uses the saved field positions automatically. No 
+manual drag-and-drop ever again. 
+Auto-Document 
+Recognition 
+When Kathryn uploads an external PDF received from another 
+party, the portal reads the document, identifies its type using the 
+form title and number embedded in the document, and applies the 
+correct saved field template automatically. Buyer-side documents 
+are handled identically to seller-side documents — same 
+experience, same automation, no extra steps. 
+Document Notes 
+(Threaded) 
+Each document has a date-stamped notes thread — a full history of 
+observations, follow-up actions, and status commentary per 
+document. View the entire thread at a glance. 
+Task List / Project Stages Each transaction has a stage-by-stage task roadmap mirroring 
+Kathryn's current checklist. Tasks are checked off as completed. 
+
+--- PAGE 6 ---
+
+M O D U L E  W H A T  I T  D O E S  F O R  Y O U  
+Each stage shows which documents are due and what actions are 
+pending. 
+Next Step Field A dedicated 'Next Step' text field and date on every transaction — 
+surfaces on the centralized Task Dashboard sorted by date. Can 
+reference a task, a document, a follow-up call, or any action item. 
+Centralized Task 
+Dashboard 
+A single daily work list showing every transaction's next step and 
+upcoming task across all 80+ active projects, sorted by date. Click 
+any item to jump directly into that transaction. Replaces navigating 
+80 spreadsheet tabs every morning. 
+Outbound Email with 
+Templates 
+Send emails to agents, clients, and third parties directly from inside 
+the portal using pre-built templates. Templates auto-fill agent 
+name, property address, and all transaction variables. Sent emails 
+are logged in the client's communication thread. Gmail Workspace 
+integration included. 
+Automated Reminder 
+Draft System 
+When a transaction deadline is approaching, the system auto-
+drafts a reminder email pre-filled with the client name, property 
+address, deadline description, and date. Kathryn receives a 
+notification, reviews the draft (editing if needed — e.g., if an 
+extension was granted), and clicks Send. Nothing is sent 
+automatically. 
+Calendar / Deadline 
+View 
+A monthly/weekly calendar showing all transaction deadlines and 
+reminders across every active project. Every event is clickable and 
+links directly back to the relevant transaction. 
+Multi-User Team Access Add team members to the portal with the same access level as the 
+admin. Assign specific transactions to specific team members. 
+Track who is working on what. Role-based permissions (admin vs. 
+staff access) will be added in Phase 2. 
+Settings & Template 
+Manager 
+Create, edit, and manage unlimited email and reminder templates 
+organized by type. Manage connected integrations (DocuSign, 
+Gmail, Google Drive). Configure conditional document rules. 
+ 
+V   ·   W H A T  I S  N O T  I N C L U D E D  I N  P H A S E  1  
+ 
+ 
+The following items were discussed but are deferred to Phase 2, either due to licensing requirements 
+or scope considerations: 
+
+--- PAGE 7 ---
+
+ 
+◆ Document creation & form-filling — Creating documents from scratch within the portal and 
+auto-filling client information into form fields requires a licensed document library. Kathryn 
+does not currently have permission to use her third-party library within a custom platform. 
+This will be Phase 2 once licensing is obtained. 
+◆ In-portal document editing — Editing the content of uploaded PDFs within the portal. Phase 
+2. 
+◆ Role-based permission levels — Granular admin vs. staff access controls. Phase 2 — initial 
+team access will be equal for all users. 
+◆ SMS / calling integration — Email is the primary communication channel for Phase 1. 
+◆ AI-powered document parsing — Automated data extraction from incoming PDFs (e.g., 
+reading a received listing agreement and auto-filling client fields). A future enhancement. 
+V I   ·   U S E R  J O U R N E Y  —  A  D A Y  I N  T H E  P O R T A L  
+ 
+ 
+Here is the complete step-by-step journey through the portal — from the moment a new listing 
+arrives to close of escrow — reflecting the updated workflow with DocuSign and document storage. 
+ 
+Step 1 — A New Listing or Buyer File Arrives 
+◆ Kathryn's client (a real estate agent) sends her the initial contractual documents as a PDF — 
+either a listing agreement (seller side) or a purchase agreement (buyer side). 
+◆ Kathryn logs into the portal and navigates to Clients → Add New Client. She fills in all party 
+details: agent, buyer/seller, escrow officer, escrow assistant. Known contacts auto-complete 
+from the saved directory. 
+Step 2 — Creating the Transaction 
+◆ Kathryn clicks Projects → Add New Project and selects the client. All details auto-populate. 
+She selects the transaction type (Listing or Buyer) and fills in property details: year built, 
+property type, HOA status, etc. 
+◆ The system immediately generates the correct document checklist — only the documents 
+required for this specific transaction appear, based on the conditional rules engine. 
+◆ Simultaneously, the system auto-creates the transaction's document storage folder structure 
+(e.g., Received, Needs Buyer Signature, Needs Seller Signature, Completed, Sent to 
+Brokerage). No manual Drive setup needed. 
+Step 3 — Uploading and Tracking Documents 
+◆ For documents that arrive pre-filled and partially signed (common on buyer-side files), 
+Kathryn uploads the PDF directly into the transaction's document storage — into the 
+appropriate folder. 
+
+--- PAGE 8 ---
+
+◆ She marks the document's checklist status: e.g., 'Needs Seller Signature.' The document is now 
+visible in both the checklist and the storage folder. 
+◆ For documents that Kathryn needs to create and send herself (seller-side listings), she will 
+continue using Glide for document creation and bring the completed PDF back into the portal 
+for signature and storage. 
+Step 4 — Sending for Signature via DocuSign 
+◆ From the transaction page, Kathryn selects any document — whether she created it herself or 
+received it from the other party as an uploaded PDF — and clicks Send for Signature. 
+◆ The portal identifies the document type automatically and retrieves the pre-saved signature, 
+date, and initials field positions. These are passed to DocuSign instantly. The fields appear in 
+exactly the right spots — no manual placement required. 
+◆ Each recipient — Seller, Buyer, Agent, Escrow — receives their own DocuSign email. They 
+open the link, see their fields pre-positioned, sign, and submit. Kathryn does not need to 
+prepare anything in DocuSign beforehand. 
+◆ Once signed, DocuSign notifies the portal automatically. The signed PDF is saved to the 
+correct transaction folder. The document status in the checklist updates to Signed. Kathryn 
+receives a notification. The entire return process is handled without her touching anything. 
+Step 5 — Email Communication 
+◆ Kathryn selects a template (e.g., 'Initial Agent Outreach,' 'Document Request,' 'Deadline 
+Reminder'). The template auto-fills with the agent name, property address, and all transaction 
+variables. 
+◆ She reviews, edits if needed, and clicks Send. The email goes out through her connected Gmail 
+Workspace account and is logged in the client's communication thread inside the portal. 
+Step 6 — Logging Next Steps & Daily Dashboard 
+◆ After completing any work on a transaction, Kathryn logs the next action in the Next Step field 
+with a date. Example: 'Email escrow — confirm receipt of signed disclosure packet — Friday.' 
+◆ Every morning, Kathryn opens the Task Dashboard — a single sorted view of every 
+transaction's next step across all 80+ active files. She clicks any item and lands directly in that 
+transaction. No more spreadsheet tab-hopping. 
+Step 7 — Deadline Reminders 
+◆ Transaction deadlines are set in the Calendar module. When a deadline approaches, the 
+system auto-drafts a reminder email with the client name, property address, and what the 
+deadline is. 
+◆ Kathryn sees a notification, reviews the draft, edits if circumstances have changed (e.g., 
+extension granted), and approves it to send. Nothing goes out automatically. 
+Step 8 — Team Collaboration 
+◆ Kathryn adds a team member to the portal and assigns them to specific transactions. The team 
+member logs in with their own credentials and sees only the transactions assigned to them. 
+
+--- PAGE 9 ---
+
+◆ All activity — document uploads, status changes, notes, emails sent — is logged and visible to 
+the admin. Kathryn has full visibility across all users and transactions at all times. 
+ 
+Milestone 3 is the most technically complex phase — where the portal becomes a fully working, 
+integrated system. Here is what gets built: 
+Conditional Document Checklist Engine 
+The 10–12 conditional rules from Kathryn's Excel system are migrated into backend logic. When a 
+project is created and property details are filled in, the system instantly generates the exact 
+document checklist required for that transaction. No manual selection. Kathryn will provide all 
+conditions in a kickoff session and Mobi will build the rules engine accordingly. 
+DocuSign Integration & Document Template Engine 
+Kathryn's DocuSign account is connected via the DocuSign API. The portal includes a Document 
+Template Manager — built during the kickoff phase — where all 50–60 standard CAR document 
+types are pre-configured with exact signature, date, and initials field positions saved permanently in 
+the system. 
+When Kathryn sends any document for signature, the portal retrieves the saved field positions for 
+that document type and passes them directly to DocuSign via the API. DocuSign places the fields 
+exactly where specified. The recipient opens their DocuSign email, sees the fields already in the 
+correct positions, signs, and submits. The signed document is returned to the portal automatically, 
+saved to the correct transaction folder, and the checklist status updates without Kathryn doing 
+anything. 
+This approach requires no special DocuSign partnership, no Glide dependency, and no exotic 
+technology. It uses DocuSign's standard public API which is freely available to any developer. The 
+field coordinates are saved during a one-time setup session at kickoff — approximately one full 
+working day — and never need to be repeated unless CAR publishes a revised version of a form, 
+which happens roughly once per year. 
+Auto-Document Recognition for Incoming PDFs 
+For documents Kathryn receives from the other party — common on buyer-side files — the portal 
+reads the uploaded PDF text, identifies the form type using the title and CAR form number 
+embedded in every standard California real estate document, and automatically applies the 
+matching saved field template. Buyer-side documents are processed identically to seller-side 
+documents. In the rare case of a truly non-standard document, Kathryn receives a prompt to select 
+the closest template or place fields manually — the same as her current workflow today. 
+Per-Transaction Document Storage & Folder System 
+Each transaction gets its own document storage area with auto-created subfolders matching 
+Kathryn's current Drive structure. Uploaded PDFs are stored and organized within the portal. 
+Kathryn can upload documents at any stage — partially signed, fully signed, received from third 
+parties — and move them between folders as their status changes. All documents are downloadable 
+at any time. 
+
+--- PAGE 10 ---
+
+Google Drive Integration 
+If Kathryn prefers to keep Google Drive as the primary file storage backend, the portal will be 
+connected to her Google Workspace account. When a new transaction is created, the system 
+automatically creates the corresponding transaction folder and subfolders in Drive. Mobi will 
+finalize the approach after API research. If Drive integration is not viable within this scope, the in-
+portal folder storage system will be used exclusively at no change in cost. 
+Gmail Integration & Email Templates 
+The portal connects to Kathryn's Gmail Workspace account via OAuth. Outbound emails are sent 
+through the portal using saved templates — agent name, property address, and all transaction 
+variables auto-fill on selection. Sent emails are logged in the client's communication thread. Kathryn 
+can continue to manage her full Gmail inbox and folder structure outside the portal as needed. 
+Automated Reminder Draft System 
+Upcoming deadlines trigger automatic email drafts pre-filled with all relevant transaction details. 
+Kathryn reviews each draft, edits as needed, and approves before sending. The system never sends 
+automatically. 
+Multi-User Access Module 
+An admin panel allows Kathryn to add team members, assign them to specific transactions, and 
+manage their access. All user activity is logged. Initial access level is equal for all team members — 
+granular role-based permissions are scoped for Phase 2. 
