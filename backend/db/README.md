@@ -6,6 +6,8 @@
 |------|---------|
 | `migration/V001__*.sql` … `V008__*.sql` | Baseline schema, generated from `../../DB/schema_live.sql` |
 | `migration/V009__seed_dev_crm_vault.sql` | Dev rows: `clients` / `users` / `projects` id `1` for CRM file pool |
+| `migration/V010__document_rules_columns.sql` | `document_set_members.section_label`, `conditional_rules.actions_json` |
+| `migration/V011__conditional_rules_documents_json.sql` | `conditional_rules.documents_json` (Settings baseline rows) |
 | `extractMigrationsFromSchemaLive.ts` | Regenerates `V001`–`V008` after you replace `DB/schema_live.sql` |
 | `migrate.ts` | Applies pending `.sql` files and records them in `public.schema_migrations` |
 
@@ -13,9 +15,10 @@
 
 ```bash
 npm run db:migrate
+npm run db:seed:document-rules
 ```
 
-Requires `DATABASE_URL` in `backend/.env`.
+Requires `DATABASE_URL` in `backend/.env`. The **document-rules** seed is idempotent: upserts `document_types`, `document_sets` (ids `10001` / `10002`), members, and `conditional_rules` (ids `10011`–`10018`) for the Settings UI.
 
 Regenerate baseline SQL after a new pgAdmin schema dump:
 

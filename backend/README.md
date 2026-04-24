@@ -37,6 +37,21 @@ Applies versioned SQL under **`db/migration/`** and records names in **`public.s
 
 5. **`PUBLIC_API_URL`:** set to the API’s public base (e.g. `http://localhost:4000`) so **download** links work when the Vite app runs on a **different port** (e.g. `8080`).
 
+## Document rules API (Settings)
+
+| Method | Path | Purpose |
+|--------|------|--------|
+| `GET` | `/api/document-rules` | List all `conditional_rules` with hydrated `documents` and `actions` |
+| `GET` | `/api/document-rules/:id` | Load one rule by numeric id |
+| `POST` | `/api/document-rules` | Create rule (JSON body: `name`, `kind`, `triggers`, `documents`, `actions`, `isActive`) |
+| `PUT` | `/api/document-rules/:id` | Replace rule (same body shape) |
+| `PATCH` | `/api/document-rules/:id` | `{ "isActive": boolean }` only |
+| `DELETE` | `/api/document-rules/:id` | Delete rule (cascades `conditional_rule_sets` / `conditional_rule_documents`) |
+
+**Persistence:** Standard baseline rows from the UI are stored in **`conditional_rules.documents_json`**. When that column is **null**, standard `documents` are still hydrated from **`conditional_rule_sets`** + **`document_set_members`** (seeded templates). Conditional actions use **`actions_json`** (optional per-row **`storedFileId`**).
+
+Requires **`DATABASE_URL`**, **`npm run db:migrate`** (includes `documents_json` from V011), and **`npm run db:seed:document-rules`** if you want the sample catalog rows.
+
 ## Stored files API (Documents page)
 
 | Method | Path | Purpose |

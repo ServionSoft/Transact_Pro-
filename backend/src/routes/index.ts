@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from "express";
 import type { AppConfig } from "../config/env.js";
 import { getPool } from "../db/pool.js";
+import { registerDocumentRulesRoutes } from "./documentRulesRouter.js";
 import { registerStoredFilesRoutes } from "./storedFilesRouter.js";
 
 export function registerRoutes(app: Express, config: AppConfig): void {
@@ -23,5 +24,6 @@ export function registerRoutes(app: Express, config: AppConfig): void {
   });
 
   const pool = getPool(config.databaseUrl);
+  registerDocumentRulesRoutes(app, pool);
   registerStoredFilesRoutes(app, config, pool);
 }

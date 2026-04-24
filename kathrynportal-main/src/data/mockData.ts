@@ -234,6 +234,8 @@ export interface DocumentRule {
   section?: string;
   /** Optional note carried over from the client's source spreadsheet. */
   note?: string;
+  /** When row was chosen from CRM vault `stored_files` (Settings rule builder). */
+  storedFileId?: string;
 }
 
 /** Field-value triggers supported by the rules engine. Mirror the client's checklist automation sheet. */
@@ -262,6 +264,8 @@ export interface RuleDocumentAction {
   action: RuleAction;
   /** Optional condition note (e.g. "if Seller Entity is also a Trust"). */
   note?: string;
+  /** When action targets a CRM vault `stored_files` row. */
+  storedFileId?: string;
 }
 
 /** Two kinds of rules: a "standard" baseline checklist, and "conditional" overlays. */
