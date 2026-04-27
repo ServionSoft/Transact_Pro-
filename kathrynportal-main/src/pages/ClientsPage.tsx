@@ -1,18 +1,44 @@
 import { Link, useNavigate } from "react-router-dom";
 import { Plus, Search } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { listClientsFromApi } from "@/api/clients";
 import { useAppStore } from "@/store/appStore";
+import { getApiBaseUrl } from "@/lib/apiConfig";
 import PageHeader from "@/components/shared/PageHeader";
 import StatusBadge from "@/components/shared/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
 
 export default function ClientsPage() {
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("All");
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const navigate = useNavigate();
   const clients = useAppStore((s) => s.clients);
+  const setClients = useAppStore((s) => s.setClients);
+
+  const refresh = useCallback(async () => {
+    if (!getApiBaseUrl()) return;
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const rows = await listClientsFromApi();
+      setClients(rows);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Could not load clients.";
+      setLoadError(msg);
+      toast.error("Could not load clients", { description: msg });
+    } finally {
+      setLoading(false);
+    }
+  }, [setClients]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
 
   const filtered = clients.filter(c => {
     const matchSearch = c.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -27,7 +53,7 @@ export default function ClientsPage() {
     <div className="p-8 max-w-7xl mx-auto">
       <PageHeader
         title="Clients"
-        subtitle={`${clients.length} total clients`}
+        subtitle={loading ? "Loading..." : `${clients.length} total clients`}
         actions={
           <Button onClick={() => navigate("/clients/new")} className="gap-2">
             <Plus className="w-4 h-4" /> Add Client
@@ -61,6 +87,16 @@ export default function ClientsPage() {
           ))}
         </div>
       </div>
+
+      {loadError && (
+        <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+          <p className="font-medium">Could not load clients from API.</p>
+          <p className="text-xs mt-1 text-muted-foreground">{loadError}</p>
+          <Button variant="outline" size="sm" className="mt-2" onClick={() => void refresh()}>
+            Retry
+          </Button>
+        </div>
+      )}
 
       <div className="bg-card border border-border rounded-lg overflow-hidden">
         <table className="w-full">

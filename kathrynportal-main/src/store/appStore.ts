@@ -61,6 +61,9 @@ interface AppState {
   sentEmails: SentEmail[];
 
   // ---- Clients ----
+  setClients: (clients: Client[]) => void;
+  upsertClient: (client: Client) => void;
+  removeClientFromList: (id: string) => void;
   addClient: (input: Omit<Client, "id" | "createdAt" | "projectCount">) => Client;
   updateClient: (id: string, patch: Partial<Client>) => void;
   deleteClient: (id: string) => void;
@@ -125,6 +128,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   reminderDrafts: seedReminders,
   emailTemplates: seedTemplates,
   sentEmails: [],
+
+  setClients: (clients) => set(() => ({ clients })),
+  upsertClient: (client) =>
+    set((s) => {
+      const exists = s.clients.some((c) => c.id === client.id);
+      if (exists) {
+        return { clients: s.clients.map((c) => (c.id === client.id ? client : c)) };
+      }
+      return { clients: [client, ...s.clients] };
+    }),
+  removeClientFromList: (id) =>
+    set((s) => ({ clients: s.clients.filter((c) => c.id !== id) })),
 
   addClient: (input) => {
     const newClient: Client = {

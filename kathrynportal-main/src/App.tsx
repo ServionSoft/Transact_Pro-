@@ -8,6 +8,7 @@ import DashboardPage from "@/pages/DashboardPage";
 import ClientsPage from "@/pages/ClientsPage";
 import ClientDetailPage from "@/pages/ClientDetailPage";
 import AddClientPage from "@/pages/AddClientPage";
+import EditClientPage from "@/pages/EditClientPage";
 import ProjectsPage from "@/pages/ProjectsPage";
 import ProjectDetailPage from "@/pages/ProjectDetailPage";
 import AddProjectPage from "@/pages/AddProjectPage";
@@ -32,6 +33,7 @@ const App = () => (
             <Route path="/clients" element={<ClientsPage />} />
             <Route path="/clients/new" element={<AddClientPage />} />
             <Route path="/clients/:id" element={<ClientDetailPage />} />
+            <Route path="/clients/:id/edit" element={<EditClientPage />} />
             <Route path="/projects" element={<ProjectsPage />} />
             <Route path="/projects/new" element={<AddProjectPage />} />
             <Route path="/projects/:id" element={<ProjectDetailPage />} />

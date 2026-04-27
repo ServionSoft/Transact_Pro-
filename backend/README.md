@@ -52,6 +52,20 @@ Applies versioned SQL under **`db/migration/`** and records names in **`public.s
 
 Requires **`DATABASE_URL`**, **`npm run db:migrate`** (includes `documents_json` from V011), and **`npm run db:seed:document-rules`** if you want the sample catalog rows.
 
+## Clients API
+
+| Method | Path | Purpose |
+|--------|------|--------|
+| `GET` | `/api/clients` | List non-archived clients (`deleted_at IS NULL`) with `projectCount` |
+| `GET` | `/api/clients/:id` | Load one client by numeric id |
+| `POST` | `/api/clients` | Create client (`name`, `email`, `phone`, `company`, `role`, `status`, `propertyAddress`, `city`, `state`, `zip`, `notes`) |
+| `PUT` | `/api/clients/:id` | Update client (same shape as create) |
+| `PATCH` | `/api/clients/:id/archive` | Soft-delete client (`deleted_at = now()`) |
+| `DELETE` | `/api/clients/:id/permanent` | Hard delete only when client has no linked projects |
+
+`status` accepts `Active` / `Inactive` / `Prospect` in the API payload and maps to DB enum values (`active`, `inactive`, `prospect`).  
+`created_by_user_id` uses `DEFAULT_UPLOAD_USER_ID` when that env value exists and points at a real user row; otherwise it is written as `NULL`.
+
 ## Stored files API (Documents page)
 
 | Method | Path | Purpose |

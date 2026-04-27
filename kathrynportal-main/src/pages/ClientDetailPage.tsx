@@ -1,8 +1,11 @@
+import { useEffect, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, Mail, Phone, Building, MapPin, Edit, FolderKanban, Trash2 } from "lucide-react";
+import { archiveClientApi, getClientFromApi, permanentlyDeleteClientApi } from "@/api/clients";
 import PageHeader from "@/components/shared/PageHeader";
 import StatusBadge from "@/components/shared/StatusBadge";
 import { Button } from "@/components/ui/button";
+import { getApiBaseUrl } from "@/lib/apiConfig";
 import { useAppStore } from "@/store/appStore";
 import { isTransactionProject } from "@/data/mockData";
 import { toast } from "sonner";
@@ -11,8 +14,42 @@ export default function ClientDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const client = useAppStore((s) => s.clients.find((c) => c.id === id));
+  const upsertClient = useAppStore((s) => s.upsertClient);
   const projects = useAppStore((s) => s.projects);
+  const removeClientFromList = useAppStore((s) => s.removeClientFromList);
   const deleteClient = useAppStore((s) => s.deleteClient);
+  const [loading, setLoading] = useState(!client && Boolean(getApiBaseUrl()) && Boolean(id));
+
+  useEffect(() => {
+    if (!id || client || !getApiBaseUrl()) return;
+    let cancelled = false;
+    setLoading(true);
+    void (async () => {
+      try {
+        const row = await getClientFromApi(id);
+        if (!cancelled) upsertClient(row);
+      } catch (err) {
+        if (!cancelled) {
+          toast.error(err instanceof Error ? err.message : "Could not load client.");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id, client, upsertClient]);
+
+  if (loading) {
+    return (
+      <div className="p-8 max-w-5xl mx-auto">
+        <div className="bg-card border border-border rounded-lg p-6 text-sm text-muted-foreground">
+          Loading client...
+        </div>
+      </div>
+    );
+  }
 
   if (!client) {
     return (
@@ -41,10 +78,31 @@ export default function ClientDetailPage() {
             <Button variant="outline" onClick={() => navigate(`/email?to=${client.email}`)} className="gap-2">
               <Mail className="w-4 h-4" /> Email
             </Button>
+            <Button variant="outline" className="gap-2" onClick={() => navigate(`/clients/${client.id}/edit`)}>
+              <Edit className="w-4 h-4" /> Edit
+            </Button>
             <Button
               variant="outline"
               className="gap-2 text-destructive hover:text-destructive"
-              onClick={() => {
+              onClick={async () => {
+                const apiOn = Boolean(getApiBaseUrl());
+                if (apiOn) {
+                  const msg =
+                    "Archive this client? It will be hidden from the client list but project history remains.";
+                  if (!confirm(msg)) return;
+                  try {
+                    await archiveClientApi(client.id);
+                    removeClientFromList(client.id);
+                    toast.success("Client archived.");
+                    navigate("/clients");
+                    return;
+                  } catch (err) {
+                    const message = err instanceof Error ? err.message : "Could not archive client.";
+                    toast.error(message);
+                  }
+                  return;
+                }
+
                 if (confirm(`Delete ${client.name}? This will also remove their projects.`)) {
                   deleteClient(client.id);
                   toast.success("Client deleted");
@@ -52,8 +110,31 @@ export default function ClientDetailPage() {
                 }
               }}
             >
-              <Trash2 className="w-4 h-4" /> Delete
+              <Trash2 className="w-4 h-4" /> {getApiBaseUrl() ? "Archive" : "Delete"}
             </Button>
+            {getApiBaseUrl() && clientProjects.length === 0 && (
+              <Button
+                variant="outline"
+                className="gap-2 text-destructive hover:text-destructive"
+                onClick={async () => {
+                  if (clientProjects.length > 0) {
+                    toast.error("Client has linked projects. Delete or reassign those projects first.");
+                    return;
+                  }
+                  if (!confirm("Permanently delete this client? This cannot be undone.")) return;
+                  try {
+                    await permanentlyDeleteClientApi(client.id);
+                    removeClientFromList(client.id);
+                    toast.success("Client permanently deleted.");
+                    navigate("/clients");
+                  } catch (err) {
+                    toast.error(err instanceof Error ? err.message : "Could not permanently delete client.");
+                  }
+                }}
+              >
+                <Trash2 className="w-4 h-4" /> Delete Permanently
+              </Button>
+            )}
           </div>
         }
       />
@@ -88,7 +169,7 @@ export default function ClientDetailPage() {
               <div className="flex items-center gap-3">
                 <MapPin className="w-4 h-4 text-muted-foreground" />
                 <div>
-                  <p className="text-xs text-muted-foreground">Address</p>
+                  <p className="text-xs text-muted-foreground">Primary Address</p>
                   <p className="text-sm text-foreground">{client.propertyAddress}, {client.city}, {client.state} {client.zip}</p>
                 </div>
               </div>
