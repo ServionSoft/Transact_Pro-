@@ -61,6 +61,7 @@ Requires **`DATABASE_URL`**, **`npm run db:migrate`** (includes `documents_json`
 | `POST` | `/api/clients` | Create client (`name`, `email`, `phone`, `company`, `role`, `status`, `propertyAddress`, `city`, `state`, `zip`, `notes`) |
 | `PUT` | `/api/clients/:id` | Update client (same shape as create) |
 | `PATCH` | `/api/clients/:id/archive` | Soft-delete client (`deleted_at = now()`) |
+| `PATCH` | `/api/clients/:id/unarchive` | Restore archived client (`deleted_at = null`) |
 | `DELETE` | `/api/clients/:id/permanent` | Hard delete only when client has no linked projects |
 
 `status` accepts `Active` / `Inactive` / `Prospect` in the API payload and maps to DB enum values (`active`, `inactive`, `prospect`).  

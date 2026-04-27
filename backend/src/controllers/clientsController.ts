@@ -7,6 +7,7 @@ import {
   getClientById,
   listClients,
   permanentlyDeleteClient,
+  unarchiveClient,
   updateClient,
   type ClientUpsertInput,
 } from "../services/clientsService.js";
@@ -31,9 +32,10 @@ function parseClientBody(body: unknown): ClientUpsertInput | null {
 
 export function createClientsController(pool: Pool, config: AppConfig) {
   return {
-    async list(_req: Request, res: Response): Promise<void> {
+    async list(req: Request, res: Response): Promise<void> {
       try {
-        const clients = await listClients(pool);
+        const archived = String(req.query.archived ?? "").toLowerCase() === "true";
+        const clients = await listClients(pool, archived);
         res.json({ success: true, data: { clients }, message: "" });
       } catch {
         res.status(500).json({
@@ -131,6 +133,25 @@ export function createClientsController(pool: Pool, config: AppConfig) {
         res.status(500).json({
           success: false,
           error: { code: "CLIENT_ARCHIVE_FAILED", message: "Could not archive client." },
+        });
+      }
+    },
+
+    async unarchive(req: Request, res: Response): Promise<void> {
+      try {
+        const result = await unarchiveClient(pool, req.params.id);
+        if ("error" in result) {
+          res.status(result.error.status).json({
+            success: false,
+            error: { code: result.error.code, message: result.error.message },
+          });
+          return;
+        }
+        res.json({ success: true, data: {}, message: "Client restored." });
+      } catch {
+        res.status(500).json({
+          success: false,
+          error: { code: "CLIENT_UNARCHIVE_FAILED", message: "Could not restore client." },
         });
       }
     },

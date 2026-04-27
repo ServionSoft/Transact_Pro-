@@ -29,6 +29,9 @@ export function registerClientsRoutes(app: Express, config: AppConfig, pool: Poo
   router.patch("/clients/:id/archive", requirePool(pool), (req, res) => {
     void ctrl.archive(req, res);
   });
+  router.patch("/clients/:id/unarchive", requirePool(pool), (req, res) => {
+    void ctrl.unarchive(req, res);
+  });
   router.delete("/clients/:id/permanent", requirePool(pool), (req, res) => {
     void ctrl.permanentDelete(req, res);
   });

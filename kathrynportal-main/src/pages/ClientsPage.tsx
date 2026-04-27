@@ -1,7 +1,7 @@
 import { Link, useNavigate } from "react-router-dom";
 import { Plus, Search } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { listClientsFromApi } from "@/api/clients";
+import { listClientsFromApi, unarchiveClientApi } from "@/api/clients";
 import { useAppStore } from "@/store/appStore";
 import { getApiBaseUrl } from "@/lib/apiConfig";
 import PageHeader from "@/components/shared/PageHeader";
@@ -14,6 +14,7 @@ import { toast } from "sonner";
 export default function ClientsPage() {
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("All");
+  const [showArchived, setShowArchived] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const navigate = useNavigate();
@@ -25,7 +26,7 @@ export default function ClientsPage() {
     setLoading(true);
     setLoadError(null);
     try {
-      const rows = await listClientsFromApi();
+      const rows = await listClientsFromApi({ archived: showArchived });
       setClients(rows);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Could not load clients.";
@@ -34,7 +35,7 @@ export default function ClientsPage() {
     } finally {
       setLoading(false);
     }
-  }, [setClients]);
+  }, [setClients, showArchived]);
 
   useEffect(() => {
     void refresh();
@@ -45,7 +46,7 @@ export default function ClientsPage() {
       c.email.toLowerCase().includes(search.toLowerCase()) ||
       c.company.toLowerCase().includes(search.toLowerCase()) ||
       c.propertyAddress.toLowerCase().includes(search.toLowerCase());
-    const matchStatus = filterStatus === "All" || c.status === filterStatus;
+    const matchStatus = showArchived || filterStatus === "All" || c.status === filterStatus;
     return matchSearch && matchStatus;
   });
 
@@ -53,9 +54,9 @@ export default function ClientsPage() {
     <div className="p-8 max-w-7xl mx-auto">
       <PageHeader
         title="Clients"
-        subtitle={loading ? "Loading..." : `${clients.length} total clients`}
+        subtitle={loading ? "Loading..." : `${clients.length} ${showArchived ? "archived" : "total"} clients`}
         actions={
-          <Button onClick={() => navigate("/clients/new")} className="gap-2">
+          <Button onClick={() => navigate("/clients/new")} className="gap-2" disabled={showArchived}>
             <Plus className="w-4 h-4" /> Add Client
           </Button>
         }
@@ -75,18 +76,38 @@ export default function ClientsPage() {
           {["All", "Active", "Inactive", "Prospect"].map(s => (
             <button
               key={s}
+              disabled={showArchived}
               onClick={() => setFilterStatus(s)}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                 filterStatus === s
                   ? "bg-primary text-primary-foreground"
                   : "bg-secondary text-secondary-foreground hover:bg-muted"
-              }`}
+              } ${showArchived ? "opacity-50 cursor-not-allowed" : ""}`}
             >
               {s}
             </button>
           ))}
+          <button
+            onClick={() => {
+              setShowArchived((prev) => !prev);
+              setFilterStatus("All");
+            }}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              showArchived
+                ? "bg-destructive text-destructive-foreground border border-destructive/80"
+                : "bg-destructive/10 text-destructive border border-destructive/30 hover:bg-destructive/15"
+            }`}
+          >
+            Archived
+          </button>
         </div>
       </div>
+
+      {showArchived && (
+        <p className="text-xs text-muted-foreground mb-3">
+          Archived clients are hidden from active workflows. Use restore to move them back.
+        </p>
+      )}
 
       {loadError && (
         <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
@@ -132,14 +153,33 @@ export default function ClientsPage() {
                 <td className="px-6 py-3.5"><StatusBadge status={client.status} type="client" /></td>
                 <td className="px-6 py-3.5 text-sm text-foreground font-medium">{client.projectCount}</td>
                 <td className="px-6 py-3.5">
-                  <Link to={`/clients/${client.id}`} className="text-accent hover:underline text-sm">View</Link>
+                  {showArchived ? (
+                    <button
+                      className="text-accent hover:underline text-sm"
+                      onClick={async () => {
+                        try {
+                          await unarchiveClientApi(client.id);
+                          toast.success("Client restored.");
+                          void refresh();
+                        } catch (e) {
+                          toast.error(e instanceof Error ? e.message : "Could not restore client.");
+                        }
+                      }}
+                    >
+                      Restore
+                    </button>
+                  ) : (
+                    <Link to={`/clients/${client.id}`} className="text-accent hover:underline text-sm">View</Link>
+                  )}
                 </td>
               </motion.tr>
             ))}
           </tbody>
         </table>
         {filtered.length === 0 && (
-          <div className="px-6 py-12 text-center text-muted-foreground text-sm">No clients found.</div>
+          <div className="px-6 py-12 text-center text-muted-foreground text-sm">
+            {showArchived ? "No archived clients found." : "No clients found."}
+          </div>
         )}
       </div>
     </div>

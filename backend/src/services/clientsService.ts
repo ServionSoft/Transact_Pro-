@@ -138,7 +138,7 @@ async function resolveCreatedByUserId(pool: Pool, raw: number | undefined): Prom
   return rows.length ? candidate : null;
 }
 
-export async function listClients(pool: Pool): Promise<ClientApiRow[]> {
+export async function listClients(pool: Pool, archived = false): Promise<ClientApiRow[]> {
   const { rows } = await pool.query<ClientDbRow>(
     `SELECT
        c.id::text,
@@ -157,7 +157,7 @@ export async function listClients(pool: Pool): Promise<ClientApiRow[]> {
        COUNT(p.id)::int AS project_count
      FROM public.clients c
      LEFT JOIN public.projects p ON p.client_id = c.id
-     WHERE c.deleted_at IS NULL
+     WHERE ${archived ? "c.deleted_at IS NOT NULL" : "c.deleted_at IS NULL"}
      GROUP BY c.id
      ORDER BY c.name ASC
      LIMIT 1000`
@@ -311,6 +311,27 @@ export async function archiveClient(
   );
   if (!rowCount) {
     return { error: { status: 404, code: "CLIENT_NOT_FOUND", message: "Client not found." } };
+  }
+  return { ok: true };
+}
+
+export async function unarchiveClient(
+  pool: Pool,
+  id: string
+): Promise<{ ok: true } | { error: ServiceError }> {
+  if (!/^\d+$/.test(id)) {
+    return { error: { status: 404, code: "CLIENT_NOT_FOUND", message: "Client not found." } };
+  }
+  const { rowCount } = await pool.query(
+    `UPDATE public.clients
+     SET deleted_at = NULL,
+         updated_at = now()
+     WHERE id = $1::bigint
+       AND deleted_at IS NOT NULL`,
+    [id]
+  );
+  if (!rowCount) {
+    return { error: { status: 404, code: "CLIENT_NOT_FOUND", message: "Archived client not found." } };
   }
   return { ok: true };
 }

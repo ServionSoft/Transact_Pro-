@@ -90,9 +90,10 @@ async function apiCall(url: string, init?: RequestInit): Promise<unknown> {
   return json;
 }
 
-export async function listClientsFromApi(): Promise<Client[]> {
+export async function listClientsFromApi(options?: { archived?: boolean }): Promise<Client[]> {
   const base = requireBase();
-  const json = await apiCall(`${base.replace(/\/+$/, "")}/api/clients`);
+  const qs = options?.archived ? "?archived=true" : "";
+  const json = await apiCall(`${base.replace(/\/+$/, "")}/api/clients${qs}`);
   const clients = (json as { data?: { clients?: unknown } }).data?.clients;
   if (!Array.isArray(clients)) return [];
   return clients.map((c) => mapClient(c as ClientApiPayload));
@@ -139,6 +140,13 @@ export async function updateClientApi(id: string, body: ClientUpsertBody): Promi
 export async function archiveClientApi(id: string): Promise<void> {
   const base = requireBase();
   await apiCall(`${base.replace(/\/+$/, "")}/api/clients/${encodeURIComponent(id)}/archive`, {
+    method: "PATCH",
+  });
+}
+
+export async function unarchiveClientApi(id: string): Promise<void> {
+  const base = requireBase();
+  await apiCall(`${base.replace(/\/+$/, "")}/api/clients/${encodeURIComponent(id)}/unarchive`, {
     method: "PATCH",
   });
 }
