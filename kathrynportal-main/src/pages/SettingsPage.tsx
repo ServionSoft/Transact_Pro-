@@ -22,6 +22,7 @@ import { motion } from "framer-motion";
 export default function SettingsPage() {
   const location = useLocation();
   const navigate = useNavigate();
+  const user = useAuthStore((s) => s.user);
   const canManageRoles = useAuthStore(
     (s) =>
       s.user?.role === "super_admin" ||
@@ -152,6 +153,11 @@ export default function SettingsPage() {
   };
 
   const categories = ["Agent Email", "Client Reminder", "Document Request"];
+  const permissionProfileLabel = user?.roleProfileName?.trim()
+    ? user.roleProfileName
+    : user?.role === "super_admin"
+      ? "Super Admin (built-in)"
+      : "No profile assigned";
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
@@ -403,25 +409,25 @@ export default function SettingsPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground">Full Name</label>
-                <Input defaultValue="Kathryn Santos" />
+                <Input value={user?.name ?? ""} readOnly />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground">Email</label>
-                <Input defaultValue="kathryn@portal.com" />
+                <Input value={user?.email ?? ""} readOnly />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Phone</label>
-                <Input defaultValue="(555) 123-4567" />
+                <label className="text-sm font-medium text-foreground">Designation</label>
+                <Input value={user?.designation ?? "—"} readOnly />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Company</label>
-                <Input defaultValue="Kathryn Santos TC Services" />
+                <label className="text-sm font-medium text-foreground">Permission Profile</label>
+                <Input value={permissionProfileLabel} readOnly />
               </div>
             </div>
             <div className="flex justify-end mt-4">
-              <Button onClick={() => toast.success("Profile updated!")} className="gap-2">
-                <Save className="w-4 h-4" /> Save Changes
-              </Button>
+              <p className="text-xs text-muted-foreground">
+                Profile data is loaded from your signed-in account.
+              </p>
             </div>
           </div>
 

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { reminderDrafts } from "@/data/mockData";
 import { useAuthStore } from "@/store/authStore";
+import { hasPermission } from "@/lib/permissions";
 
 export default function AppSidebar() {
   const [collapsed, setCollapsed] = useState(false);
@@ -19,9 +20,15 @@ export default function AppSidebar() {
 
   const navItems = [
     { to: "/", icon: LayoutDashboard, label: "Dashboard", badge: 0 },
-    { to: "/clients", icon: Users, label: "Clients", badge: 0 },
-    { to: "/projects", icon: FolderKanban, label: "Projects", badge: 0 },
-    { to: "/documents", icon: Files, label: "Documents", badge: 0 },
+    ...(hasPermission(user, "clients.view")
+      ? [{ to: "/clients", icon: Users, label: "Clients", badge: 0 }]
+      : []),
+    ...(hasPermission(user, "projects.view")
+      ? [{ to: "/projects", icon: FolderKanban, label: "Projects", badge: 0 }]
+      : []),
+    ...(hasPermission(user, "documents.view")
+      ? [{ to: "/documents", icon: Files, label: "Documents", badge: 0 }]
+      : []),
     { to: "/tasks", icon: CheckSquare, label: "Tasks", badge: overdueCount },
     { to: "/calendar", icon: Calendar, label: "Calendar", badge: draftsCount },
     { to: "/email", icon: Mail, label: "Email", badge: unreadEmail },

@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { DOC_STATUS_PRESETS } from "@/data/mockData";
 import type { DocumentStatus, FileAttachment } from "@/data/mockData";
 import { useAppStore } from "@/store/appStore";
+import { useAuthStore } from "@/store/authStore";
 import { getApiBaseUrl } from "@/lib/apiConfig";
 import {
   listProjectStoredFiles,
@@ -24,6 +25,7 @@ import {
   deleteProjectFileFolder,
   patchProjectStoredFileFolder,
   createProjectFileFolder,
+  ApiRequestError,
 } from "@/api/storedFiles";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -32,6 +34,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { hasPermission } from "@/lib/permissions";
 
 export type TransactionDocumentsView = "checklist-only" | "pool-only" | "full";
 
@@ -59,6 +62,7 @@ export default function TransactionDocumentsWorkspace({
 }: TransactionDocumentsWorkspaceProps) {
   const project = useAppStore((s) => s.projects.find((p) => p.id === projectId));
   const client = useAppStore((s) => s.clients.find((c) => c.id === project?.clientId));
+  const user = useAuthStore((s) => s.user);
 
   const setDocStatusStore = useAppStore((s) => s.setDocStatus);
   const bulkSetDocStatusStore = useAppStore((s) => s.bulkSetDocStatus);
@@ -92,6 +96,14 @@ export default function TransactionDocumentsWorkspace({
   const [docuSignOpen, setDocuSignOpen] = useState(false);
   const [docuSignDocs, setDocuSignDocs] = useState<DocRow[]>([]);
   const [docuSignRecipient, setDocuSignRecipient] = useState("");
+  const [poolAccessDenied, setPoolAccessDenied] = useState(false);
+  const canViewDocs = hasPermission(user, "documents.view");
+  const canUploadDocs = hasPermission(user, "documents.upload");
+  const canMoveDocs = hasPermission(user, "documents.move");
+  const canDeleteDocs = hasPermission(user, "documents.delete");
+  const canDownloadDocs = hasPermission(user, "documents.download");
+  const canCreateFolders = hasPermission(user, "documents.folders.create");
+  const canDeleteFolders = hasPermission(user, "documents.folders.delete");
 
   const docs: DocRow[] = useMemo(
     () =>
@@ -122,6 +134,10 @@ export default function TransactionDocumentsWorkspace({
   const attachTargetDoc = useMemo(() => docs.find((d) => d.id === attachDocId), [docs, attachDocId]);
 
   const downloadPoolFile = useCallback((file: FileAttachment) => {
+    if (!canDownloadDocs) {
+      toast.error("You do not have permission to download files.");
+      return;
+    }
     if (file.localObjectUrl) {
       const a = document.createElement("a");
       a.href = file.localObjectUrl;
@@ -141,7 +157,7 @@ export default function TransactionDocumentsWorkspace({
     toast.message("Demo file", {
       description: "This file is seed data only until the server stores binaries.",
     });
-  }, []);
+  }, [canDownloadDocs]);
 
   const showChecklist = view !== "pool-only";
   const showPool = view !== "checklist-only";
@@ -154,13 +170,20 @@ export default function TransactionDocumentsWorkspace({
       try {
         const { attachments, fileFolders } = await listProjectStoredFiles(projectId);
         if (!cancelled) {
+          setPoolAccessDenied(false);
           hydrateProjectFilePoolStore(projectId, { attachments, fileFolders });
         }
-      } catch {
+      } catch (err) {
         if (!cancelled) {
-          toast.message("Could not load file pool from server", {
-            description: "Using in-app data until the API is reachable.",
-          });
+          if (err instanceof ApiRequestError && err.status === 403) {
+            setPoolAccessDenied(true);
+            toast.error("You do not have permission to view documents.");
+          } else {
+            setPoolAccessDenied(false);
+            toast.message("Could not load file pool from server", {
+              description: "Using in-app data until the API is reachable.",
+            });
+          }
         }
       }
     })();
@@ -220,6 +243,10 @@ export default function TransactionDocumentsWorkspace({
   };
 
   const handleDeleteFolder = async (folder: { id: string; name: string }) => {
+    if (!canDeleteFolders) {
+      toast.error("You do not have permission to delete folders.");
+      return;
+    }
     if (
       !window.confirm(
         `Delete folder “${folder.name}”? It must be empty (no files, no subfolders).`
@@ -247,6 +274,10 @@ export default function TransactionDocumentsWorkspace({
   };
 
   const addFolder = async () => {
+    if (!canCreateFolders) {
+      toast.error("You do not have permission to create folders.");
+      return;
+    }
     if (!newFolderName.trim()) return;
     const name = newFolderName.trim();
     const parentId = newFolderParentId;
@@ -272,9 +303,19 @@ export default function TransactionDocumentsWorkspace({
     }
   };
 
-  const triggerPoolUpload = () => poolFileInputRef.current?.click();
+  const triggerPoolUpload = () => {
+    if (!canUploadDocs) {
+      toast.error("You do not have permission to upload files.");
+      return;
+    }
+    poolFileInputRef.current?.click();
+  };
 
   const runPoolUpload = async (file: File) => {
+    if (!canUploadDocs) {
+      toast.error("You do not have permission to upload files.");
+      return;
+    }
     const targetFolder =
       storageScope === "all" || storageScope === "inbox" ? null : storageScope;
     if (getApiBaseUrl()) {
@@ -317,6 +358,10 @@ export default function TransactionDocumentsWorkspace({
   };
 
   const movePoolFileToFolder = async (file: FileAttachment, folderId: string | null) => {
+    if (!canMoveDocs) {
+      toast.error("You do not have permission to move files.");
+      return;
+    }
     if (file.serverBacked && getApiBaseUrl()) {
       try {
         await patchProjectStoredFileFolder(project.id, file.id, folderId);
@@ -331,6 +376,10 @@ export default function TransactionDocumentsWorkspace({
   };
 
   const removePoolFile = async (file: FileAttachment) => {
+    if (!canDeleteDocs) {
+      toast.error("You do not have permission to delete files.");
+      return;
+    }
     const linked = project.documents.some((d) => (d.attachedFileIds ?? []).includes(file.id));
     if (linked) {
       toast.error("Unlink this file from the checklist before deleting it from the pool.");
@@ -360,6 +409,10 @@ export default function TransactionDocumentsWorkspace({
   };
 
   const openChecklistFilePicker = (docId: string) => {
+    if (!canUploadDocs) {
+      toast.error("You do not have permission to upload files.");
+      return;
+    }
     checklistUploadDocIdRef.current = docId;
     checklistFileInputRef.current?.click();
   };
@@ -440,6 +493,13 @@ export default function TransactionDocumentsWorkspace({
       : "All pool files are already linked, or the pool is empty. Upload on the Stored Documents tab first.";
 
   const poolSection = (
+    poolAccessDenied || !canViewDocs ? (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-card border border-border rounded-lg p-6">
+        <p className="text-sm text-muted-foreground">
+          You do not have permission to view this file pool.
+        </p>
+      </motion.div>
+    ) : (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-card border border-border rounded-lg overflow-hidden">
       <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] min-h-[360px]">
         <div className="border-r border-border bg-secondary/20 p-3 flex flex-col">
@@ -481,8 +541,9 @@ export default function TransactionDocumentsWorkspace({
                       type="button"
                       variant="ghost"
                       size="sm"
+                      disabled={!canDeleteFolders}
                       className="h-7 w-7 shrink-0 p-0 text-muted-foreground hover:text-destructive"
-                      title="Delete folder"
+                      title={canDeleteFolders ? "Delete folder" : "No permission to delete folders"}
                       onClick={(e) => {
                         e.stopPropagation();
                         void handleDeleteFolder(folder);
@@ -508,8 +569,9 @@ export default function TransactionDocumentsWorkspace({
                           type="button"
                           variant="ghost"
                           size="sm"
+                          disabled={!canDeleteFolders}
                           className="h-7 w-7 shrink-0 p-0 text-muted-foreground hover:text-destructive"
-                          title="Delete folder"
+                          title={canDeleteFolders ? "Delete folder" : "No permission to delete folders"}
                           onClick={(e) => {
                             e.stopPropagation();
                             void handleDeleteFolder(sub);
@@ -534,7 +596,7 @@ export default function TransactionDocumentsWorkspace({
                     className="h-7 text-xs"
                     autoFocus
                   />
-                  <Button size="sm" onClick={addFolder} className="h-7 px-2 text-xs shrink-0">
+                  <Button size="sm" onClick={addFolder} className="h-7 px-2 text-xs shrink-0" disabled={!canCreateFolders}>
                     Add
                   </Button>
                   <Button
@@ -552,11 +614,13 @@ export default function TransactionDocumentsWorkspace({
               <button
                 type="button"
                 onClick={() => {
+                  if (!canCreateFolders) return;
                   setShowNewFolder(true);
                   setNewFolderParentId(
                     storageScope === "all" || storageScope === "inbox" ? null : storageScope
                   );
                 }}
+                disabled={!canCreateFolders}
                 className="w-full text-left px-2 py-1.5 rounded text-xs text-muted-foreground hover:bg-muted hover:text-foreground mt-2 flex items-center gap-1"
               >
                 <Plus className="w-3 h-3" /> New folder
@@ -568,7 +632,7 @@ export default function TransactionDocumentsWorkspace({
         <div
           className="p-4 border-2 border-dashed border-transparent rounded-lg m-2 transition-colors hover:border-border/80"
           onDragOver={(e) => e.preventDefault()}
-          onDrop={onPoolDrop}
+          onDrop={canUploadDocs ? onPoolDrop : undefined}
         >
           <input
             ref={poolFileInputRef}
@@ -586,7 +650,7 @@ export default function TransactionDocumentsWorkspace({
                   : folders.find((f) => f.id === storageScope)?.name ?? "Folder"}{" "}
               · {filteredPoolFiles.length} shown
             </h3>
-            <Button size="sm" className="gap-1" type="button" onClick={triggerPoolUpload}>
+            <Button size="sm" className="gap-1" type="button" onClick={triggerPoolUpload} disabled={!canUploadDocs}>
               <Upload className="w-3 h-3" /> Upload
             </Button>
           </div>
@@ -616,6 +680,7 @@ export default function TransactionDocumentsWorkspace({
                     onValueChange={(v) => {
                       void movePoolFileToFolder(file, v === "__inbox__" ? null : v);
                     }}
+                    disabled={!canMoveDocs}
                   >
                     <SelectTrigger className="h-7 w-[140px] text-xs shrink-0">
                       <SelectValue placeholder="Folder" />
@@ -648,6 +713,7 @@ export default function TransactionDocumentsWorkspace({
                   <Button
                     variant="ghost"
                     size="sm"
+                    disabled={!canDownloadDocs}
                     className="h-7 w-7 p-0"
                     type="button"
                     onClick={() => downloadPoolFile(file)}
@@ -658,6 +724,7 @@ export default function TransactionDocumentsWorkspace({
                   <Button
                     variant="ghost"
                     size="sm"
+                    disabled={!canDeleteDocs}
                     className="h-7 w-7 p-0 text-destructive"
                     type="button"
                     onClick={() => removePoolFile(file)}
@@ -677,6 +744,7 @@ export default function TransactionDocumentsWorkspace({
         </div>
       </div>
     </motion.div>
+    )
   );
 
   const checklistSection = (
@@ -830,6 +898,7 @@ export default function TransactionDocumentsWorkspace({
                     <Button
                       variant="ghost"
                       size="sm"
+                      disabled={!canUploadDocs}
                       className="h-7 w-7 p-0"
                       type="button"
                       onClick={() => openChecklistFilePicker(doc.id)}
@@ -845,7 +914,7 @@ export default function TransactionDocumentsWorkspace({
                       className="h-7 w-7 p-0"
                       type="button"
                       onClick={() => downloadDocFirst(doc)}
-                      disabled={doc.attachedFileIds.length === 0}
+                      disabled={!canDownloadDocs || doc.attachedFileIds.length === 0}
                       title="Download first linked file"
                     >
                       <Download className="w-3.5 h-3.5" />
@@ -946,6 +1015,7 @@ export default function TransactionDocumentsWorkspace({
         type="file"
         accept={POOL_ACCEPT}
         className="hidden"
+        disabled={!canUploadDocs}
         onChange={onChecklistFilesPicked}
       />
 

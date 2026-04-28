@@ -188,7 +188,11 @@ export function requireProjectAccess(pool: Pool | null) {
       sendAuthError(res, 404, "NOT_FOUND", "Unknown project id.");
       return;
     }
-    if (user.role === "super_admin" || user.permissions.includes("projects.view_all")) {
+    if (
+      user.role === "super_admin" ||
+      user.permissions.includes("project_access.global") ||
+      user.permissions.includes("projects.view_all")
+    ) {
       next();
       return;
     }

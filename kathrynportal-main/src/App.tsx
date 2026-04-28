@@ -44,14 +44,70 @@ const App = () => (
             }
           >
             <Route path="/" element={<DashboardPage />} />
-            <Route path="/clients" element={<ClientsPage />} />
-            <Route path="/clients/new" element={<AddClientPage />} />
-            <Route path="/clients/:id" element={<ClientDetailPage />} />
-            <Route path="/clients/:id/edit" element={<EditClientPage />} />
-            <Route path="/projects" element={<ProjectsPage />} />
-            <Route path="/projects/new" element={<AddProjectPage />} />
-            <Route path="/projects/:id" element={<ProjectDetailPage />} />
-            <Route path="/documents" element={<DocumentsPage />} />
+            <Route
+              path="/clients"
+              element={
+                <PermissionRoute permission="clients.view">
+                  <ClientsPage />
+                </PermissionRoute>
+              }
+            />
+            <Route
+              path="/clients/new"
+              element={
+                <PermissionRoute permission="clients.create">
+                  <AddClientPage />
+                </PermissionRoute>
+              }
+            />
+            <Route
+              path="/clients/:id"
+              element={
+                <PermissionRoute permission="clients.view">
+                  <ClientDetailPage />
+                </PermissionRoute>
+              }
+            />
+            <Route
+              path="/clients/:id/edit"
+              element={
+                <PermissionRoute permission="clients.edit">
+                  <EditClientPage />
+                </PermissionRoute>
+              }
+            />
+            <Route
+              path="/projects"
+              element={
+                <PermissionRoute permission="projects.view">
+                  <ProjectsPage />
+                </PermissionRoute>
+              }
+            />
+            <Route
+              path="/projects/new"
+              element={
+                <PermissionRoute permission="projects.create">
+                  <AddProjectPage />
+                </PermissionRoute>
+              }
+            />
+            <Route
+              path="/projects/:id"
+              element={
+                <PermissionRoute permission="projects.view">
+                  <ProjectDetailPage />
+                </PermissionRoute>
+              }
+            />
+            <Route
+              path="/documents"
+              element={
+                <PermissionRoute permission="documents.view">
+                  <DocumentsPage />
+                </PermissionRoute>
+              }
+            />
             <Route path="/tasks" element={<TasksPage />} />
             <Route path="/calendar" element={<CalendarPage />} />
             <Route path="/email" element={<EmailPage />} />

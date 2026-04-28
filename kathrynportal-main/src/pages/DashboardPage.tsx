@@ -2,11 +2,13 @@ import { Link } from "react-router-dom";
 import { ArrowRight, Clock, AlertTriangle, CheckCircle2, FolderKanban, Users, Calendar as CalendarIcon } from "lucide-react";
 import { isTransactionProject, projectTypeLabel } from "@/data/mockData";
 import { useAppStore } from "@/store/appStore";
+import { useAuthStore } from "@/store/authStore";
 import PageHeader from "@/components/shared/PageHeader";
 import StatusBadge from "@/components/shared/StatusBadge";
 import { motion } from "framer-motion";
 
 export default function DashboardPage() {
+  const user = useAuthStore((s) => s.user);
   const projects = useAppStore(s => s.projects);
   const transactionProjects = projects.filter(isTransactionProject);
   const clients = useAppStore(s => s.clients);
@@ -34,9 +36,12 @@ export default function DashboardPage() {
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
     .slice(0, 5);
 
+  const displayName = user?.name?.trim() || "there";
+  const firstName = displayName.split(/\s+/)[0] || displayName;
+
   return (
     <div className="p-8 max-w-7xl mx-auto">
-      <PageHeader title="Good morning, Kathryn" subtitle="Here's what needs your attention today." />
+      <PageHeader title={`Good morning, ${firstName}`} subtitle="Here's what needs your attention today." />
 
       {/* Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
