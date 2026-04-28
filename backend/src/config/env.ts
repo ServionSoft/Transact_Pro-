@@ -17,6 +17,14 @@ export type AppConfig = {
   uploadDir: string;
   /** Optional `users.id` for `uploaded_by_user_id` until auth is wired */
   defaultUploadUserId: number | undefined;
+  jwtAccessSecret: string | undefined;
+  jwtRefreshSecret: string | undefined;
+  accessTokenTtl: string;
+  refreshTokenTtl: string;
+  /** Base URL of the SPA (for invite links), e.g. http://localhost:8080 */
+  publicAppUrl: string;
+  /** Hours until invite token expires */
+  inviteTtlHours: number;
 };
 
 export function loadConfig(): AppConfig {
@@ -40,6 +48,15 @@ export function loadConfig(): AppConfig {
     defaultUploadRaw && /^\d+$/.test(defaultUploadRaw)
       ? Number(defaultUploadRaw)
       : undefined;
+  const jwtAccessSecret = process.env.JWT_ACCESS_SECRET?.trim() || undefined;
+  const jwtRefreshSecret = process.env.JWT_REFRESH_SECRET?.trim() || undefined;
+  const accessTokenTtl = process.env.ACCESS_TOKEN_TTL?.trim() || "15m";
+  const refreshTokenTtl = process.env.REFRESH_TOKEN_TTL?.trim() || "7d";
+  const publicAppUrl =
+    process.env.PUBLIC_APP_URL?.trim() ||
+    process.env.FRONTEND_APP_URL?.trim() ||
+    "http://localhost:8080";
+  const inviteTtlHours = Math.max(1, Number(process.env.INVITE_TTL_HOURS) || 168);
 
   return {
     port,
@@ -50,5 +67,11 @@ export function loadConfig(): AppConfig {
     crmVaultSlug,
     uploadDir,
     defaultUploadUserId,
+    jwtAccessSecret,
+    jwtRefreshSecret,
+    accessTokenTtl,
+    refreshTokenTtl,
+    publicAppUrl,
+    inviteTtlHours,
   };
 }

@@ -4,6 +4,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import AppLayout from "@/components/layout/AppLayout";
+import ProtectedRoute from "@/components/auth/ProtectedRoute";
+import PermissionRoute from "@/components/auth/PermissionRoute";
 import DashboardPage from "@/pages/DashboardPage";
 import ClientsPage from "@/pages/ClientsPage";
 import ClientDetailPage from "@/pages/ClientDetailPage";
@@ -16,7 +18,11 @@ import CalendarPage from "@/pages/CalendarPage";
 import TasksPage from "@/pages/TasksPage";
 import EmailPage from "@/pages/EmailPage";
 import SettingsPage from "@/pages/SettingsPage";
+import TeamMemberFormPage from "@/pages/TeamMemberFormPage";
+import TeamMemberEditPage from "@/pages/TeamMemberEditPage";
+import AcceptInvitePage from "@/pages/AcceptInvitePage";
 import DocumentsPage from "@/pages/DocumentsPage";
+import LoginPage from "@/pages/LoginPage";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -28,7 +34,15 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
-          <Route element={<AppLayout />}>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/accept-invite" element={<AcceptInvitePage />} />
+          <Route
+            element={
+              <ProtectedRoute>
+                <AppLayout />
+              </ProtectedRoute>
+            }
+          >
             <Route path="/" element={<DashboardPage />} />
             <Route path="/clients" element={<ClientsPage />} />
             <Route path="/clients/new" element={<AddClientPage />} />
@@ -41,7 +55,30 @@ const App = () => (
             <Route path="/tasks" element={<TasksPage />} />
             <Route path="/calendar" element={<CalendarPage />} />
             <Route path="/email" element={<EmailPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
+            <Route
+              path="/settings"
+              element={
+                <PermissionRoute permission="settings.access">
+                  <SettingsPage />
+                </PermissionRoute>
+              }
+            />
+            <Route
+              path="/settings/team-members/new"
+              element={
+                <PermissionRoute permission="settings.access">
+                  <TeamMemberFormPage />
+                </PermissionRoute>
+              }
+            />
+            <Route
+              path="/settings/team-members/:id/edit"
+              element={
+                <PermissionRoute permission="settings.access">
+                  <TeamMemberEditPage />
+                </PermissionRoute>
+              }
+            />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>

@@ -16,6 +16,7 @@
 
 import { getApiBaseUrl } from "@/lib/apiConfig";
 import type { FileAttachment, ProjectFolder } from "@/data/mockData";
+import { authFetch } from "@/lib/authFetch";
 
 export class ApiRequestError extends Error {
   constructor(
@@ -53,7 +54,7 @@ async function parseJsonSafe(res: Response): Promise<unknown> {
 async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   const base = requireBase();
   const url = `${base}${path.startsWith("/") ? path : `/${path}`}`;
-  const res = await fetch(url, init);
+  const res = await authFetch(url, init);
   return res;
 }
 

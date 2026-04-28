@@ -220,10 +220,12 @@ export interface TeamMember {
   id: string;
   name: string;
   email: string;
-  role: "Admin" | "Coordinator" | "Viewer";
+  role: "Admin" | "Coordinator" | "Viewer" | "Super Admin";
   status: "Active" | "Invited" | "Inactive";
   joinedAt: string;
   lastActive: string;
+  /** Permission profile name when using API-backed team list. */
+  permissionProfile?: string | null;
 }
 
 export interface DocumentRule {

@@ -1,15 +1,18 @@
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createClientApi, type ClientUpsertBody } from "@/api/clients";
 import ClientForm, { type ClientFormValues } from "@/components/clients/ClientForm";
 import PageHeader from "@/components/shared/PageHeader";
 import { toast } from "sonner";
 import { useAppStore } from "@/store/appStore";
 import { getApiBaseUrl } from "@/lib/apiConfig";
+import { hasPermission } from "@/lib/permissions";
+import { useAuthStore } from "@/store/authStore";
 
 export default function AddClientPage() {
   const navigate = useNavigate();
+  const user = useAuthStore((s) => s.user);
   const addClient = useAppStore((s) => s.addClient);
   const upsertClient = useAppStore((s) => s.upsertClient);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -27,8 +30,21 @@ export default function AddClientPage() {
     status: "Active",
   });
 
+  useEffect(() => {
+    if (!getApiBaseUrl()) return;
+    if (!hasPermission(user, "clients.create")) {
+      toast.error("You do not have permission to create clients.");
+      navigate("/clients", { replace: true });
+    }
+  }, [user, navigate]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (getApiBaseUrl() && !hasPermission(user, "clients.create")) {
+      toast.error("You do not have permission to create clients.");
+      navigate("/clients");
+      return;
+    }
     if (!form.name.trim() || !form.email.trim()) {
       toast.error("Name and email are required.");
       return;

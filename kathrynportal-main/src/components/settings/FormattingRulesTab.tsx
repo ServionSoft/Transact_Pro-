@@ -31,6 +31,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
+import { useAuthStore } from "@/store/authStore";
 
 const triggerFieldOptions: { value: RuleTriggerField; label: string; values: string[] }[] = [
   { value: "transactionType", label: "Transaction Type", values: ["Listing", "Buyer File"] },
@@ -110,6 +111,14 @@ const blankForm = (kind: RuleKind = "conditional"): FormState => ({
 });
 
 export default function FormattingRulesTab() {
+  const canManageRules = useAuthStore(
+    (s) =>
+      s.user?.role === "super_admin" ||
+      Boolean(s.user?.permissions?.includes("document_rules.create")) ||
+      Boolean(s.user?.permissions?.includes("document_rules.edit")) ||
+      Boolean(s.user?.permissions?.includes("document_rules.delete")) ||
+      Boolean(s.user?.permissions?.includes("document_rules.toggle_active"))
+  );
   const crmVaultAttachments = useAppStore(
     (s) => s.projects.find((p) => p.id === CRM_DOCUMENT_VAULT_PROJECT_ID)?.attachments ?? []
   );
@@ -476,14 +485,17 @@ export default function FormattingRulesTab() {
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <Button variant="outline" onClick={() => openCreate("standard")} className="gap-2">
+          <Button variant="outline" onClick={() => openCreate("standard")} className="gap-2" disabled={!canManageRules}>
             <Layers className="w-4 h-4" /> New Standard
           </Button>
-          <Button onClick={() => openCreate("conditional")} className="gap-2">
+          <Button onClick={() => openCreate("conditional")} className="gap-2" disabled={!canManageRules}>
             <Sparkles className="w-4 h-4" /> New Conditional
           </Button>
         </div>
       </div>
+      {!canManageRules && (
+        <p className="text-xs text-muted-foreground mb-3">You can view rules, but only admins can create, edit, delete, or toggle status.</p>
+      )}
 
       <Tabs value={filter} onValueChange={(v) => setFilter(v as typeof filter)} className="mb-4">
         <TabsList>
@@ -536,13 +548,18 @@ export default function FormattingRulesTab() {
                 </div>
               </div>
               <div className="flex items-center gap-1 shrink-0">
-                <button type="button" onClick={() => void toggleRule(rule.id)} className="p-1.5 rounded-md hover:bg-secondary transition-colors">
+                <button
+                  type="button"
+                  onClick={() => void toggleRule(rule.id)}
+                  className="p-1.5 rounded-md hover:bg-secondary transition-colors disabled:opacity-50"
+                  disabled={!canManageRules}
+                >
                   {rule.isActive
                     ? <ToggleRight className="w-5 h-5 text-success" />
                     : <ToggleLeft className="w-5 h-5 text-muted-foreground" />}
                 </button>
-                <Button variant="ghost" size="sm" onClick={() => openEdit(rule)}><Edit className="w-3.5 h-3.5" /></Button>
-                <Button variant="ghost" size="sm" onClick={() => void deleteRule(rule.id)} className="text-destructive hover:text-destructive">
+                <Button variant="ghost" size="sm" onClick={() => openEdit(rule)} disabled={!canManageRules}><Edit className="w-3.5 h-3.5" /></Button>
+                <Button variant="ghost" size="sm" onClick={() => void deleteRule(rule.id)} className="text-destructive hover:text-destructive" disabled={!canManageRules}>
                   <Trash2 className="w-3.5 h-3.5" />
                 </Button>
               </div>

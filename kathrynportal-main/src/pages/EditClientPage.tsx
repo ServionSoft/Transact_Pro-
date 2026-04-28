@@ -6,7 +6,9 @@ import { getClientFromApi, updateClientApi, type ClientUpsertBody } from "@/api/
 import ClientForm, { type ClientFormValues } from "@/components/clients/ClientForm";
 import PageHeader from "@/components/shared/PageHeader";
 import { getApiBaseUrl } from "@/lib/apiConfig";
+import { hasPermission } from "@/lib/permissions";
 import { useAppStore } from "@/store/appStore";
+import { useAuthStore } from "@/store/authStore";
 
 function toFormValues(client: {
   name: string;
@@ -39,6 +41,7 @@ function toFormValues(client: {
 export default function EditClientPage() {
   const navigate = useNavigate();
   const { id } = useParams();
+  const user = useAuthStore((s) => s.user);
   const storeClient = useAppStore((s) => s.clients.find((c) => c.id === id));
   const updateClientLocal = useAppStore((s) => s.updateClient);
   const upsertClient = useAppStore((s) => s.upsertClient);
@@ -64,7 +67,13 @@ export default function EditClientPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    if (!id || !getApiBaseUrl() || storeClient) return;
+    if (!id || !getApiBaseUrl()) return;
+    if (!hasPermission(user, "clients.edit")) {
+      toast.error("You do not have permission to edit clients.");
+      navigate(`/clients/${id}`, { replace: true });
+      return;
+    }
+    if (storeClient) return;
     let cancelled = false;
     setLoading(true);
     void (async () => {
@@ -85,7 +94,7 @@ export default function EditClientPage() {
     return () => {
       cancelled = true;
     };
-  }, [id, storeClient, upsertClient]);
+  }, [id, storeClient, upsertClient, user, navigate]);
 
   if (!id) {
     return (
@@ -97,6 +106,11 @@ export default function EditClientPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (getApiBaseUrl() && !hasPermission(user, "clients.edit")) {
+      toast.error("You do not have permission to edit clients.");
+      navigate(`/clients/${id}`);
+      return;
+    }
     if (!form.name.trim() || !form.email.trim()) {
       toast.error("Name and email are required.");
       return;

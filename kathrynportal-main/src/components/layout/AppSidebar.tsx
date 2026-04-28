@@ -1,12 +1,16 @@
-import { NavLink, useLocation } from "react-router-dom";
-import { LayoutDashboard, Users, FolderKanban, Files, Calendar, Mail, Settings, ChevronLeft, ChevronRight, CheckSquare } from "lucide-react";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { LayoutDashboard, Users, FolderKanban, Files, Calendar, Mail, Settings, ChevronLeft, ChevronRight, CheckSquare, LogOut } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { reminderDrafts } from "@/data/mockData";
+import { useAuthStore } from "@/store/authStore";
 
 export default function AppSidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
+  const logout = useAuthStore((s) => s.logout);
+  const user = useAuthStore((s) => s.user);
 
   // Mock derived counts (in a real backend these would come from queries)
   const overdueCount = 3;
@@ -23,6 +27,11 @@ export default function AppSidebar() {
     { to: "/email", icon: Mail, label: "Email", badge: unreadEmail },
     { to: "/settings", icon: Settings, label: "Settings", badge: 0 },
   ];
+
+  const handleLogout = async () => {
+    await logout();
+    navigate("/login", { replace: true });
+  };
 
   return (
     <aside
@@ -86,13 +95,34 @@ export default function AppSidebar() {
         })}
       </nav>
 
-      <div className="px-3 py-4 border-t border-sidebar-border">
+      <div className="px-3 py-4 border-t border-sidebar-border space-y-1">
+        {!collapsed && user && (
+          <div className="px-3 pb-2 text-xs text-sidebar-muted">
+            <p className="truncate text-sidebar-foreground">{user.name}</p>
+            {user.designation ? <p className="truncate text-sidebar-foreground/90">{user.designation}</p> : null}
+            {user.roleProfileName ? (
+              <>
+                <p className="truncate text-sidebar-foreground/80">{user.roleProfileName}</p>
+                <p className="truncate capitalize text-sidebar-muted">{user.role.replace("_", " ")}</p>
+              </>
+            ) : (
+              <p className="truncate capitalize">{user.role.replace("_", " ")}</p>
+            )}
+          </div>
+        )}
         <button
           onClick={() => setCollapsed(!collapsed)}
           className="flex items-center gap-3 px-3 py-2 rounded-lg text-sidebar-muted hover:text-sidebar-foreground hover:bg-sidebar-accent/50 transition-all w-full text-sm"
         >
           {collapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
           {!collapsed && <span>Collapse</span>}
+        </button>
+        <button
+          onClick={() => void handleLogout()}
+          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sidebar-muted hover:text-sidebar-foreground hover:bg-sidebar-accent/50 transition-all w-full text-sm"
+        >
+          <LogOut className="w-5 h-5" />
+          {!collapsed && <span>Logout</span>}
         </button>
       </div>
     </aside>

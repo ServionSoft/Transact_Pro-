@@ -9,18 +9,23 @@
     "start": "node dist/index.js",
     "db:migrate": "tsx db/migrate.ts",
     "db:migrate:generate": "tsx db/extractMigrationsFromSchemaLive.ts",
-    "db:seed:document-rules": "tsx scripts/seedDocumentRules.ts"
+    "db:seed:document-rules": "tsx scripts/seedDocumentRules.ts",
+    "db:seed:admin-user": "tsx scripts/seedAdminUser.ts"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.2",
     "pg": "^8.13.1"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^1.4.12",
     "@types/node": "^22.16.5",
     "@types/pg": "^8.11.10",

@@ -1,8 +1,14 @@
-import { useState } from "react";
-import { Plus, Edit, Trash2, Save, X, Users, Mail as MailIcon, UserPlus, Shield, FileText } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import type { LucideIcon } from "lucide-react";
+import { Plus, Edit, Trash2, Save, X, Users, Mail as MailIcon, UserPlus, Shield, FileText, Tags } from "lucide-react";
 import { teamMembers as initialTeam, type EmailTemplate, type TeamMember } from "@/data/mockData";
+import { getApiBaseUrl } from "@/lib/apiConfig";
+import { listTeamMembersFromApi, type TeamMemberListItem } from "@/api/teamMembers";
+import { useAuthStore } from "@/store/authStore";
 import { useAppStore } from "@/store/appStore";
 import FormattingRulesTabComponent from "@/components/settings/FormattingRulesTab";
+import RoleProfilesTabComponent from "@/components/settings/RoleProfilesTab";
 import PageHeader from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,15 +19,45 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 
-const settingsTabs = [
-  { id: "templates", label: "Email Templates", icon: MailIcon },
-  { id: "team", label: "Team Members", icon: Users },
-  { id: "formatting", label: "Document Rules", icon: FileText },
-  { id: "account", label: "Account", icon: Shield },
-];
-
 export default function SettingsPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const canManageRoles = useAuthStore(
+    (s) =>
+      s.user?.role === "super_admin" ||
+      (s.user?.permissions?.includes("role_profiles.create") ?? false) ||
+      (s.user?.permissions?.includes("role_profiles.edit") ?? false) ||
+      (s.user?.permissions?.includes("role_profiles.delete") ?? false) ||
+      (s.user?.permissions?.includes("role_profiles.view") ?? false)
+  );
+  const settingsTabs = useMemo(() => {
+    const tabs: { id: string; label: string; icon: LucideIcon }[] = [
+      { id: "templates", label: "Email Templates", icon: MailIcon },
+      { id: "team", label: "Team Members", icon: Users },
+      { id: "formatting", label: "Document Rules", icon: FileText },
+    ];
+    if (canManageRoles) {
+      tabs.push({ id: "roles", label: "Permission profiles", icon: Tags });
+    }
+    tabs.push({ id: "account", label: "Account", icon: Shield });
+    return tabs;
+  }, [canManageRoles]);
+  const canViewTeam = useAuthStore(
+    (s) => s.user?.role === "super_admin" || s.user?.permissions?.includes("team_members.view")
+  );
+  const canCreateTeam = useAuthStore(
+    (s) => s.user?.role === "super_admin" || s.user?.permissions?.includes("team_members.create")
+  );
+  const canInviteTeam = useAuthStore(
+    (s) => s.user?.role === "super_admin" || s.user?.permissions?.includes("team_members.invite")
+  );
   const [activeTab, setActiveTab] = useState("templates");
+
+  useEffect(() => {
+    const tab = (location.state as { activeTab?: string } | null)?.activeTab;
+    if (tab === "team") setActiveTab("team");
+    if (tab === "roles" && canManageRoles) setActiveTab("roles");
+  }, [location.state, canManageRoles]);
 
   // Templates state — backed by shared store
   const templates = useAppStore(s => s.emailTemplates);
@@ -33,10 +69,50 @@ export default function SettingsPage() {
   const [newTemplate, setNewTemplate] = useState({ name: "", category: "Agent Email", subject: "", body: "" });
   const [editValues, setEditValues] = useState<Partial<EmailTemplate>>({});
 
-  // Team state
+  // Team state — API when configured, else mock
   const [team, setTeam] = useState<TeamMember[]>(initialTeam);
-  const [showInvite, setShowInvite] = useState(false);
-  const [inviteForm, setInviteForm] = useState({ name: "", email: "", role: "Coordinator" as TeamMember["role"] });
+  const [teamLoading, setTeamLoading] = useState(false);
+  const [teamError, setTeamError] = useState<string | null>(null);
+
+  const [teamReload, setTeamReload] = useState(0);
+
+  const mapApiToUi = (u: TeamMemberListItem): TeamMember => ({
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    role:
+      u.role === "coordinator"
+        ? "Coordinator"
+        : u.role === "admin"
+          ? "Admin"
+          : u.role === "super_admin"
+            ? "Super Admin"
+            : "Admin",
+    status: u.status === "active" ? "Active" : u.status === "invited" ? "Invited" : "Inactive",
+    joinedAt: u.createdAt.split("T")[0] ?? "",
+    lastActive: u.lastActiveAt ? u.lastActiveAt.split("T")[0] : "",
+    permissionProfile: [u.designation, u.roleProfileName].filter(Boolean).join(" · ") || null,
+  });
+
+  useEffect(() => {
+    if (!getApiBaseUrl() || !canViewTeam) return;
+    let cancelled = false;
+    setTeamLoading(true);
+    setTeamError(null);
+    void listTeamMembersFromApi()
+      .then((rows) => {
+        if (!cancelled) setTeam(rows.map(mapApiToUi));
+      })
+      .catch((e) => {
+        if (!cancelled) setTeamError(e instanceof Error ? e.message : "Could not load team.");
+      })
+      .finally(() => {
+        if (!cancelled) setTeamLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, canViewTeam, teamReload]);
 
   const startEdit = (t: EmailTemplate) => {
     setEditingId(t.id);
@@ -66,27 +142,12 @@ export default function SettingsPage() {
     toast.success("Template deleted.");
   };
 
-  const inviteTeamMember = () => {
-    if (!inviteForm.name || !inviteForm.email) {
-      toast.error("Name and email are required.");
-      return;
-    }
-    setTeam(prev => [...prev, {
-      id: `tm${Date.now()}`,
-      name: inviteForm.name,
-      email: inviteForm.email,
-      role: inviteForm.role,
-      status: "Invited",
-      joinedAt: new Date().toISOString().split("T")[0],
-      lastActive: "",
-    }]);
-    setShowInvite(false);
-    setInviteForm({ name: "", email: "", role: "Coordinator" });
-    toast.success("Invitation sent!", { description: `${inviteForm.name} has been invited to the portal.` });
+  const openTeamMemberEditor = (id: string) => {
+    if (getApiBaseUrl()) navigate(`/settings/team-members/${id}/edit`);
   };
 
-  const removeTeamMember = (id: string) => {
-    setTeam(prev => prev.filter(t => t.id !== id));
+  const removeTeamMemberMock = (id: string) => {
+    setTeam((prev) => prev.filter((t) => t.id !== id));
     toast.success("Team member removed.");
   };
 
@@ -207,14 +268,33 @@ export default function SettingsPage() {
       {/* Team Members Tab */}
       {activeTab === "team" && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
             <p className="text-sm text-muted-foreground">
-              Manage team members who have access to the portal. All team members can view and manage transactions.
+              Manage team members who have access to the portal. Use Create for an active account with password, or Invite for email activation flow.
             </p>
-            <Button onClick={() => setShowInvite(true)} className="gap-2">
-              <UserPlus className="w-4 h-4" /> Invite Member
-            </Button>
+            <div className="flex items-center gap-2 shrink-0">
+              {canCreateTeam && (
+                <Button variant="outline" onClick={() => navigate("/settings/team-members/new?mode=create")} className="gap-2">
+                  <Plus className="w-4 h-4" /> Create Member
+                </Button>
+              )}
+              {canInviteTeam && (
+                <Button onClick={() => navigate("/settings/team-members/new?mode=invite")} className="gap-2">
+                  <UserPlus className="w-4 h-4" /> Invite Member
+                </Button>
+              )}
+            </div>
           </div>
+
+          {teamLoading && <p className="text-sm text-muted-foreground mb-2">Loading team…</p>}
+          {teamError && (
+            <p className="text-sm text-destructive mb-2">
+              {teamError}{" "}
+              <Button variant="link" className="p-0 h-auto" onClick={() => setTeamReload((x) => x + 1)}>
+                Retry
+              </Button>
+            </p>
+          )}
 
           <div className="bg-card border border-border rounded-lg overflow-hidden">
             <div className="overflow-x-auto">
@@ -224,14 +304,21 @@ export default function SettingsPage() {
                     <th className="px-6 py-3 font-medium">Name</th>
                     <th className="px-6 py-3 font-medium">Email</th>
                     <th className="px-6 py-3 font-medium">Role</th>
+                    <th className="px-6 py-3 font-medium">Profile</th>
                     <th className="px-6 py-3 font-medium">Status</th>
                     <th className="px-6 py-3 font-medium">Last Active</th>
                     <th className="px-6 py-3 font-medium"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {team.map(member => (
-                    <tr key={member.id} className="hover:bg-secondary/30 transition-colors">
+                  {team.map((member) => (
+                    <tr
+                      key={member.id}
+                      className={`hover:bg-secondary/30 transition-colors ${getApiBaseUrl() ? "cursor-pointer" : ""}`}
+                      onClick={() => {
+                        if (getApiBaseUrl()) openTeamMemberEditor(member.id);
+                      }}
+                    >
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
@@ -243,10 +330,15 @@ export default function SettingsPage() {
                       <td className="px-6 py-4 text-sm text-muted-foreground">{member.email}</td>
                       <td className="px-6 py-4">
                         <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-                          member.role === "Admin" ? "bg-primary/10 text-primary" : "bg-secondary text-foreground"
+                          member.role === "Admin" || member.role === "Super Admin"
+                            ? "bg-primary/10 text-primary"
+                            : "bg-secondary text-foreground"
                         }`}>
                           {member.role}
                         </span>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-muted-foreground max-w-[140px] truncate" title={member.permissionProfile ?? ""}>
+                        {member.permissionProfile ?? "—"}
                       </td>
                       <td className="px-6 py-4">
                         <span className={`text-xs px-2 py-1 rounded-full font-medium ${
@@ -261,10 +353,31 @@ export default function SettingsPage() {
                         {member.lastActive || "—"}
                       </td>
                       <td className="px-6 py-4">
-                        {member.role !== "Admin" && (
-                          <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => removeTeamMember(member.id)}>
-                            <Trash2 className="w-3.5 h-3.5" />
+                        {getApiBaseUrl() ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openTeamMemberEditor(member.id);
+                            }}
+                          >
+                            <Edit className="w-3.5 h-3.5" />
                           </Button>
+                        ) : (
+                          member.role !== "Admin" && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-destructive hover:text-destructive"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                removeTeamMemberMock(member.id);
+                              }}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          )
                         )}
                       </td>
                     </tr>
@@ -274,48 +387,13 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* Invite Modal */}
-          <Dialog open={showInvite} onOpenChange={setShowInvite}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <UserPlus className="w-5 h-5 text-primary" /> Invite Team Member
-                </DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 py-2">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">Full Name *</label>
-                  <Input value={inviteForm.name} onChange={e => setInviteForm(p => ({ ...p, name: e.target.value }))} placeholder="Jessica Rivera" />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">Email Address *</label>
-                  <Input value={inviteForm.email} onChange={e => setInviteForm(p => ({ ...p, email: e.target.value }))} placeholder="jessica@company.com" />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">Role</label>
-                  <Select value={inviteForm.role} onValueChange={v => setInviteForm(p => ({ ...p, role: v as TeamMember["role"] }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Coordinator">Coordinator</SelectItem>
-                      <SelectItem value="Viewer">Viewer</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">All team members have equal access in Phase 1. Advanced permissions coming in Phase 2.</p>
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setShowInvite(false)}>Cancel</Button>
-                <Button onClick={inviteTeamMember} className="gap-2">
-                  <UserPlus className="w-4 h-4" /> Send Invitation
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
         </motion.div>
       )}
 
       {/* Conditional Formatting Rules Tab */}
       {activeTab === "formatting" && <FormattingRulesTabComponent />}
+
+      {activeTab === "roles" && canManageRoles && <RoleProfilesTabComponent />}
 
       {/* Account Tab */}
       {activeTab === "account" && (

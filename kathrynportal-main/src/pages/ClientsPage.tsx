@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { listClientsFromApi, unarchiveClientApi } from "@/api/clients";
 import { useAppStore } from "@/store/appStore";
 import { getApiBaseUrl } from "@/lib/apiConfig";
+import { hasPermission } from "@/lib/permissions";
+import { useAuthStore } from "@/store/authStore";
 import PageHeader from "@/components/shared/PageHeader";
 import StatusBadge from "@/components/shared/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -18,6 +20,7 @@ export default function ClientsPage() {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const navigate = useNavigate();
+  const user = useAuthStore((s) => s.user);
   const clients = useAppStore((s) => s.clients);
   const setClients = useAppStore((s) => s.setClients);
 
@@ -41,6 +44,10 @@ export default function ClientsPage() {
     void refresh();
   }, [refresh]);
 
+  const apiOn = Boolean(getApiBaseUrl());
+  const canCreate = !apiOn || hasPermission(user, "clients.create");
+  const canArchive = !apiOn || hasPermission(user, "clients.archive");
+
   const filtered = clients.filter(c => {
     const matchSearch = c.name.toLowerCase().includes(search.toLowerCase()) ||
       c.email.toLowerCase().includes(search.toLowerCase()) ||
@@ -56,9 +63,11 @@ export default function ClientsPage() {
         title="Clients"
         subtitle={loading ? "Loading..." : `${clients.length} ${showArchived ? "archived" : "total"} clients`}
         actions={
-          <Button onClick={() => navigate("/clients/new")} className="gap-2" disabled={showArchived}>
-            <Plus className="w-4 h-4" /> Add Client
-          </Button>
+          canCreate ? (
+            <Button onClick={() => navigate("/clients/new")} className="gap-2" disabled={showArchived}>
+              <Plus className="w-4 h-4" /> Add Client
+            </Button>
+          ) : undefined
         }
       />
 
@@ -155,8 +164,14 @@ export default function ClientsPage() {
                 <td className="px-6 py-3.5">
                   {showArchived ? (
                     <button
-                      className="text-accent hover:underline text-sm"
+                      type="button"
+                      className={`text-sm ${canArchive ? "text-accent hover:underline" : "text-muted-foreground cursor-not-allowed"}`}
+                      disabled={!canArchive}
                       onClick={async () => {
+                        if (!canArchive) {
+                          toast.error("You do not have permission to restore clients.");
+                          return;
+                        }
                         try {
                           await unarchiveClientApi(client.id);
                           toast.success("Client restored.");

@@ -6,13 +6,16 @@ import PageHeader from "@/components/shared/PageHeader";
 import StatusBadge from "@/components/shared/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { getApiBaseUrl } from "@/lib/apiConfig";
+import { hasPermission } from "@/lib/permissions";
 import { useAppStore } from "@/store/appStore";
+import { useAuthStore } from "@/store/authStore";
 import { isTransactionProject } from "@/data/mockData";
 import { toast } from "sonner";
 
 export default function ClientDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const user = useAuthStore((s) => s.user);
   const client = useAppStore((s) => s.clients.find((c) => c.id === id));
   const upsertClient = useAppStore((s) => s.upsertClient);
   const projects = useAppStore((s) => s.projects);
@@ -64,6 +67,11 @@ export default function ClientDetailPage() {
     (p) => p.clientId === client.id && isTransactionProject(p)
   );
 
+  const apiOn = Boolean(getApiBaseUrl());
+  const canEditClient = !apiOn || hasPermission(user, "clients.edit");
+  const canArchiveClient = !apiOn || hasPermission(user, "clients.archive");
+  const canDeletePermanent = !apiOn || hasPermission(user, "clients.delete_permanent");
+
   return (
     <div className="p-8 max-w-5xl mx-auto">
       <button onClick={() => navigate("/clients")} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6 transition-colors">
@@ -78,14 +86,20 @@ export default function ClientDetailPage() {
             <Button variant="outline" onClick={() => navigate(`/email?to=${client.email}`)} className="gap-2">
               <Mail className="w-4 h-4" /> Email
             </Button>
-            <Button variant="outline" className="gap-2" onClick={() => navigate(`/clients/${client.id}/edit`)}>
-              <Edit className="w-4 h-4" /> Edit
-            </Button>
+            {canEditClient && (
+              <Button variant="outline" className="gap-2" onClick={() => navigate(`/clients/${client.id}/edit`)}>
+                <Edit className="w-4 h-4" /> Edit
+              </Button>
+            )}
             <Button
               variant="outline"
               className="gap-2 text-destructive hover:text-destructive"
+              disabled={apiOn && !canArchiveClient}
               onClick={async () => {
-                const apiOn = Boolean(getApiBaseUrl());
+                if (apiOn && !canArchiveClient) {
+                  toast.error("You do not have permission to archive clients.");
+                  return;
+                }
                 if (apiOn) {
                   const msg =
                     "Archive this client? It will be hidden from the client list but project history remains.";
@@ -112,7 +126,7 @@ export default function ClientDetailPage() {
             >
               <Trash2 className="w-4 h-4" /> {getApiBaseUrl() ? "Archive" : "Delete"}
             </Button>
-            {getApiBaseUrl() && clientProjects.length === 0 && (
+            {getApiBaseUrl() && clientProjects.length === 0 && canDeletePermanent && (
               <Button
                 variant="outline"
                 className="gap-2 text-destructive hover:text-destructive"

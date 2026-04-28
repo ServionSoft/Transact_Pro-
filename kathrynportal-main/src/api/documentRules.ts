@@ -11,6 +11,7 @@ import type {
 import type { ProjectType } from "@/data/mockData";
 import { getApiBaseUrl } from "@/lib/apiConfig";
 import { ApiRequestError } from "@/api/storedFiles";
+import { authFetch } from "@/lib/authFetch";
 
 type ApiRulePayload = {
   id: string;
@@ -53,7 +54,7 @@ export function documentRulesNetworkHint(apiBase: string): string {
 
 async function documentRulesFetch(url: string, init?: RequestInit): Promise<Response> {
   try {
-    return await fetch(url, { ...init });
+    return await authFetch(url, { ...init });
   } catch (e) {
     const base = getApiBaseUrl() ?? "(unknown)";
     const isNetwork =

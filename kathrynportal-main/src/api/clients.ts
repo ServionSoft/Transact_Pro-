@@ -1,6 +1,7 @@
 import type { Client, ClientStatus } from "@/data/mockData";
 import { getApiBaseUrl } from "@/lib/apiConfig";
 import { ApiRequestError } from "@/api/storedFiles";
+import { authFetch } from "@/lib/authFetch";
 
 type ClientApiPayload = {
   id: string;
@@ -73,7 +74,7 @@ function readErrorMessage(json: unknown, fallback: string): string {
 async function apiCall(url: string, init?: RequestInit): Promise<unknown> {
   let res: Response;
   try {
-    res = await fetch(url, init);
+    res = await authFetch(url, init);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     throw new ApiRequestError(
