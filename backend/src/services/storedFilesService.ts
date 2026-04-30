@@ -280,6 +280,28 @@ export async function deleteProjectFolder(
   return "ok";
 }
 
+/** Updates display `name` only (does not change `storage_key` on disk). */
+export async function updateFileDisplayName(
+  pool: Pool,
+  projectId: number,
+  fileId: number,
+  displayName: string
+): Promise<boolean> {
+  const trimmed = displayName.trim();
+  if (!trimmed) return false;
+  const safe = trimmed.slice(0, 512);
+  const { rowCount } = await pool.query(
+    `UPDATE stored_files
+     SET name = $1, updated_at = now()
+     WHERE id = $2::bigint
+       AND project_id = $3::bigint
+       AND deleted_at IS NULL
+       AND storage_scope = 'transaction'`,
+    [safe, fileId, projectId]
+  );
+  return (rowCount ?? 0) > 0;
+}
+
 export async function updateFileFolder(
   pool: Pool,
   projectId: number,

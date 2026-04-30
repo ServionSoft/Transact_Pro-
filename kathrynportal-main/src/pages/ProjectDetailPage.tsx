@@ -734,15 +734,21 @@ export default function ProjectDetailPage() {
                     };
                     if (apiOn) {
                       void createProjectEmailApi(project.id, payload)
-                        .then((updated) => {
+                        .then(({ project: updated, emailSendFailed, emailSendError }) => {
                           upsertProject(updated);
-                          toast.success("Email logged to transaction!");
+                          if (emailSendFailed) {
+                            toast.warning("Email saved; sending failed", {
+                              description: emailSendError ?? "Check SMTP settings and the Communications thread.",
+                            });
+                          } else {
+                            toast.success("Email sent.");
+                          }
                           setShowComposeEmail(false);
                           setEmailAttachments([]);
                           setComposeTo(""); setComposeSubject(""); setComposeBody("");
                         })
                         .catch((e) => {
-                          toast.error(e instanceof Error ? e.message : "Could not log email.");
+                          toast.error(e instanceof Error ? e.message : "Could not send email.");
                         });
                       return;
                     }
@@ -766,12 +772,29 @@ export default function ProjectDetailPage() {
               <div className="divide-y divide-border">
                 {project.emails.map(email => (
                   <div key={email.id} className="px-6 py-4">
-                    <div className="flex items-center gap-2 mb-1">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
                       <span className={`text-xs px-2 py-0.5 rounded-full ${
                         email.direction === "outbound" ? "bg-info/15 text-info" : "bg-success/15 text-success"
                       }`}>
-                        {email.direction === "outbound" ? "Sent" : "Received"}
+                        {email.direction === "outbound" ? "Outbound" : "Received"}
                       </span>
+                      {email.direction === "outbound" && (
+                        <span
+                          className={`text-xs px-2 py-0.5 rounded-full ${
+                            (email.deliveryStatus ?? "sent") === "sent"
+                              ? "bg-success/15 text-success"
+                              : (email.deliveryStatus ?? "sent") === "pending"
+                                ? "bg-secondary text-muted-foreground"
+                                : "bg-destructive/15 text-destructive"
+                          }`}
+                        >
+                          {(email.deliveryStatus ?? "sent") === "sent"
+                            ? "Delivered"
+                            : (email.deliveryStatus ?? "sent") === "pending"
+                              ? "Sending…"
+                              : "Failed"}
+                        </span>
+                      )}
                       <span className="text-xs text-muted-foreground">{email.date}</span>
                     </div>
                     <p className="text-sm font-medium text-foreground">{email.subject}</p>
@@ -779,6 +802,9 @@ export default function ProjectDetailPage() {
                       {email.direction === "outbound" ? `To: ${email.to}` : `From: ${email.from}`}
                     </p>
                     <p className="text-sm text-muted-foreground mt-2">{email.body}</p>
+                    {email.direction === "outbound" && email.deliveryStatus === "failed" && email.deliveryError ? (
+                      <p className="text-xs text-destructive mt-2">{email.deliveryError}</p>
+                    ) : null}
                   </div>
                 ))}
               </div>

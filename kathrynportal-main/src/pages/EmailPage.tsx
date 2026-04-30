@@ -125,8 +125,11 @@ export default function EmailPage() {
           <div className="divide-y divide-border max-h-[600px] overflow-y-auto">
             {recentEmails.map(email => (
               <div key={email.id} className="px-5 py-3 hover:bg-secondary/30 transition-colors cursor-pointer">
-                <div className="flex items-center gap-2 mb-0.5">
+                <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                   <span className={`w-2 h-2 rounded-full ${email.direction === "outbound" ? "bg-info" : "bg-success"}`} />
+                  {email.direction === "outbound" && email.deliveryStatus === "failed" && (
+                    <span className="text-xs text-destructive">Failed</span>
+                  )}
                   <span className="text-xs text-muted-foreground">{email.date}</span>
                 </div>
                 <p className="text-sm font-medium text-foreground truncate">{email.subject}</p>

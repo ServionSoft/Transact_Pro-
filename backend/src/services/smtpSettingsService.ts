@@ -310,3 +310,66 @@ export async function testSmtpSavedSettings(
     sendTestEmailTo,
   });
 }
+
+function truncateSmtpErrorMessage(message: string, maxLen = 2000): string {
+  const s = message.trim();
+  if (s.length <= maxLen) return s;
+  return `${s.slice(0, maxLen - 3)}...`;
+}
+
+/**
+ * Sends one message using the singleton `smtp_settings` row (same transport as test email).
+ * From header uses saved from name / from email (falls back to auth user when needed).
+ */
+export async function sendMailWithStoredSettings(
+  pool: Pool,
+  config: AppConfig,
+  input: { to: string; subject: string; text: string; html?: string }
+): Promise<{ messageId: string }> {
+  const row = await getSmtpSettings(pool);
+  if (!row.host.trim()) {
+    throw new Error("SMTP host is not configured. Save settings in Settings → Email (SMTP).");
+  }
+  const user = row.authUser.trim();
+  let pass: string | null = null;
+  if (user.length > 0) {
+    pass = await loadStoredSmtpPassword(pool, config);
+    if (pass === null || pass === "") {
+      throw new Error("SMTP password is not saved. Update SMTP settings.");
+    }
+  }
+  const to = input.to.trim();
+  if (!isValidEmail(to)) {
+    throw new Error("Recipient must be a valid email address.");
+  }
+  const transportOpts = {
+    host: row.host.trim(),
+    port: row.port,
+    secure: row.secure,
+    user,
+    pass: user.length > 0 ? pass : null,
+  };
+  const fromHeader = formatMailFrom(row.fromName, row.fromEmail, user.length > 0 ? user : to);
+  const t = createSmtpTransport(transportOpts);
+  const subject = input.subject.trim();
+  if (!subject) {
+    throw new Error("Subject is required.");
+  }
+  const text = input.text.trim();
+  if (!text && !input.html?.trim()) {
+    throw new Error("Message body is required.");
+  }
+  try {
+    const info = await t.sendMail({
+      from: fromHeader,
+      to,
+      subject,
+      text: text || undefined,
+      html: input.html?.trim() || undefined,
+    });
+    return { messageId: (info.messageId && String(info.messageId)) || "" };
+  } catch (e) {
+    const raw = e instanceof Error ? e.message : String(e);
+    throw new Error(truncateSmtpErrorMessage(raw));
+  }
+}

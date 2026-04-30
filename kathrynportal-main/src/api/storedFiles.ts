@@ -6,7 +6,7 @@
  * - GET    /api/projects/:projectId/stored-files
  * - POST   /api/projects/:projectId/stored-files   (multipart: one field `file` per request, optional `folder_id`)
  * - DELETE /api/projects/:projectId/stored-files/:fileId
- * - PATCH  /api/projects/:projectId/stored-files/:fileId  JSON { folder_id: string | null }
+ * - PATCH  /api/projects/:projectId/stored-files/:fileId  JSON { folder_id?: string | null; name?: string }
  * - POST   /api/projects/:projectId/file-folders   JSON { name, parent_id: string | null }
  * - DELETE /api/projects/:projectId/file-folders/:folderId
  *
@@ -194,24 +194,43 @@ export async function deleteProjectStoredFile(projectId: string, fileId: string)
   }
 }
 
-export async function patchProjectStoredFileFolder(
+export async function patchProjectStoredFile(
   projectId: string,
   fileId: string,
-  folderId: string | null
+  body: { folder_id?: string | null; name?: string }
 ): Promise<void> {
+  const payload: Record<string, unknown> = {};
+  if (Object.prototype.hasOwnProperty.call(body, "folder_id")) {
+    const v = body.folder_id;
+    payload.folder_id = v === null || v === undefined || v === "" ? null : Number(String(v));
+    if (payload.folder_id !== null && !Number.isFinite(payload.folder_id as number)) {
+      throw new ApiRequestError("Invalid folder_id", 400);
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "name")) {
+    payload.name = body.name;
+  }
   const res = await apiFetch(
     `/api/projects/${encodeURIComponent(projectId)}/stored-files/${encodeURIComponent(fileId)}`,
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ folder_id: folderId }),
+      body: JSON.stringify(payload),
     }
   );
   if (res.status === 204 || res.status === 200) return;
   const json = await parseJsonSafe(res);
   if (!res.ok) {
-    throw new ApiRequestError(`Move failed (${res.status})`, res.status, typeof json === "object" ? JSON.stringify(json) : String(json));
+    throw new ApiRequestError(`Update failed (${res.status})`, res.status, typeof json === "object" ? JSON.stringify(json) : String(json));
   }
+}
+
+export async function patchProjectStoredFileFolder(
+  projectId: string,
+  fileId: string,
+  folderId: string | null
+): Promise<void> {
+  return patchProjectStoredFile(projectId, fileId, { folder_id: folderId });
 }
 
 export async function deleteProjectFileFolder(

@@ -1,7 +1,9 @@
 import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import type { Pool, PoolClient } from "pg";
+import type { AppConfig } from "../config/env.js";
 import type { AppRole } from "./permissionsService.js";
+import { getSmtpSettings, sendMailWithStoredSettings } from "./smtpSettingsService.js";
 import {
   getEffectivePermissionKeys,
   overridesFromDesiredKeys,
@@ -24,10 +26,15 @@ export type TeamMemberRow = {
   roleProfileName: string | null;
 };
 
+export type InviteEmailDeliveryStatus = "pending" | "sent" | "failed";
+
 export type TeamMemberDetail = TeamMemberRow & {
   permissionKeys: string[];
   permissionOverrides: { key: string; allowed: boolean }[];
   projectIds: string[];
+  inviteEmailStatus?: InviteEmailDeliveryStatus | null;
+  inviteEmailError?: string | null;
+  inviteEmailSentAt?: string | null;
 };
 
 function randomToken(): string {
@@ -117,6 +124,11 @@ export async function listTeamMembers(pool: Pool): Promise<TeamMemberRow[]> {
   }));
 }
 
+function mapInviteEmailStatus(s: string | null | undefined): InviteEmailDeliveryStatus | null {
+  if (s === "pending" || s === "sent" || s === "failed") return s;
+  return null;
+}
+
 export async function getTeamMemberById(pool: Pool, id: string): Promise<TeamMemberDetail | null> {
   if (!/^\d+$/.test(id)) return null;
   const { rows } = await pool.query<{
@@ -130,13 +142,26 @@ export async function getTeamMemberById(pool: Pool, id: string): Promise<TeamMem
     created_at: Date;
     role_profile_id: string | null;
     role_profile_name: string | null;
+    invite_email_status: string | null;
+    invite_email_error: string | null;
+    invite_email_sent_at: Date | null;
   }>(
     `SELECT u.id::text, u.name, u.designation, u.email, u.role::text AS role, u.status::text AS status,
             u.last_active_at, u.created_at,
             u.role_profile_id::text AS role_profile_id,
-            rp.name AS role_profile_name
+            rp.name AS role_profile_name,
+            inv.invite_email_status::text AS invite_email_status,
+            inv.invite_email_error,
+            inv.invite_email_sent_at
      FROM public.users u
      LEFT JOIN public.role_profiles rp ON rp.id = u.role_profile_id AND rp.deleted_at IS NULL
+     LEFT JOIN LATERAL (
+       SELECT ui.invite_email_status, ui.invite_email_error, ui.invite_email_sent_at
+       FROM public.user_invites ui
+       WHERE ui.user_id = u.id
+       ORDER BY ui.created_at DESC
+       LIMIT 1
+     ) inv ON true
      WHERE u.id = $1::bigint AND u.deleted_at IS NULL`,
     [id]
   );
@@ -155,6 +180,7 @@ export async function getTeamMemberById(pool: Pool, id: string): Promise<TeamMem
     `SELECT project_id::text FROM public.project_assignments WHERE user_id = $1::bigint`,
     [id]
   );
+  const inviteSt = mapInviteEmailStatus(r.invite_email_status);
   return {
     id: r.id,
     name: r.name,
@@ -169,6 +195,9 @@ export async function getTeamMemberById(pool: Pool, id: string): Promise<TeamMem
     permissionKeys: [...permSet],
     permissionOverrides: ov.map((x) => ({ key: x.key, allowed: x.allowed })),
     projectIds: pj.map((x) => x.project_id),
+    ...(inviteSt ? { inviteEmailStatus: inviteSt } : {}),
+    ...(r.invite_email_error?.trim() ? { inviteEmailError: r.invite_email_error.trim() } : {}),
+    ...(r.invite_email_sent_at ? { inviteEmailSentAt: r.invite_email_sent_at.toISOString() } : {}),
   };
 }
 
@@ -272,6 +301,7 @@ export async function createTeamMember(
 export async function inviteTeamMember(
   pool: Pool,
   config: { inviteTtlHours: number; publicAppUrl: string },
+  appConfig: AppConfig,
   input: {
     name: string;
     designation?: string | null;
@@ -284,7 +314,16 @@ export async function inviteTeamMember(
   },
   actorRole: AppRole,
   actorId: string
-): Promise<{ user: TeamMemberDetail; inviteUrl: string; plainToken: string } | { error: ServiceError }> {
+): Promise<
+  | {
+      user: TeamMemberDetail;
+      inviteUrl: string;
+      plainToken: string;
+      inviteEmailStatus: InviteEmailDeliveryStatus;
+      inviteEmailError?: string;
+    }
+  | { error: ServiceError }
+> {
   if (actorRole !== "super_admin" && input.role === "super_admin") {
     return { error: { status: 403, code: "FORBIDDEN", message: "Only super admins can assign the super_admin role." } };
   }
@@ -345,11 +384,16 @@ export async function inviteTeamMember(
         : [input.name.trim(), effectiveDesignation, email, hash, roleForInsert, input.roleProfileId];
     const { rows } = await client.query<{ id: string }>(inviteSql, inviteParams);
     const id = rows[0]!.id;
-    await client.query(
-      `INSERT INTO public.user_invites (email, invited_by_user_id, token, expires_at, user_id, created_at, updated_at)
-       VALUES ($1, $2::bigint, $3, $4, $5::bigint, now(), now())`,
+    const { rows: invRows } = await client.query<{ id: string }>(
+      `INSERT INTO public.user_invites (
+         email, invited_by_user_id, token, expires_at, user_id, invite_email_status, created_at, updated_at
+       ) VALUES (
+         $1, $2::bigint, $3, $4, $5::bigint, 'pending'::public.invite_email_delivery_status, now(), now()
+       )
+       RETURNING id::text`,
       [email, actorId, tokenHash, expires, id]
     );
+    const inviteRowId = invRows[0]!.id;
     if (overrides.length) {
       await replaceUserPermissions(client, pool, id, overrides, actorId);
     }
@@ -359,8 +403,74 @@ export async function inviteTeamMember(
     await client.query("COMMIT");
     const base = config.publicAppUrl.replace(/\/+$/, "");
     const inviteUrl = `${base}/accept-invite?token=${encodeURIComponent(plainToken)}`;
+    const displayName = input.name.trim();
+    const smtp = await getSmtpSettings(pool);
+    let inviteEmailStatus: InviteEmailDeliveryStatus = "sent";
+    let inviteEmailError: string | undefined;
+    if (!smtp.host.trim()) {
+      inviteEmailStatus = "failed";
+      inviteEmailError = "SMTP host is not configured. Save settings under Email (SMTP).";
+      await pool.query(
+        `UPDATE public.user_invites SET
+           invite_email_status = 'failed'::public.invite_email_delivery_status,
+           invite_email_error = $2,
+           updated_at = now()
+         WHERE id = $1::bigint`,
+        [inviteRowId, inviteEmailError.slice(0, 2000)]
+      );
+    } else if (smtp.authUser.trim().length > 0 && !smtp.hasPassword) {
+      inviteEmailStatus = "failed";
+      inviteEmailError = "SMTP password is not saved.";
+      await pool.query(
+        `UPDATE public.user_invites SET
+           invite_email_status = 'failed'::public.invite_email_delivery_status,
+           invite_email_error = $2,
+           updated_at = now()
+         WHERE id = $1::bigint`,
+        [inviteRowId, inviteEmailError.slice(0, 2000)]
+      );
+    } else {
+      const subject = `${displayName}, you're invited to TransactPro`;
+      const text = `Hi ${displayName},
+
+You've been invited to join TransactPro.
+
+Open this link to accept your invitation:
+${inviteUrl}
+
+This link expires in about ${config.inviteTtlHours} hour(s).
+
+If you did not expect this email, you can ignore it.`;
+      const safeName = displayName.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const html = `<p>Hi ${safeName},</p><p>You've been invited to join TransactPro.</p><p><a href="${inviteUrl}">Accept invitation</a></p><p style="font-size:12px;color:#555">If the link does not work, copy and paste this URL into your browser:<br/><span style="word-break:break-all">${inviteUrl}</span></p>`;
+      try {
+        await sendMailWithStoredSettings(pool, appConfig, { to: email, subject, text, html });
+        await pool.query(
+          `UPDATE public.user_invites SET
+             invite_email_status = 'sent'::public.invite_email_delivery_status,
+             invite_email_sent_at = now(),
+             invite_email_error = NULL,
+             updated_at = now()
+           WHERE id = $1::bigint`,
+          [inviteRowId]
+        );
+        inviteEmailStatus = "sent";
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        inviteEmailStatus = "failed";
+        inviteEmailError = msg;
+        await pool.query(
+          `UPDATE public.user_invites SET
+             invite_email_status = 'failed'::public.invite_email_delivery_status,
+             invite_email_error = $2,
+             updated_at = now()
+           WHERE id = $1::bigint`,
+          [inviteRowId, msg.slice(0, 2000)]
+        );
+      }
+    }
     const u = await getTeamMemberById(pool, id);
-    return { user: u!, inviteUrl, plainToken };
+    return { user: u!, inviteUrl, plainToken, inviteEmailStatus, ...(inviteEmailError ? { inviteEmailError } : {}) };
   } catch (e) {
     await client.query("ROLLBACK");
     return { error: { status: 500, code: "INVITE_FAILED", message: e instanceof Error ? e.message : "Invite failed." } };

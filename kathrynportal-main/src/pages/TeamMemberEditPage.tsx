@@ -46,6 +46,9 @@ export default function TeamMemberEditPage() {
   const [projectPicked, setProjectPicked] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [inviteEmailStatus, setInviteEmailStatus] = useState<"pending" | "sent" | "failed" | null>(null);
+  const [inviteEmailError, setInviteEmailError] = useState<string | null>(null);
+  const [inviteEmailSentAt, setInviteEmailSentAt] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id || !getApiBaseUrl()) {
@@ -83,6 +86,9 @@ export default function TeamMemberEditPage() {
         }
         setProjectPicked(new Set(m.projectIds));
         setProjects(projs);
+        setInviteEmailStatus(m.inviteEmailStatus ?? null);
+        setInviteEmailError(m.inviteEmailError ?? null);
+        setInviteEmailSentAt(m.inviteEmailSentAt ?? null);
       } catch (e) {
         if (!cancelled) toast.error(e instanceof Error ? e.message : "Load failed.");
       } finally {
@@ -245,6 +251,19 @@ export default function TeamMemberEditPage() {
               </SelectContent>
             </Select>
           </div>
+
+          {status === "invited" && inviteEmailStatus != null && (
+            <div className="rounded-md border border-border bg-muted/20 p-3 space-y-1">
+              <p className="text-sm font-medium">Invite email delivery</p>
+              <p className="text-xs text-muted-foreground">
+                Status: <span className="text-foreground font-medium">{inviteEmailStatus}</span>
+                {inviteEmailSentAt
+                  ? ` · ${new Date(inviteEmailSentAt).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}`
+                  : ""}
+              </p>
+              {inviteEmailError ? <p className="text-xs text-destructive">{inviteEmailError}</p> : null}
+            </div>
+          )}
 
           {wasSuperAdmin && (
             <div className="rounded-md border border-border bg-muted/30 p-4 space-y-3">

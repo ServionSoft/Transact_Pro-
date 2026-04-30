@@ -12,6 +12,7 @@ import {
   insertStoredFile,
   softDeleteFile,
   updateFileFolder,
+  updateFileDisplayName,
   createFolder,
   deleteProjectFolder,
   getFileForDownload,
@@ -155,43 +156,72 @@ export function createStoredFilesController(deps: StoredFilesControllerDeps) {
         });
         return;
       }
-      const body = req.body as { folder_id?: number | null };
-      let folderId: number | null = null;
-      if (body.folder_id !== undefined && body.folder_id !== null) {
-        const n = Number(body.folder_id);
-        if (!Number.isFinite(n)) {
-          res.status(400).json({
-            success: false,
-            error: { code: "BAD_FOLDER", message: "folder_id must be a number or null." },
-          });
-          return;
-        }
-        const belongs = await folderBelongsToProject(pool, projectId, n);
-        if (!belongs) {
-          res.status(400).json({
-            success: false,
-            error: { code: "BAD_FOLDER", message: "folder_id does not belong to this project." },
-          });
-          return;
-        }
-        folderId = n;
-      } else {
-        folderId = null;
-      }
-      const ok = await updateFileFolder(
-        pool,
-        projectId,
-        fileId,
-        folderId,
-        uploadDirAbs
-      );
-      if (!ok) {
-        res.status(404).json({
+      const body = req.body as { folder_id?: unknown; name?: unknown };
+      const hasFolderKey = Object.prototype.hasOwnProperty.call(body, "folder_id");
+      const nameInBody = typeof body.name === "string" ? body.name : undefined;
+      const hasName = Object.prototype.hasOwnProperty.call(body, "name");
+
+      if (!hasFolderKey && !hasName) {
+        res.status(400).json({
           success: false,
-          error: { code: "NOT_FOUND", message: "File not found." },
+          error: { code: "INVALID_BODY", message: "Provide folder_id and/or name." },
         });
         return;
       }
+
+      if (hasName) {
+        const trimmed = (nameInBody ?? "").trim();
+        if (!trimmed) {
+          res.status(400).json({
+            success: false,
+            error: { code: "INVALID_NAME", message: "name must be a non-empty string." },
+          });
+          return;
+        }
+      }
+
+      if (hasFolderKey) {
+        let folderId: number | null = null;
+        if (body.folder_id !== undefined && body.folder_id !== null && String(body.folder_id).trim() !== "") {
+          const n = Number(body.folder_id);
+          if (!Number.isFinite(n)) {
+            res.status(400).json({
+              success: false,
+              error: { code: "BAD_FOLDER", message: "folder_id must be a number or null." },
+            });
+            return;
+          }
+          const belongs = await folderBelongsToProject(pool, projectId, n);
+          if (!belongs) {
+            res.status(400).json({
+              success: false,
+              error: { code: "BAD_FOLDER", message: "folder_id does not belong to this project." },
+            });
+            return;
+          }
+          folderId = n;
+        }
+        const okFolder = await updateFileFolder(pool, projectId, fileId, folderId, uploadDirAbs);
+        if (!okFolder) {
+          res.status(404).json({
+            success: false,
+            error: { code: "NOT_FOUND", message: "File not found." },
+          });
+          return;
+        }
+      }
+
+      if (hasName) {
+        const okName = await updateFileDisplayName(pool, projectId, fileId, nameInBody ?? "");
+        if (!okName) {
+          res.status(404).json({
+            success: false,
+            error: { code: "NOT_FOUND", message: "File not found." },
+          });
+          return;
+        }
+      }
+
       res.status(204).send();
     },
 

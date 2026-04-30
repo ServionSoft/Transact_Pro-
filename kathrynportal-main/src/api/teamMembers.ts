@@ -22,6 +22,9 @@ export type TeamMemberDetail = TeamMemberListItem & {
   permissionKeys: string[];
   permissionOverrides: { key: string; allowed: boolean }[];
   projectIds: string[];
+  inviteEmailStatus?: "pending" | "sent" | "failed" | null;
+  inviteEmailError?: string | null;
+  inviteEmailSentAt?: string | null;
 };
 
 export type PermissionRow = { key: string; module: string; description: string };
@@ -113,15 +116,31 @@ export async function inviteTeamMemberApi(
   user: TeamMemberDetail;
   inviteUrl?: string;
   devToken?: string;
+  inviteEmailStatus?: "pending" | "sent" | "failed";
+  inviteEmailError?: string;
 }> {
   const json = (await apiJson("/api/team-members/invite", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-  })) as { data?: { user?: TeamMemberDetail; inviteUrl?: string; devToken?: string } };
+  })) as {
+    data?: {
+      user?: TeamMemberDetail;
+      inviteUrl?: string;
+      devToken?: string;
+      inviteEmailStatus?: "pending" | "sent" | "failed";
+      inviteEmailError?: string;
+    };
+  };
   const u = json.data?.user;
   if (!u) throw new ApiRequestError("Invalid response", 500);
-  return { user: u, inviteUrl: json.data?.inviteUrl, devToken: json.data?.devToken };
+  return {
+    user: u,
+    inviteUrl: json.data?.inviteUrl,
+    devToken: json.data?.devToken,
+    inviteEmailStatus: json.data?.inviteEmailStatus,
+    ...(json.data?.inviteEmailError ? { inviteEmailError: json.data.inviteEmailError } : {}),
+  };
 }
 
 export async function updateTeamMemberApi(id: string, body: Partial<TeamMemberUpsertBody>): Promise<TeamMemberDetail> {

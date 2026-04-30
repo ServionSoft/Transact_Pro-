@@ -281,6 +281,7 @@ export function createTeamMembersController(pool: Pool, config: AppConfig) {
       const result = await inviteTeamMember(
         pool,
         { inviteTtlHours: config.inviteTtlHours, publicAppUrl: config.publicAppUrl },
+        config,
         {
           name,
           email,
@@ -306,10 +307,19 @@ export function createTeamMembersController(pool: Pool, config: AppConfig) {
         config.nodeEnv !== "production"
           ? { inviteUrl: result.inviteUrl, devToken: result.plainToken }
           : { inviteUrl: result.inviteUrl };
+      const inviteMsg =
+        result.inviteEmailStatus === "sent"
+          ? "Invitation created and invite email sent."
+          : "Invitation created, but the invite email could not be sent. Share the invite link or fix SMTP settings.";
       res.status(201).json({
         success: true,
-        data: { user: result.user, ...devHint },
-        message: "Invitation created. Share the invite URL with the user (email integration pending).",
+        data: {
+          user: result.user,
+          inviteEmailStatus: result.inviteEmailStatus,
+          ...(result.inviteEmailError ? { inviteEmailError: result.inviteEmailError } : {}),
+          ...devHint,
+        },
+        message: inviteMsg,
       });
     },
 

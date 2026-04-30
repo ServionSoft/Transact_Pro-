@@ -133,11 +133,15 @@ export default function TeamMemberFormPage() {
         };
         if (mode === "invite") {
           const r = await inviteTeamMemberApi(base);
-          toast.success("Invitation created.", {
-            description: r.inviteUrl
-              ? `Share this link once email delivery is wired: ${r.inviteUrl}`
-              : undefined,
-          });
+          if (r.inviteEmailStatus === "sent") {
+            toast.success("Invitation created and invite email sent.", {
+              description: r.inviteUrl ?? undefined,
+            });
+          } else {
+            toast.warning("Invitation created; invite email was not delivered.", {
+              description: [r.inviteEmailError, r.inviteUrl].filter(Boolean).join("\n\n") || undefined,
+            });
+          }
         } else {
           await createTeamMemberApi({
             ...base,
@@ -157,11 +161,15 @@ export default function TeamMemberFormPage() {
         };
         if (mode === "invite") {
           const r = await inviteTeamMemberApi(base);
-          toast.success("Invitation created.", {
-            description: r.inviteUrl
-              ? `Share this link once email delivery is wired: ${r.inviteUrl}`
-              : undefined,
-          });
+          if (r.inviteEmailStatus === "sent") {
+            toast.success("Invitation created and invite email sent.", {
+              description: r.inviteUrl ?? undefined,
+            });
+          } else {
+            toast.warning("Invitation created; invite email was not delivered.", {
+              description: [r.inviteEmailError, r.inviteUrl].filter(Boolean).join("\n\n") || undefined,
+            });
+          }
         } else {
           await createTeamMemberApi({
             ...base,
@@ -190,7 +198,7 @@ export default function TeamMemberFormPage() {
         title={mode === "invite" ? "Invite team member" : "Create team member"}
         subtitle={
           mode === "invite"
-            ? "Creates an invited user and an activation link (email sending optional)."
+            ? "Creates an invited user and sends an activation email from your configured SMTP mailbox when possible."
             : "Creates an active user with password."
         }
       />

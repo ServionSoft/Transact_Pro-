@@ -98,6 +98,7 @@ interface AppState {
   /** Returns `"ok"` | `"linked"` | `"missing"` */
   deleteStoredFile: (projectId: string, fileId: string) => "ok" | "linked" | "missing";
   moveStoredFileToFolder: (projectId: string, fileId: string, folderId: string | null) => void;
+  renameStoredFileInPool: (projectId: string, fileId: string, name: string) => void;
   addProjectFileFolder: (projectId: string, name: string, parentId: string | null) => void;
   removeProjectFileFolder: (projectId: string, folderId: string) => void;
   attachStoredFilesToDocument: (projectId: string, docId: string, fileIds: string[]) => void;
@@ -335,6 +336,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       ),
     })),
 
+  renameStoredFileInPool: (projectId, fileId, name) =>
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id !== projectId
+          ? p
+          : {
+              ...p,
+              attachments: p.attachments.map((a) =>
+                a.id === fileId ? { ...a, name: name.trim() || a.name } : a
+              ),
+            }
+      ),
+    })),
+
   addProjectFileFolder: (projectId, name, parentId) =>
     set((s) => ({
       projects: s.projects.map((p) =>
@@ -508,6 +523,7 @@ export const useAppStore = create<AppState>((set, get) => ({
                       date: sent.date,
                       body: sent.body,
                       direction: "outbound" as const,
+                      deliveryStatus: "sent",
                     } satisfies EmailThread,
                   ],
                 }
@@ -547,6 +563,7 @@ export const useAppStore = create<AppState>((set, get) => ({
                     date: sent.date,
                     body: sent.body,
                     direction: "outbound" as const,
+                    deliveryStatus: "sent",
                   } satisfies EmailThread,
                 ],
               }

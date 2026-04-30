@@ -138,6 +138,9 @@ export interface EmailThread {
   date: string;
   body: string;
   direction: "inbound" | "outbound";
+  /** Outbound SMTP delivery; inbound rows typically omit or use "sent". */
+  deliveryStatus?: "pending" | "sent" | "failed";
+  deliveryError?: string | null;
 }
 
 export interface FileAttachment {

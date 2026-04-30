@@ -1,4 +1,6 @@
 import type { Pool } from "pg";
+import type { AppConfig } from "../config/env.js";
+import { getSmtpSettings, sendMailWithStoredSettings } from "./smtpSettingsService.js";
 
 export type ProjectStageUi = "Listing Prep" | "Listing Complete" | "In Escrow" | "Ready to Close" | "Closed";
 export type ProjectTypeUi = "Listing" | "Buyer File";
@@ -56,6 +58,8 @@ export type ProjectEmailApi = {
   date: string;
   body: string;
   direction: "inbound" | "outbound";
+  deliveryStatus: "pending" | "sent" | "failed";
+  deliveryError?: string | null;
 };
 
 export type ProjectNoteApi = {
@@ -322,14 +326,19 @@ function mapListRow(row: ProjectListRow): ProjectListItemApi {
 
 export async function listProjects(
   pool: Pool,
-  options?: { search?: string; stage?: string; archived?: boolean; excludeProjectId?: number }
+  options?: { search?: string; stage?: string; archived?: boolean; excludeProjectId?: number; clientId?: string }
 ): Promise<ProjectListItemApi[]> {
   const archived = options?.archived === true;
   const search = normalizeText(options?.search);
   const stageDb = mapStageToDb(options?.stage);
   const excludeProjectId = Number.isInteger(options?.excludeProjectId) ? Number(options?.excludeProjectId) : null;
+  const clientIdFilter = normalizeText(options?.clientId);
   const params: unknown[] = [];
   const where: string[] = [archived ? "p.deleted_at IS NOT NULL" : "p.deleted_at IS NULL"];
+  if (clientIdFilter && /^\d+$/.test(clientIdFilter)) {
+    params.push(clientIdFilter);
+    where.push(`p.client_id = $${params.length}::bigint`);
+  }
   if (search) {
     params.push(`%${search.toLowerCase()}%`);
     where.push(
@@ -420,6 +429,11 @@ async function getProjectDeadlines(pool: Pool, projectId: string): Promise<Proje
   return rows.map((r) => ({ id: r.id, title: r.title, date: r.due_date, type: r.type }));
 }
 
+function mapDeliveryStatus(s: string | null | undefined): "pending" | "sent" | "failed" {
+  if (s === "pending" || s === "failed") return s;
+  return "sent";
+}
+
 async function getProjectEmails(pool: Pool, projectId: string): Promise<ProjectEmailApi[]> {
   const { rows } = await pool.query<{
     id: string;
@@ -430,8 +444,11 @@ async function getProjectEmails(pool: Pool, projectId: string): Promise<ProjectE
     direction: string;
     sent_at: Date | null;
     created_at: Date;
+    delivery_status: string | null;
+    delivery_error: string | null;
   }>(
-    `SELECT id::text, subject, from_address, to_address, body, direction::text, sent_at, created_at
+    `SELECT id::text, subject, from_address, to_address, body, direction::text, sent_at, created_at,
+            delivery_status::text AS delivery_status, delivery_error
      FROM public.emails
      WHERE project_id = $1::bigint
      ORDER BY COALESCE(sent_at, created_at) DESC`,
@@ -445,6 +462,8 @@ async function getProjectEmails(pool: Pool, projectId: string): Promise<ProjectE
     date: (r.sent_at ?? r.created_at).toISOString().split("T")[0],
     body: r.body,
     direction: r.direction === "inbound" ? "inbound" : "outbound",
+    deliveryStatus: mapDeliveryStatus(r.delivery_status),
+    ...(r.delivery_error?.trim() ? { deliveryError: r.delivery_error.trim() } : {}),
   }));
 }
 
@@ -1158,9 +1177,14 @@ export async function createProjectDeadline(
 
 export async function createProjectEmail(
   pool: Pool,
+  config: AppConfig,
   projectId: string,
-  input: { to: string; subject: string; body: string; from?: string }
-): Promise<{ project: ProjectDetailApi } | { error: ServiceError }> {
+  input: { to: string; subject: string; body: string; from?: string },
+  sentByUserId: string | null
+): Promise<
+  | { project: ProjectDetailApi; emailSendFailed?: boolean; emailSendError?: string }
+  | { error: ServiceError }
+> {
   if (!/^\d+$/.test(projectId)) {
     return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
   }
@@ -1170,14 +1194,81 @@ export async function createProjectEmail(
   if (!to || !subject || !body) {
     return { error: { status: 400, code: "PROJECT_EMAIL_INVALID", message: "To, subject, and body are required." } };
   }
-  await pool.query(
+  const smtp = await getSmtpSettings(pool);
+  if (!smtp.host.trim()) {
+    return {
+      error: {
+        status: 422,
+        code: "SMTP_NOT_CONFIGURED",
+        message: "Outbound email is not configured. Add SMTP settings under Settings → Email (SMTP).",
+      },
+    };
+  }
+  if (smtp.authUser.trim().length > 0 && !smtp.hasPassword) {
+    return {
+      error: {
+        status: 422,
+        code: "SMTP_PASSWORD_MISSING",
+        message: "SMTP username is set but no password is saved. Update SMTP settings.",
+      },
+    };
+  }
+  const fromAddress =
+    smtp.fromEmail.trim() ||
+    smtp.authUser.trim() ||
+    normalizeText(input.from) ||
+    "noreply@invalid";
+  const sentBy =
+    sentByUserId && /^\d+$/.test(sentByUserId) ? sentByUserId : null;
+  const ins = await pool.query<{ id: string }>(
     `INSERT INTO public.emails (
-       project_id, client_id, template_id, direction, subject, body, from_address, to_address, cc, bcc, gmail_message_id, sent_by_user_id, sent_at, created_at, updated_at
+       project_id, client_id, template_id, direction, subject, body, from_address, to_address,
+       cc, bcc, gmail_message_id, sent_by_user_id, sent_at, delivery_status, delivery_error, smtp_message_id,
+       created_at, updated_at
      ) VALUES (
-       $1::bigint, NULL, NULL, 'outbound'::public.email_direction, $2, $3, $4, $5, NULL, NULL, NULL, NULL, now(), now(), now()
-     )`,
-    [projectId, subject, body, normalizeText(input.from) || "kathryn@portal.com", to]
+       $1::bigint, NULL, NULL, 'outbound'::public.email_direction, $2, $3, $4, $5,
+       NULL, NULL, NULL, $6::bigint, NULL, 'pending'::public.email_delivery_status, NULL, NULL,
+       now(), now()
+     )
+     RETURNING id::text`,
+    [projectId, subject, body, fromAddress, to, sentBy]
   );
+  const emailId = ins.rows[0]?.id;
+  if (!emailId) {
+    return { error: { status: 500, code: "PROJECT_EMAIL_INSERT_FAILED", message: "Could not create email row." } };
+  }
+  try {
+    const htmlBody = body.includes("<") ? body : `<p>${body.replace(/\n/g, "<br/>")}</p>`;
+    const { messageId } = await sendMailWithStoredSettings(pool, config, {
+      to,
+      subject,
+      text: body,
+      html: htmlBody,
+    });
+    await pool.query(
+      `UPDATE public.emails SET
+         delivery_status = 'sent'::public.email_delivery_status,
+         sent_at = now(),
+         smtp_message_id = $2,
+         delivery_error = NULL,
+         updated_at = now()
+       WHERE id = $1::bigint`,
+      [emailId, messageId || null]
+    );
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await pool.query(
+      `UPDATE public.emails SET
+         delivery_status = 'failed'::public.email_delivery_status,
+         delivery_error = $2,
+         updated_at = now()
+       WHERE id = $1::bigint`,
+      [emailId, msg.slice(0, 2000)]
+    );
+    const project = await getProjectById(pool, projectId);
+    if (!project) return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
+    return { project, emailSendFailed: true, emailSendError: msg };
+  }
   const project = await getProjectById(pool, projectId);
   if (!project) return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
   return { project };

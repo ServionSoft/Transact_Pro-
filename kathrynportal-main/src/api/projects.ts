@@ -54,6 +54,8 @@ type ProjectDetailApiRow = Omit<ProjectListItem, "documentsCompleteCount" | "doc
     date: string;
     body: string;
     direction: "inbound" | "outbound";
+    deliveryStatus?: "pending" | "sent" | "failed";
+    deliveryError?: string | null;
   }>;
   notes: Array<{
     id: string;
@@ -164,7 +166,11 @@ function mapDetailRowToProject(row: ProjectDetailApiRow): Project {
       })),
     })),
     tasks: row.tasks ?? [],
-    emails: row.emails ?? [],
+    emails: (row.emails ?? []).map((em) => ({
+      ...em,
+      deliveryStatus: em.deliveryStatus ?? "sent",
+      ...(em.deliveryError != null && em.deliveryError !== "" ? { deliveryError: em.deliveryError } : {}),
+    })),
     notes: row.notes ?? [],
     assignees: row.assignees ?? [],
     deadlines: row.deadlines ?? [],
@@ -174,11 +180,17 @@ function mapDetailRowToProject(row: ProjectDetailApiRow): Project {
   };
 }
 
-export async function listProjectsFromApi(options?: { search?: string; stage?: string; archived?: boolean }): Promise<ProjectListItem[]> {
+export async function listProjectsFromApi(options?: {
+  search?: string;
+  stage?: string;
+  archived?: boolean;
+  clientId?: string;
+}): Promise<ProjectListItem[]> {
   const params = new URLSearchParams();
   if (options?.search) params.set("search", options.search);
   if (options?.stage && options.stage !== "All") params.set("stage", options.stage);
   if (options?.archived) params.set("archived", "true");
+  if (options?.clientId?.trim()) params.set("clientId", options.clientId.trim());
   const query = params.toString();
   const json = await apiCall(`/api/projects${query ? `?${query}` : ""}`);
   const rows = (json as { data?: { projects?: unknown } }).data?.projects;
@@ -381,17 +393,21 @@ export async function createProjectDeadlineApi(
 export async function createProjectEmailApi(
   projectId: string,
   body: { to: string; subject: string; body: string; from?: string }
-): Promise<Project> {
+): Promise<{ project: Project; emailSendFailed?: boolean; emailSendError?: string }> {
   const json = await apiCall(`/api/projects/${encodeURIComponent(projectId)}/emails`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  const row = (json as { data?: { project?: unknown } }).data?.project;
+  const data = (json as { data?: { project?: unknown; emailSendFailed?: boolean; emailSendError?: string } }).data;
+  const row = data?.project;
   if (!row || typeof row !== "object") {
     throw new ApiRequestError("Invalid email create response", 500, "");
   }
-  return mapDetailRowToProject(row as ProjectDetailApiRow);
+  return {
+    project: mapDetailRowToProject(row as ProjectDetailApiRow),
+    ...(data?.emailSendFailed ? { emailSendFailed: true as const, emailSendError: data.emailSendError } : {}),
+  };
 }
 
 export async function createProjectNoteApi(projectId: string, body: string): Promise<Project> {

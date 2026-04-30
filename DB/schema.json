@@ -36,6 +36,8 @@
     "docusign_envelope_status":  ["created", "sent", "delivered", "completed", "declined", "voided"],
     "docusign_recipient_status": ["created", "sent", "delivered", "signed", "declined"],
     "email_direction":           ["outbound", "inbound"],
+    "email_delivery_status":     ["pending", "sent", "failed"],
+    "invite_email_delivery_status": ["pending", "sent", "failed"],
     "deadline_type":             ["deadline", "reminder", "task"],
     "reminder_status":           ["draft", "sent", "dismissed"],
     "integration_provider":      ["docusign", "gmail", "google_drive"],
@@ -74,11 +76,16 @@
         { "name": "token", "type": "string", "uk": true },
         { "name": "expires_at", "type": "datetime" },
         { "name": "accepted_at", "type": "datetime", "nullable": true },
+        { "name": "user_id", "type": "bigint", "fk": { "table": "users", "column": "id" }, "nullable": true },
+        { "name": "invite_email_status", "type": "enum:invite_email_delivery_status", "nullable": true },
+        { "name": "invite_email_error", "type": "text", "nullable": true },
+        { "name": "invite_email_sent_at", "type": "datetime", "nullable": true },
         { "name": "created_at", "type": "datetime" },
         { "name": "updated_at", "type": "datetime" }
       ],
       "foreign_keys": [
-        { "column": "invited_by_user_id", "references": "users.id", "on_delete": "SET NULL" }
+        { "column": "invited_by_user_id", "references": "users.id", "on_delete": "SET NULL" },
+        { "column": "user_id", "references": "users.id", "on_delete": "CASCADE" }
       ]
     },
 
@@ -609,6 +616,9 @@
         { "name": "gmail_message_id", "type": "string", "nullable": true },
         { "name": "sent_by_user_id", "type": "bigint", "fk": { "table": "users", "column": "id" }, "nullable": true },
         { "name": "sent_at", "type": "datetime", "nullable": true },
+        { "name": "delivery_status", "type": "enum:email_delivery_status" },
+        { "name": "delivery_error", "type": "text", "nullable": true },
+        { "name": "smtp_message_id", "type": "string", "nullable": true },
         { "name": "created_at", "type": "datetime" },
         { "name": "updated_at", "type": "datetime" }
       ],

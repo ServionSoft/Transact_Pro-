@@ -63,6 +63,7 @@ export function registerStoredFilesRoutes(
     }
   );
 
+  /** JSON body: `{ folder_id?: number | string | null }` move; `{ name?: string }` rename display name; both allowed. */
   router.patch("/:projectId/stored-files/:fileId", requireDb, auth, docMove, resolveProject, projectAccess, (req, res) => {
     void ctrl.patchStoredFile(req, res);
   });

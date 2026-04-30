@@ -75,11 +75,13 @@ export function createProjectsController(pool: Pool, config: AppConfig) {
         const search = typeof req.query.search === "string" ? req.query.search : "";
         const stage = typeof req.query.stage === "string" ? req.query.stage : "";
         const archived = String(req.query.archived ?? "").toLowerCase() === "true";
+        const clientId = typeof req.query.clientId === "string" ? req.query.clientId.trim() : "";
         const projects = await listProjects(pool, {
           search,
           stage,
           archived,
           excludeProjectId: config.crmVaultProjectId,
+          ...(clientId ? { clientId } : {}),
         });
         res.json({ success: true, data: { projects }, message: "" });
       } catch {
@@ -361,14 +363,32 @@ export function createProjectsController(pool: Pool, config: AppConfig) {
       const emailBody = typeof body?.body === "string" ? body.body : "";
       const from = typeof body?.from === "string" ? body.from : "";
       try {
-        const result = await createProjectEmail(pool, req.params.id, { to, subject, body: emailBody, from });
+        const user = currentUser(req);
+        const result = await createProjectEmail(
+          pool,
+          config,
+          req.params.id,
+          { to, subject, body: emailBody, from },
+          user?.id ?? null
+        );
         if ("error" in result) {
           res.status(result.error.status).json({ success: false, error: { code: result.error.code, message: result.error.message } });
           return;
         }
-        res.status(201).json({ success: true, data: { project: result.project }, message: "" });
+        const msg =
+          result.emailSendFailed === true
+            ? "Email saved; SMTP delivery failed. Check the Communications thread for details."
+            : "Email sent.";
+        res.status(201).json({
+          success: true,
+          data: {
+            project: result.project,
+            ...(result.emailSendFailed ? { emailSendFailed: true, emailSendError: result.emailSendError } : {}),
+          },
+          message: msg,
+        });
       } catch {
-        res.status(500).json({ success: false, error: { code: "PROJECT_EMAIL_CREATE_FAILED", message: "Could not log project email." } });
+        res.status(500).json({ success: false, error: { code: "PROJECT_EMAIL_CREATE_FAILED", message: "Could not send project email." } });
       }
     },
 

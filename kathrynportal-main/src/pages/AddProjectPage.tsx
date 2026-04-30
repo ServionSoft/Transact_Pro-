@@ -1,6 +1,6 @@
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, ChevronDown, ChevronRight, Plus, X, Info } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAppStore } from "@/store/appStore";
 import { createProjectApi, getProjectFromApi, updateProjectApi } from "@/api/projects";
 import { listClientsFromApi } from "@/api/clients";
@@ -50,8 +50,10 @@ const blankPerson = (): PersonParty => ({
 
 export default function AddProjectPage() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const isEditMode = Boolean(id);
   const navigate = useNavigate();
+  const lastAppliedClientParam = useRef<string | null>(null);
   const clients = useAppStore((s) => s.clients);
   const existingProject = useAppStore((s) => (id ? s.projects.find((p) => p.id === id) : undefined));
   const addProject = useAppStore((s) => s.addProject);
@@ -174,6 +176,15 @@ export default function AddProjectPage() {
       cancelled = true;
     };
   }, [apiOn, clients]);
+
+  useEffect(() => {
+    if (isEditMode) return;
+    const cid = searchParams.get("clientId")?.trim();
+    if (!cid || lastAppliedClientParam.current === cid) return;
+    if (!clientOptions.some((c) => c.id === cid)) return;
+    setClientId(cid);
+    lastAppliedClientParam.current = cid;
+  }, [isEditMode, searchParams, clientOptions]);
 
   useEffect(() => {
     if (!isEditMode || !id) return;

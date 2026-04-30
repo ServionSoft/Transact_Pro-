@@ -10,6 +10,7 @@ import {
   ExternalLink,
   X,
   MessageSquare,
+  Pencil,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
@@ -24,6 +25,7 @@ import {
   deleteProjectStoredFile,
   deleteProjectFileFolder,
   patchProjectStoredFileFolder,
+  patchProjectStoredFile,
   createProjectFileFolder,
   ApiRequestError,
 } from "@/api/storedFiles";
@@ -81,6 +83,7 @@ export default function TransactionDocumentsWorkspace({
   const addStoredFileToPoolStore = useAppStore((s) => s.addStoredFileToPool);
   const deleteStoredFileStore = useAppStore((s) => s.deleteStoredFile);
   const moveStoredFileToFolderStore = useAppStore((s) => s.moveStoredFileToFolder);
+  const renameStoredFileInPoolStore = useAppStore((s) => s.renameStoredFileInPool);
   const addProjectFileFolderStore = useAppStore((s) => s.addProjectFileFolder);
   const removeProjectFileFolderStore = useAppStore((s) => s.removeProjectFileFolder);
   const attachStoredFilesToDocumentStore = useAppStore((s) => s.attachStoredFilesToDocument);
@@ -111,6 +114,8 @@ export default function TransactionDocumentsWorkspace({
   const [docNoteDrafts, setDocNoteDrafts] = useState<Record<string, string>>({});
   const [savingDocNoteId, setSavingDocNoteId] = useState<string | null>(null);
   const [poolAccessDenied, setPoolAccessDenied] = useState(false);
+  const [renamingFileId, setRenamingFileId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
   const canViewDocs = hasPermission(user, "documents.view");
   const canUploadDocs = hasPermission(user, "documents.upload");
   const canMoveDocs = hasPermission(user, "documents.move");
@@ -467,6 +472,43 @@ export default function TransactionDocumentsWorkspace({
     moveStoredFileToFolderStore(project.id, file.id, folderId);
   };
 
+  const cancelRenamePoolFile = () => {
+    setRenamingFileId(null);
+    setRenameDraft("");
+  };
+
+  const commitRenamePoolFile = async (file: FileAttachment) => {
+    const trimmed = renameDraft.trim();
+    if (!trimmed) {
+      toast.error("File name is required.");
+      return;
+    }
+    if (!canMoveDocs) {
+      toast.error("You do not have permission to rename files.");
+      return;
+    }
+    if (trimmed === file.name) {
+      cancelRenamePoolFile();
+      return;
+    }
+    if (getApiBaseUrl() && file.serverBacked) {
+      try {
+        await patchProjectStoredFile(project.id, file.id, { name: trimmed });
+        renameStoredFileInPoolStore(project.id, file.id, trimmed);
+        toast.success("File renamed.");
+      } catch (err) {
+        toast.error("Could not rename file on server", {
+          description: err instanceof Error ? err.message : undefined,
+        });
+        return;
+      }
+    } else {
+      renameStoredFileInPoolStore(project.id, file.id, trimmed);
+      toast.success("File renamed.");
+    }
+    cancelRenamePoolFile();
+  };
+
   const removePoolFile = async (file: FileAttachment) => {
     if (!canDeleteDocs) {
       toast.error("You do not have permission to delete files.");
@@ -767,18 +809,71 @@ export default function TransactionDocumentsWorkspace({
                   className="flex flex-wrap items-center gap-2 px-3 py-2 rounded hover:bg-secondary/40 transition-colors"
                 >
                   <FileText className="w-4 h-4 text-destructive shrink-0" />
+                  {renamingFileId !== file.id && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0 shrink-0 text-muted-foreground hover:text-foreground"
+                      disabled={!canMoveDocs}
+                      title={canMoveDocs ? "Rename file" : "No permission to rename files"}
+                      onClick={() => {
+                        setRenamingFileId(file.id);
+                        setRenameDraft(file.name);
+                      }}
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </Button>
+                  )}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-foreground truncate">{file.name}</p>
-                    <p className="text-[11px] text-muted-foreground">
-                      {file.size} • {file.uploadedAt} • {file.uploadedBy}
-                    </p>
+                    {renamingFileId === file.id ? (
+                      <div className="space-y-1.5">
+                        <Input
+                          value={renameDraft}
+                          onChange={(e) => setRenameDraft(e.target.value)}
+                          className="h-8 text-xs"
+                          maxLength={512}
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              void commitRenamePoolFile(file);
+                            }
+                            if (e.key === "Escape") {
+                              e.preventDefault();
+                              cancelRenamePoolFile();
+                            }
+                          }}
+                        />
+                        <div className="flex gap-1.5">
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="h-7 text-xs px-2"
+                            onClick={() => void commitRenamePoolFile(file)}
+                          >
+                            Save
+                          </Button>
+                          <Button type="button" size="sm" variant="outline" className="h-7 text-xs px-2" onClick={cancelRenamePoolFile}>
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-sm font-medium text-foreground truncate">{file.name}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {file.size} • {file.uploadedAt} • {file.uploadedBy}
+                        </p>
+                      </>
+                    )}
                   </div>
                   <Select
                     value={file.folderId ?? "__inbox__"}
                     onValueChange={(v) => {
                       void movePoolFileToFolder(file, v === "__inbox__" ? null : v);
                     }}
-                    disabled={!canMoveDocs}
+                    disabled={!canMoveDocs || renamingFileId === file.id}
                   >
                     <SelectTrigger className="h-7 w-[140px] text-xs shrink-0">
                       <SelectValue placeholder="Folder" />
@@ -811,7 +906,7 @@ export default function TransactionDocumentsWorkspace({
                   <Button
                     variant="ghost"
                     size="sm"
-                    disabled={!canDownloadDocs}
+                    disabled={!canDownloadDocs || renamingFileId === file.id}
                     className="h-7 w-7 p-0"
                     type="button"
                     onClick={() => downloadPoolFile(file)}
@@ -822,7 +917,7 @@ export default function TransactionDocumentsWorkspace({
                   <Button
                     variant="ghost"
                     size="sm"
-                    disabled={!canDeleteDocs}
+                    disabled={!canDeleteDocs || renamingFileId === file.id}
                     className="h-7 w-7 p-0 text-destructive"
                     type="button"
                     onClick={() => removePoolFile(file)}

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, Mail, Phone, Building, MapPin, Edit, FolderKanban, Trash2 } from "lucide-react";
 import { archiveClientApi, getClientFromApi, permanentlyDeleteClientApi } from "@/api/clients";
+import { listProjectsFromApi, type ProjectListItem } from "@/api/projects";
 import PageHeader from "@/components/shared/PageHeader";
 import StatusBadge from "@/components/shared/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,8 @@ export default function ClientDetailPage() {
   const removeClientFromList = useAppStore((s) => s.removeClientFromList);
   const deleteClient = useAppStore((s) => s.deleteClient);
   const [loading, setLoading] = useState(!client && Boolean(getApiBaseUrl()) && Boolean(id));
+  const [linkedApiProjects, setLinkedApiProjects] = useState<ProjectListItem[]>([]);
+  const [linkedProjectsLoading, setLinkedProjectsLoading] = useState(false);
 
   useEffect(() => {
     if (!id || client || !getApiBaseUrl()) return;
@@ -43,6 +46,30 @@ export default function ClientDetailPage() {
       cancelled = true;
     };
   }, [id, client, upsertClient]);
+
+  const apiOn = Boolean(getApiBaseUrl());
+
+  useEffect(() => {
+    if (!apiOn || !id) return;
+    let cancelled = false;
+    setLinkedProjectsLoading(true);
+    void listProjectsFromApi({ clientId: id })
+      .then((rows) => {
+        if (!cancelled) setLinkedApiProjects(rows);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLinkedApiProjects([]);
+          toast.error("Could not load linked projects.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLinkedProjectsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiOn, id]);
 
   if (loading) {
     return (
@@ -67,7 +94,8 @@ export default function ClientDetailPage() {
     (p) => p.clientId === client.id && isTransactionProject(p)
   );
 
-  const apiOn = Boolean(getApiBaseUrl());
+  const linkedProjects = apiOn ? linkedApiProjects : clientProjects;
+  const linkedProjectCount = linkedProjects.length;
   const canEditClient = !apiOn || hasPermission(user, "clients.edit");
   const canArchiveClient = !apiOn || hasPermission(user, "clients.archive");
   const canDeletePermanent = !apiOn || hasPermission(user, "clients.delete_permanent");
@@ -126,12 +154,12 @@ export default function ClientDetailPage() {
             >
               <Trash2 className="w-4 h-4" /> {getApiBaseUrl() ? "Archive" : "Delete"}
             </Button>
-            {getApiBaseUrl() && clientProjects.length === 0 && canDeletePermanent && (
+            {getApiBaseUrl() && linkedProjectCount === 0 && canDeletePermanent && (
               <Button
                 variant="outline"
                 className="gap-2 text-destructive hover:text-destructive"
                 onClick={async () => {
-                  if (clientProjects.length > 0) {
+                  if (linkedProjectCount > 0) {
                     toast.error("Client has linked projects. Delete or reassign those projects first.");
                     return;
                   }
@@ -214,16 +242,26 @@ export default function ClientDetailPage() {
             <div className="px-6 py-4 border-b border-border flex items-center justify-between">
               <h3 className="font-display font-semibold text-foreground">
                 <FolderKanban className="w-4 h-4 inline mr-2" />
-                Linked Projects ({clientProjects.length})
+                Linked Projects ({linkedProjectCount})
               </h3>
-              <Button size="sm" onClick={() => navigate("/projects/new")}>New Project</Button>
+              <Button size="sm" onClick={() => navigate(`/projects/new?clientId=${encodeURIComponent(client.id)}`)}>
+                New Project
+              </Button>
             </div>
-            {clientProjects.length > 0 ? (
+            {linkedProjectsLoading ? (
+              <div className="px-6 py-8 text-center text-muted-foreground text-sm">Loading projects…</div>
+            ) : linkedProjectCount > 0 ? (
               <div className="divide-y divide-border">
-                {clientProjects.map(p => (
-                  <Link key={p.id} to={`/projects/${p.id}`} className="flex items-center justify-between px-6 py-4 hover:bg-secondary/30 transition-colors">
+                {linkedProjects.map((p) => (
+                  <Link
+                    key={p.id}
+                    to={`/projects/${p.id}`}
+                    className="flex items-center justify-between px-6 py-4 hover:bg-secondary/30 transition-colors"
+                  >
                     <div>
-                      <p className="text-sm font-medium text-foreground">{p.propertyAddress.split(",")[0]}</p>
+                      <p className="text-sm font-medium text-foreground">
+                        {(p.propertyAddress || "").split(",")[0] || p.name || "Project"}
+                      </p>
                       <p className="text-xs text-muted-foreground">{p.type}</p>
                     </div>
                     <StatusBadge status={p.stage} type="stage" />
