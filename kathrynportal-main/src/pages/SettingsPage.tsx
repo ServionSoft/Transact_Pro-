@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
-import { Plus, Edit, Trash2, Save, X, Users, Mail as MailIcon, UserPlus, Shield, FileText, Tags } from "lucide-react";
+import { Plus, Edit, Trash2, Save, X, Users, Mail as MailIcon, UserPlus, Shield, FileText, Tags, Server } from "lucide-react";
 import { teamMembers as initialTeam, type EmailTemplate, type TeamMember } from "@/data/mockData";
 import { getApiBaseUrl } from "@/lib/apiConfig";
 import { listTeamMembersFromApi, type TeamMemberListItem } from "@/api/teamMembers";
 import { useAuthStore } from "@/store/authStore";
 import { useAppStore } from "@/store/appStore";
 import FormattingRulesTabComponent from "@/components/settings/FormattingRulesTab";
+import SmtpSettingsTab from "@/components/settings/SmtpSettingsTab";
 import RoleProfilesTabComponent from "@/components/settings/RoleProfilesTab";
 import PageHeader from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,10 @@ export default function SettingsPage() {
       (s.user?.permissions?.includes("role_profiles.delete") ?? false) ||
       (s.user?.permissions?.includes("role_profiles.view") ?? false)
   );
+  const canManageSmtp = useAuthStore(
+    (s) =>
+      s.user?.role === "super_admin" || (s.user?.permissions?.includes("settings.manage_integrations") ?? false)
+  );
   const settingsTabs = useMemo(() => {
     const tabs: { id: string; label: string; icon: LucideIcon }[] = [
       { id: "templates", label: "Email Templates", icon: MailIcon },
@@ -40,9 +45,12 @@ export default function SettingsPage() {
     if (canManageRoles) {
       tabs.push({ id: "roles", label: "Permission profiles", icon: Tags });
     }
+    if (canManageSmtp) {
+      tabs.push({ id: "smtp", label: "Email / SMTP", icon: Server });
+    }
     tabs.push({ id: "account", label: "Account", icon: Shield });
     return tabs;
-  }, [canManageRoles]);
+  }, [canManageRoles, canManageSmtp]);
   const canViewTeam = useAuthStore(
     (s) => s.user?.role === "super_admin" || s.user?.permissions?.includes("team_members.view")
   );
@@ -401,6 +409,8 @@ export default function SettingsPage() {
 
       {activeTab === "roles" && canManageRoles && <RoleProfilesTabComponent />}
 
+      {activeTab === "smtp" && canManageSmtp && <SmtpSettingsTab />}
+
       {/* Account Tab */}
       {activeTab === "account" && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
@@ -443,14 +453,18 @@ export default function SettingsPage() {
                   Connected ✓
                 </Button>
               </div>
-              <div className="flex items-center justify-between p-4 bg-secondary/30 rounded-lg">
+              <div className="flex items-center justify-between p-4 bg-secondary/30 rounded-lg gap-4">
                 <div>
                   <p className="text-sm font-medium text-foreground">Email (SMTP)</p>
-                  <p className="text-xs text-muted-foreground">Send emails directly from the portal</p>
+                  <p className="text-xs text-muted-foreground">Send emails from the portal using your mail server</p>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => toast.success("Email configured!")} className="gap-1">
-                  Configured ✓
-                </Button>
+                {canManageSmtp ? (
+                  <Button variant="outline" size="sm" onClick={() => setActiveTab("smtp")} className="gap-1 shrink-0">
+                    Configure
+                  </Button>
+                ) : (
+                  <span className="text-xs text-muted-foreground shrink-0">Ask an admin</span>
+                )}
               </div>
             </div>
           </div>

@@ -69,6 +69,8 @@ interface AppState {
   deleteClient: (id: string) => void;
 
   // ---- Projects ----
+  setProjects: (projects: Project[]) => void;
+  upsertProject: (project: Project) => void;
   addProject: (input: Omit<Project, "id" | "createdAt" | "documents" | "tasks" | "emails" | "deadlines" | "attachments" | "fileFolders"> & {
     documents?: ProjectDocument[];
     tasks?: ProjectTask[];
@@ -183,6 +185,22 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
     return newProject;
   },
+  setProjects: (projects) =>
+    set((s) => {
+      const vault = s.projects.find((p) => p.isCrmDocumentVault || p.id === CRM_DOCUMENT_VAULT_PROJECT_ID);
+      if (!vault) return { projects };
+      const alreadyIncluded = projects.some((p) => p.id === vault.id);
+      if (alreadyIncluded) return { projects };
+      return { projects: [...projects, vault] };
+    }),
+  upsertProject: (project) =>
+    set((s) => {
+      const exists = s.projects.some((p) => p.id === project.id);
+      if (exists) {
+        return { projects: s.projects.map((p) => (p.id === project.id ? project : p)) };
+      }
+      return { projects: [project, ...s.projects] };
+    }),
   updateProject: (id, patch) =>
     set((s) => ({ projects: s.projects.map((p) => (p.id === id ? { ...p, ...patch } : p)) })),
   deleteProject: (id) => {

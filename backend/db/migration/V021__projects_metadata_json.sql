@@ -1,0 +1,3 @@
+ALTER TABLE public.projects
+  ADD COLUMN IF NOT EXISTS metadata_json jsonb;
+

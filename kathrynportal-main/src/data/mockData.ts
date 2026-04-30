@@ -188,9 +188,12 @@ export interface Project {
   documents: ProjectDocument[];
   tasks: ProjectTask[];
   emails: EmailThread[];
+  notes?: { id: string; body: string; author: string; createdAt: string }[];
+  assignees?: { userId: string; name: string; email: string; designation?: string | null }[];
   deadlines: { id: string; title: string; date: string; type: string }[];
   attachments: FileAttachment[];
   fileFolders: ProjectFolder[];
+  metadata?: Record<string, unknown>;
 }
 
 /** Transactions shown under Projects / clients (excludes the CRM document vault). */

@@ -1,8 +1,12 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, ChevronDown, ChevronRight, Plus, X, Info } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAppStore } from "@/store/appStore";
-import { conditionalFormattingRules, type ProjectStage, type ProjectType, type DocumentRule } from "@/data/mockData";
+import { createProjectApi, getProjectFromApi, updateProjectApi } from "@/api/projects";
+import { listClientsFromApi } from "@/api/clients";
+import { listDocumentRulesFromApi } from "@/api/documentRules";
+import { getApiBaseUrl } from "@/lib/apiConfig";
+import { conditionalFormattingRules, type ProjectStage, type ProjectType } from "@/data/mockData";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -45,9 +49,17 @@ const blankPerson = (): PersonParty => ({
 });
 
 export default function AddProjectPage() {
+  const { id } = useParams();
+  const isEditMode = Boolean(id);
   const navigate = useNavigate();
   const clients = useAppStore((s) => s.clients);
+  const existingProject = useAppStore((s) => (id ? s.projects.find((p) => p.id === id) : undefined));
   const addProject = useAppStore((s) => s.addProject);
+  const upsertProject = useAppStore((s) => s.upsertProject);
+  const apiOn = Boolean(getApiBaseUrl());
+  const [clientOptions, setClientOptions] = useState(clients);
+  const [ruleCatalog, setRuleCatalog] = useState(conditionalFormattingRules);
+  const [loadingEditProject, setLoadingEditProject] = useState(false);
 
   // Sections collapse state
   const [open, setOpen] = useState({
@@ -131,10 +143,134 @@ export default function AddProjectPage() {
   const noHOA = property.hoa === "no";
   const isListing = type === "Listing";
 
+  useEffect(() => {
+    if (!apiOn) {
+      setClientOptions(clients);
+      setRuleCatalog(conditionalFormattingRules);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [liveClients, liveRules] = await Promise.all([
+          listClientsFromApi(),
+          listDocumentRulesFromApi(),
+        ]);
+        if (!cancelled) {
+          setClientOptions(liveClients);
+          setRuleCatalog(liveRules);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setClientOptions(clients);
+          setRuleCatalog(conditionalFormattingRules);
+          toast.error("Could not load live clients/rules. Using local fallback.", {
+            description: e instanceof Error ? e.message : "Unknown error",
+          });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiOn, clients]);
+
+  useEffect(() => {
+    if (!isEditMode || !id) return;
+    let cancelled = false;
+    const hydrate = (p: {
+      clientId: string;
+      type: ProjectType;
+      nextStep: string;
+      nextStepDate: string;
+      yearBuilt: string;
+      propertyType: string;
+      propertyAddress: string;
+      listPrice: string;
+      escrowOfficer: string;
+      escrowCompany: string;
+      metadata?: Record<string, unknown>;
+    }) => {
+      setClientId(p.clientId);
+      setType((p.type === "Buyer File" ? "Buyer File" : "Listing") as TxType);
+      setNextStep(p.nextStep || "");
+      setNextStepDate(p.nextStepDate || "");
+      const parts = (p.propertyAddress || "").split(",").map((x) => x.trim()).filter(Boolean);
+      setProperty((prev) => ({
+        ...prev,
+        address: parts[0] || p.propertyAddress || "",
+        city: parts[1] || "",
+        state: parts[2] || prev.state,
+        zip: parts[3] || "",
+        yearBuilt: p.yearBuilt || "",
+        propertyType: p.propertyType || prev.propertyType,
+      }));
+      setTransaction((prev) => ({ ...prev, purchasePrice: p.listPrice === "—" ? "" : p.listPrice }));
+      setEscrow((prev) => ({ ...prev, name: p.escrowOfficer || "", company: p.escrowCompany || "" }));
+      const md = p.metadata ?? {};
+      if (md.timeline && typeof md.timeline === "object") {
+        setTimeline((prev) => ({ ...prev, ...(md.timeline as typeof prev) }));
+      }
+      if (md.cop && typeof md.cop === "object") {
+        setShowCOP(true);
+        setCop((md.cop as typeof cop) ?? { intoContract: "", coe: "" });
+      }
+      if (md.sprp && typeof md.sprp === "object") {
+        setShowSPRP(true);
+        setSprp((md.sprp as typeof sprp) ?? { intoContract: "", coe: "" });
+      }
+      if (md.buyerAgents && Array.isArray(md.buyerAgents) && md.buyerAgents.length > 0) {
+        setBuyerAgents(md.buyerAgents as typeof buyerAgents);
+      }
+      if (md.listingAgents && Array.isArray(md.listingAgents) && md.listingAgents.length > 0) {
+        setListingAgents(md.listingAgents as typeof listingAgents);
+      }
+      if (md.additionalBuyerAgent && typeof md.additionalBuyerAgent === "boolean") setAdditionalBuyerAgent(md.additionalBuyerAgent);
+      if (md.additionalListingAgent && typeof md.additionalListingAgent === "boolean") setAdditionalListingAgent(md.additionalListingAgent);
+      if (md.buyerAgent3 && typeof md.buyerAgent3 === "object") setBuyerAgent3(md.buyerAgent3 as typeof buyerAgent3);
+      if (md.listingAgent3 && typeof md.listingAgent3 === "object") setListingAgent3(md.listingAgent3 as typeof listingAgent3);
+      if (md.buyerAgentTC && typeof md.buyerAgentTC === "object") setBuyerAgentTC(md.buyerAgentTC as typeof buyerAgentTC);
+      if (md.buyerAgentAssistant && typeof md.buyerAgentAssistant === "object") setBuyerAgentAssistant(md.buyerAgentAssistant as typeof buyerAgentAssistant);
+      if (md.listingAgentTC && typeof md.listingAgentTC === "object") setListingAgentTC(md.listingAgentTC as typeof listingAgentTC);
+      if (md.escrow && typeof md.escrow === "object") setEscrow(md.escrow as typeof escrow);
+      if (md.escrowAssistant && typeof md.escrowAssistant === "object") setEscrowAssistant(md.escrowAssistant as typeof escrowAssistant);
+      if (md.lender && typeof md.lender === "object") setLender(md.lender as typeof lender);
+      if (md.sellers && Array.isArray(md.sellers) && md.sellers.length > 0) setSellers(md.sellers as typeof sellers);
+      if (md.buyers && Array.isArray(md.buyers) && md.buyers.length > 0) setBuyers(md.buyers as typeof buyers);
+      if (md.listing && typeof md.listing === "object") setListing((prev) => ({ ...prev, ...(md.listing as typeof prev) }));
+      if (md.transaction && typeof md.transaction === "object") setTransaction((prev) => ({ ...prev, ...(md.transaction as typeof prev) }));
+      if (md.property && typeof md.property === "object") setProperty((prev) => ({ ...prev, ...(md.property as typeof prev) }));
+    };
+    if (existingProject) {
+      hydrate(existingProject);
+      return;
+    }
+    if (!apiOn) return;
+    setLoadingEditProject(true);
+    void getProjectFromApi(id)
+      .then((loaded) => {
+        if (!cancelled) {
+          upsertProject(loaded);
+          hydrate(loaded);
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          toast.error(e instanceof Error ? e.message : "Could not load project for editing.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingEditProject(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiOn, existingProject, id, isEditMode, upsertProject]);
+
   // Auto-fill from client
   const onClientChange = (v: string) => {
     setClientId(v);
-    const c = clients.find(x => x.id === v);
+    const c = clientOptions.find(x => x.id === v);
     if (c?.propertyAddress) {
       setProperty(prev => ({
         ...prev,
@@ -151,7 +287,7 @@ export default function AddProjectPage() {
   const addSeller = () => sellers.length < 4 && setSellers(prev => [...prev, blankPerson()]);
   const removeSeller = (i: number) => sellers.filter((_, idx) => idx !== i) && setSellers(prev => prev.filter((_, idx) => idx !== i));
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!property.address) {
       toast.error("Property address is required.");
@@ -172,28 +308,54 @@ export default function AddProjectPage() {
     };
     const matches = (val: string, expect: string) =>
       expect === "Any" || expect === "*" || val === expect;
-    const ruleMatches = (rule: typeof conditionalFormattingRules[number]) =>
+    const ruleMatches = (rule: typeof ruleCatalog[number]) =>
       rule.isActive && rule.triggers.every((t) => matches(triggerCtx[t.field] ?? "", t.value));
 
-    // 1) standard baseline docs
-    const standardDocs: DocumentRule[] = conditionalFormattingRules
-      .filter((r) => r.kind === "standard" && ruleMatches(r))
-      .flatMap((r) => r.documents);
-
+    // 1) standard baseline docs + source rule metadata
     // 2) conditional overlays
-    const docsByName = new Map<string, { id: string; name: string; required: boolean; section?: string }>();
-    standardDocs.forEach((d) =>
-      docsByName.set(d.name, { id: d.id, name: d.name, required: d.required, section: d.section })
-    );
+    const docsByName = new Map<string, {
+      id: string;
+      name: string;
+      required: boolean;
+      section?: string;
+      sourceRuleId?: string;
+      sourceRuleActionId?: string;
+    }>();
+    ruleCatalog
+      .filter((r) => r.kind === "standard" && ruleMatches(r))
+      .forEach((r) => {
+        r.documents.forEach((d) =>
+          docsByName.set(d.name, {
+            id: d.id,
+            name: d.name,
+            required: d.required,
+            section: d.section,
+            sourceRuleId: r.id,
+            sourceRuleActionId: d.id,
+          })
+        );
+      });
     const naSet = new Set<string>();
-    conditionalFormattingRules
+    ruleCatalog
       .filter((r) => r.kind === "conditional" && ruleMatches(r))
       .forEach((r) =>
         r.actions.forEach((a) => {
           if (a.action === "add-required") {
-            docsByName.set(a.documentName, { id: `r-${a.id}`, name: a.documentName, required: true });
+            docsByName.set(a.documentName, {
+              id: `r-${a.id}`,
+              name: a.documentName,
+              required: true,
+              sourceRuleId: r.id,
+              sourceRuleActionId: a.id,
+            });
           } else if (a.action === "add-optional") {
-            docsByName.set(a.documentName, { id: `r-${a.id}`, name: a.documentName, required: false });
+            docsByName.set(a.documentName, {
+              id: `r-${a.id}`,
+              name: a.documentName,
+              required: false,
+              sourceRuleId: r.id,
+              sourceRuleActionId: a.id,
+            });
           } else if (a.action === "mark-na") {
             naSet.add(a.documentName);
           }
@@ -204,6 +366,8 @@ export default function AddProjectPage() {
       id: d.id,
       name: d.name,
       required: d.required,
+      sourceRuleId: d.sourceRuleId,
+      sourceRuleActionId: d.sourceRuleActionId,
       status: (naSet.has(d.name) ? "Other" : "Pending") as "Pending" | "Other",
       notes: [],
       attachedFileIds: [] as string[],
@@ -211,11 +375,122 @@ export default function AddProjectPage() {
     }));
 
     // ---- Compose project record ----
-    const linkedClient = clients.find((c) => c.id === clientId);
+    const linkedClient = clientOptions.find((c) => c.id === clientId);
     const initialStage: ProjectStage = type === "Listing" ? "Listing Prep" : "In Escrow";
     const fullAddress = [property.address, property.city, property.state, property.zip]
       .filter(Boolean)
       .join(", ");
+    const metadata = {
+      timeline,
+      cop,
+      showCOP,
+      sprp,
+      showSPRP,
+      buyerAgents,
+      additionalBuyerAgent,
+      buyerAgent3,
+      buyerAgentTC,
+      buyerAgentAssistant,
+      listingAgents,
+      additionalListingAgent,
+      listingAgent3,
+      listingAgentTC,
+      escrow,
+      escrowAssistant,
+      lender,
+      sellers,
+      buyers,
+      listing,
+      transaction,
+      property,
+    };
+
+    if (apiOn) {
+      try {
+        const payload = {
+          name: `${property.address} — ${linkedClient?.name?.split(" ").slice(-1)[0] || "New"} ${type === "Listing" ? "Listing" : "Buyer"}`,
+          clientId: clientId || (linkedClient?.id ?? ""),
+          propertyAddress: fullAddress || property.address,
+          type,
+          stage: initialStage,
+          nextStep: nextStep || "Define next step",
+          nextStepDate: nextStepDate || "",
+          yearBuilt: property.yearBuilt,
+          propertyType: property.propertyType,
+          representationSide: type === "Listing" ? "Seller" : "Buyer",
+          escrowOfficer: escrow.name || "",
+          escrowCompany: escrow.company || "TBD",
+          listPrice: transaction.purchasePrice || "—",
+          city: property.city,
+          state: property.state,
+          zip: property.zip,
+          documents: documents.map((d) => ({
+            name: d.name,
+            status: d.status,
+            customStatus: d.customStatus,
+            required: d.required,
+            sourceRuleId: d.sourceRuleId,
+            sourceRuleActionId: d.sourceRuleActionId,
+          })),
+          metadata,
+        };
+        const saved = isEditMode && id
+          ? await updateProjectApi(id, payload)
+          : await createProjectApi(payload);
+        upsertProject(saved);
+        toast.success(isEditMode ? "Transaction updated!" : "Transaction created!", {
+          description: isEditMode
+            ? `${type} for ${property.address}`
+            : `${type} for ${property.address} · ${documents.length} docs auto-loaded from rules`,
+        });
+        navigate(`/projects/${saved.id}`);
+        return;
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : isEditMode ? "Could not update transaction." : "Could not create transaction.");
+        return;
+      }
+    }
+
+    if (isEditMode && id) {
+      upsertProject({
+        ...(existingProject ?? {
+          id,
+          clientName: linkedClient?.name || "Unassigned",
+          documents,
+          tasks: [],
+          emails: [],
+          deadlines: [],
+          attachments: [],
+          fileFolders: [],
+          createdAt: new Date().toISOString().split("T")[0],
+        }),
+        id,
+        name: `${property.address} — ${linkedClient?.name?.split(" ").slice(-1)[0] || "New"} ${type === "Listing" ? "Listing" : "Buyer"}`,
+        clientId: clientId || (linkedClient?.id ?? ""),
+        clientName: linkedClient?.name || "Unassigned",
+        propertyAddress: fullAddress || property.address,
+        type: type as unknown as ProjectType,
+        stage: initialStage,
+        nextStep: nextStep || "Define next step",
+        nextStepDate: nextStepDate || "",
+        yearBuilt: property.yearBuilt,
+        propertyType: property.propertyType,
+        representationSide: type === "Listing" ? "Seller" : "Buyer",
+        escrowOfficer: escrow.name || "TBD",
+        escrowCompany: escrow.company || "TBD",
+        listPrice: transaction.purchasePrice || "—",
+        metadata,
+        documents: existingProject?.documents ?? documents,
+        tasks: existingProject?.tasks ?? [],
+        emails: existingProject?.emails ?? [],
+        deadlines: existingProject?.deadlines ?? [],
+        attachments: existingProject?.attachments ?? [],
+        fileFolders: existingProject?.fileFolders ?? [],
+      });
+      toast.success("Transaction updated!");
+      navigate(`/projects/${id}`);
+      return;
+    }
 
     const created = addProject({
       name: `${property.address} — ${linkedClient?.name?.split(" ").slice(-1)[0] || "New"} ${type === "Listing" ? "Listing" : "Buyer"}`,
@@ -232,6 +507,7 @@ export default function AddProjectPage() {
       escrowOfficer: escrow.name || "TBD",
       escrowCompany: escrow.company || "TBD",
       listPrice: transaction.purchasePrice || "—",
+      metadata,
       documents,
     });
 
@@ -246,7 +522,15 @@ export default function AddProjectPage() {
       <button onClick={() => navigate("/projects")} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6 transition-colors">
         <ArrowLeft className="w-4 h-4" /> Back to Projects
       </button>
-      <PageHeader title="New Transaction" subtitle="Set up a new Listing or Buyer File transaction." />
+      <PageHeader
+        title={isEditMode ? "Update Transaction" : "New Transaction"}
+        subtitle={isEditMode ? "Edit this transaction using the same project form." : "Set up a new Listing or Buyer File transaction."}
+      />
+      {isEditMode && loadingEditProject ? (
+        <div className="mb-4 rounded-md border border-border bg-secondary/20 p-3 text-sm text-muted-foreground">
+          Loading project details...
+        </div>
+      ) : null}
 
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Transaction type + client (always visible at top) */}
@@ -278,7 +562,7 @@ export default function AddProjectPage() {
             <Select value={clientId} onValueChange={onClientChange}>
               <SelectTrigger><SelectValue placeholder="Search or select a client..." /></SelectTrigger>
               <SelectContent>
-                {clients.map(c => (
+                {clientOptions.map(c => (
                   <SelectItem key={c.id} value={c.id}>{c.name} — {c.company}</SelectItem>
                 ))}
               </SelectContent>
@@ -596,7 +880,7 @@ export default function AddProjectPage() {
 
         <div className="flex justify-end gap-3 pt-2">
           <Button type="button" variant="outline" onClick={() => navigate("/projects")}>Cancel</Button>
-          <Button type="submit">Create Transaction</Button>
+          <Button type="submit">{isEditMode ? "Update Transaction" : "Create Transaction"}</Button>
         </div>
       </form>
     </div>

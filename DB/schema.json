@@ -161,6 +161,7 @@
         { "name": "property_type", "type": "string", "nullable": true },
         { "name": "representation_side", "type": "string", "nullable": true },
         { "name": "list_price", "type": "decimal(14,2)", "nullable": true },
+        { "name": "metadata_json", "type": "jsonb", "nullable": true },
         { "name": "escrow_officer_contact_id", "type": "bigint", "fk": { "table": "contacts", "column": "id" }, "nullable": true },
         { "name": "escrow_company", "type": "string", "nullable": true },
         { "name": "next_step_text", "type": "string", "nullable": true },

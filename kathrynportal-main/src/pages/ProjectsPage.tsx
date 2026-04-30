@@ -1,13 +1,18 @@
 import { Link, useNavigate } from "react-router-dom";
 import { Plus, Search, LayoutGrid, List, Columns3 } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAppStore } from "@/store/appStore";
+import { useAuthStore } from "@/store/authStore";
+import { listProjectsFromApi, type ProjectListItem } from "@/api/projects";
+import { getApiBaseUrl } from "@/lib/apiConfig";
+import { hasPermission } from "@/lib/permissions";
 import PageHeader from "@/components/shared/PageHeader";
 import StatusBadge from "@/components/shared/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { isTransactionProject, type ProjectStage } from "@/data/mockData";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
 
 const stages: (ProjectStage | "All")[] = ["All", "Listing Prep", "Listing Complete", "In Escrow", "Ready to Close", "Closed"];
 const kanbanStages: ProjectStage[] = ["Listing Prep", "Listing Complete", "In Escrow", "Ready to Close", "Closed"];
@@ -18,9 +23,61 @@ export default function ProjectsPage() {
   const [search, setSearch] = useState("");
   const [filterStage, setFilterStage] = useState<string>("All");
   const [viewMode, setViewMode] = useState<ViewMode>("cards");
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [projectRows, setProjectRows] = useState<ProjectListItem[]>([]);
   const navigate = useNavigate();
+  const user = useAuthStore((s) => s.user);
   const projects = useAppStore((s) => s.projects);
-  const transactionProjects = projects.filter(isTransactionProject);
+  const apiOn = Boolean(getApiBaseUrl());
+  const canCreate = !apiOn || hasPermission(user, "projects.create");
+  const transactionProjects = apiOn
+    ? projectRows
+    : projects.filter(isTransactionProject).map((p) => ({
+        id: p.id,
+        name: p.name,
+        clientId: p.clientId,
+        clientName: p.clientName,
+        propertyAddress: p.propertyAddress,
+        type: p.type === "Buyer Representation" ? "Buyer File" : p.type,
+        stage: p.stage,
+        nextStep: p.nextStep,
+        nextStepDate: p.nextStepDate,
+        yearBuilt: p.yearBuilt,
+        propertyType: p.propertyType,
+        representationSide: p.representationSide,
+        escrowOfficer: p.escrowOfficer,
+        escrowCompany: p.escrowCompany,
+        listPrice: p.listPrice,
+        createdAt: p.createdAt,
+        documentsCompleteCount: p.documents.filter((d) => d.status === "Complete").length,
+        documentsTotalCount: p.documents.length,
+        tasksCompleteCount: p.tasks.filter((t) => t.status === "Complete").length,
+        tasksTotalCount: p.tasks.length,
+        deadlinesCount: p.deadlines.length,
+        filesCount: p.attachments.length,
+      }));
+
+  const refresh = useCallback(async () => {
+    if (!getApiBaseUrl()) return;
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const rows = await listProjectsFromApi();
+      setProjectRows(rows);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Could not load projects.";
+      setLoadError(msg);
+      setProjectRows([]);
+      toast.error("Could not load projects", { description: msg });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
 
   const filtered = transactionProjects.filter(p => {
     const matchSearch = p.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -40,13 +97,25 @@ export default function ProjectsPage() {
     <div className="p-8 max-w-7xl mx-auto">
       <PageHeader
         title="Projects"
-        subtitle={`${transactionProjects.length} total transactions`}
+        subtitle={loading ? "Loading..." : `${transactionProjects.length} total transactions`}
         actions={
-          <Button onClick={() => navigate("/projects/new")} className="gap-2">
-            <Plus className="w-4 h-4" /> New Project
-          </Button>
+          canCreate ? (
+            <Button onClick={() => navigate("/projects/new")} className="gap-2">
+              <Plus className="w-4 h-4" /> New Project
+            </Button>
+          ) : undefined
         }
       />
+
+      {loadError && (
+        <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+          <p className="font-medium">Could not load projects from API.</p>
+          <p className="text-xs mt-1 text-muted-foreground">{loadError}</p>
+          <Button variant="outline" size="sm" className="mt-2" onClick={() => void refresh()}>
+            Retry
+          </Button>
+        </div>
+      )}
 
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-6">
         <div className="relative flex-1 max-w-sm">
@@ -103,7 +172,7 @@ export default function ProjectsPage() {
                   <div className="flex justify-between text-xs">
                     <span className="text-muted-foreground">Documents</span>
                     <span className="text-foreground font-medium">
-                      {project.documents.filter(d => d.status === "Complete").length}/{project.documents.length} complete
+                      {project.documentsCompleteCount}/{project.documentsTotalCount} complete
                     </span>
                   </div>
                   <div className="flex justify-between text-xs">
@@ -156,7 +225,7 @@ export default function ProjectsPage() {
                     <td className="px-5 py-4 text-sm font-medium text-foreground">{project.listPrice}</td>
                     <td className="px-5 py-4">
                       <span className="text-xs text-muted-foreground">
-                        {project.documents.filter(d => d.status === "Complete").length}/{project.documents.length}
+                        {project.documentsCompleteCount}/{project.documentsTotalCount}
                       </span>
                     </td>
                     <td className="px-5 py-4">

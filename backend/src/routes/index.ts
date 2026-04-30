@@ -6,7 +6,9 @@ import { registerClientsRoutes } from "./clientsRouter.js";
 import { registerDocumentRulesRoutes } from "./documentRulesRouter.js";
 import { registerStoredFilesRoutes } from "./storedFilesRouter.js";
 import { registerRoleProfilesRoutes } from "./roleProfilesRouter.js";
+import { registerSmtpSettingsRoutes } from "./smtpSettingsRouter.js";
 import { registerTeamMembersRoutes } from "./teamMembersRouter.js";
+import { registerProjectsRoutes } from "./projectsRouter.js";
 
 export function registerRoutes(app: Express, config: AppConfig): void {
   app.get("/health", async (_req: Request, res: Response) => {
@@ -30,8 +32,10 @@ export function registerRoutes(app: Express, config: AppConfig): void {
   const pool = getPool(config.databaseUrl);
   registerAuthRoutes(app, config, pool);
   registerClientsRoutes(app, config, pool);
+  registerProjectsRoutes(app, config, pool);
   registerDocumentRulesRoutes(app, config, pool);
   registerStoredFilesRoutes(app, config, pool);
   registerTeamMembersRoutes(app, config, pool);
   registerRoleProfilesRoutes(app, config, pool);
+  registerSmtpSettingsRoutes(app, config, pool);
 }

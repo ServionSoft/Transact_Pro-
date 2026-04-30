@@ -1,10 +1,24 @@
 import { useParams, useNavigate, Link } from "react-router-dom";
 import {
   ArrowLeft, FileText, CheckSquare, Mail, Calendar, Clock, Send,
-  Paperclip, PenLine, Plus, X, Save, MessageSquare,
+  Paperclip, PenLine, Plus, X, Save, MessageSquare, Trash2,
 } from "lucide-react";
-import { useState, useMemo, useLayoutEffect } from "react";
+import { useState, useMemo, useLayoutEffect, useEffect } from "react";
 import { useAppStore } from "@/store/appStore";
+import {
+  createProjectDeadlineApi,
+  createProjectEmailApi,
+  createProjectNoteApi,
+  createProjectTaskApi,
+  deleteProjectApi,
+  getProjectFromApi,
+  listProjectAssignmentOptionsApi,
+  patchProjectNextStepApi,
+  patchProjectTaskStatusApi,
+  patchProjectTasksBulkStatusApi,
+  setProjectAssignmentsApi,
+} from "@/api/projects";
+import { getApiBaseUrl } from "@/lib/apiConfig";
 import TransactionDocumentsWorkspace from "@/components/documents/TransactionDocumentsWorkspace";
 import PageHeader from "@/components/shared/PageHeader";
 import StatusBadge from "@/components/shared/StatusBadge";
@@ -15,6 +29,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { CRM_DOCUMENT_VAULT_PROJECT_ID } from "@/data/mockData";
+import { useAuthStore } from "@/store/authStore";
+import { hasPermission } from "@/lib/permissions";
 
 const tabs = [
   { id: "overview", label: "Overview", icon: FileText },
@@ -35,11 +51,16 @@ export default function ProjectDetailPage() {
     }
   }, [id, navigate]);
   const project = useAppStore((s) => s.projects.find((p) => p.id === id));
+  const upsertProject = useAppStore((s) => s.upsertProject);
+  const deleteProjectStore = useAppStore((s) => s.deleteProject);
   const clients = useAppStore((s) => s.clients);
+  const user = useAuthStore((s) => s.user);
   const setNextStepStore = useAppStore((s) => s.setNextStep);
+  const addProjectTaskStore = useAppStore((s) => s.addProjectTask);
   const setTaskStatusStore = useAppStore((s) => s.setTaskStatus);
   const addProjectDeadlineStore = useAppStore((s) => s.addProjectDeadline);
   const sendEmailStore = useAppStore((s) => s.sendEmail);
+  const apiOn = Boolean(getApiBaseUrl());
   const [activeTab, setActiveTab] = useState("overview");
 
   // Editable next step
@@ -58,12 +79,60 @@ export default function ProjectDetailPage() {
   const [showAddDeadline, setShowAddDeadline] = useState(false);
   const [newDeadlineTitle, setNewDeadlineTitle] = useState("");
   const [newDeadlineDate, setNewDeadlineDate] = useState("");
+  const [showAddTask, setShowAddTask] = useState(false);
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [newTaskDueDate, setNewTaskDueDate] = useState("");
+  const [taskFilter, setTaskFilter] = useState<"All" | "Pending" | "In Progress" | "Complete">("All");
+  const [newNoteBody, setNewNoteBody] = useState("");
+  const [assignmentOptions, setAssignmentOptions] = useState<Array<{ id: string; name: string; email: string; designation?: string | null }>>([]);
+  const [savingAssignments, setSavingAssignments] = useState(false);
 
   // Reminder draft modal
   const [reminderDraft, setReminderDraft] = useState<{ title: string; date: string } | null>(null);
   const [reminderSubject, setReminderSubject] = useState("");
   const [reminderBody, setReminderBody] = useState("");
   const [reminderTo, setReminderTo] = useState("");
+  const [loadingProject, setLoadingProject] = useState(false);
+  const [deletingProject, setDeletingProject] = useState(false);
+  const canDeleteProject = hasPermission(user, "projects.delete");
+  const canAssignMembers = hasPermission(user, "projects.assign_members");
+
+  useEffect(() => {
+    if (id === CRM_DOCUMENT_VAULT_PROJECT_ID) return;
+    if (!id || !getApiBaseUrl()) return;
+    let cancelled = false;
+    setLoadingProject(true);
+    void getProjectFromApi(id)
+      .then((loaded) => {
+        if (!cancelled) upsertProject(loaded);
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          toast.error(e instanceof Error ? e.message : "Could not load project.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingProject(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, upsertProject]);
+
+  useEffect(() => {
+    if (!apiOn || !canAssignMembers) return;
+    let cancelled = false;
+    void listProjectAssignmentOptionsApi()
+      .then((rows) => {
+        if (!cancelled) setAssignmentOptions(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setAssignmentOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiOn, canAssignMembers]);
 
   const sigCounts = useMemo(() => {
     const list = project?.documents ?? [];
@@ -83,11 +152,16 @@ export default function ProjectDetailPage() {
     const done = list.filter((d) => d.status === "Completed" || d.status === "Complete").length;
     return { done, total: list.length };
   }, [project?.documents]);
+  const visibleTasks = useMemo(() => {
+    const list = project?.tasks ?? [];
+    if (taskFilter === "All") return list;
+    return list.filter((t) => t.status === taskFilter);
+  }, [project?.tasks, taskFilter]);
 
   if (!project) {
     return (
       <div className="p-8 text-center">
-        <p className="text-muted-foreground">Project not found.</p>
+        <p className="text-muted-foreground">{loadingProject ? "Loading project..." : "Project not found."}</p>
         <Button variant="outline" onClick={() => navigate("/projects")} className="mt-4">Back to Projects</Button>
       </div>
     );
@@ -98,11 +172,24 @@ export default function ProjectDetailPage() {
   const openNextStepEdit = () => {
     setNextStepText(project.nextStep);
     setNextStepDate(project.nextStepDate);
+    setActiveTab("overview");
     setEditingNextStep(true);
   };
 
   const saveNextStep = () => {
     if (!project) return;
+    if (getApiBaseUrl()) {
+      void patchProjectNextStepApi(project.id, nextStepText, nextStepDate)
+        .then((updated) => {
+          upsertProject(updated);
+          toast.success("Next step updated", { description: `"${nextStepText}" — due ${nextStepDate}` });
+          setEditingNextStep(false);
+        })
+        .catch((e) => {
+          toast.error(e instanceof Error ? e.message : "Could not update next step.");
+        });
+      return;
+    }
     setNextStepStore(project.id, nextStepText, nextStepDate);
     toast.success("Next step updated", { description: `"${nextStepText}" — due ${nextStepDate}` });
     setEditingNextStep(false);
@@ -120,6 +207,35 @@ export default function ProjectDetailPage() {
   const sendReminder = () => {
     toast.success("Reminder sent", { description: `For "${reminderDraft?.title}" → ${reminderTo}` });
     setReminderDraft(null);
+  };
+
+  const handleDeleteProject = () => {
+    if (!project || deletingProject) return;
+    if (!canDeleteProject) {
+      toast.error("You do not have permission to delete this project.");
+      return;
+    }
+    const confirmed = window.confirm(`Delete project "${project.propertyAddress}"? This action archives it from active lists.`);
+    if (!confirmed) return;
+    if (!getApiBaseUrl()) {
+      deleteProjectStore(project.id);
+      toast.success("Project deleted.");
+      navigate("/projects");
+      return;
+    }
+    setDeletingProject(true);
+    void deleteProjectApi(project.id)
+      .then(() => {
+        deleteProjectStore(project.id);
+        toast.success("Project deleted.");
+        navigate("/projects");
+      })
+      .catch((e) => {
+        toast.error(e instanceof Error ? e.message : "Could not delete project.");
+      })
+      .finally(() => {
+        setDeletingProject(false);
+      });
   };
 
   return (
@@ -152,7 +268,19 @@ export default function ProjectDetailPage() {
           <Button variant="outline" onClick={() => navigate(`/email?to=${project.clientName}`)} className="gap-2">
             <Mail className="w-4 h-4" /> Email
           </Button>
-          <Button variant="outline" className="gap-2">Edit</Button>
+          <Button variant="outline" className="gap-2" onClick={() => navigate(`/projects/${project.id}/edit`)}>
+            <PenLine className="w-4 h-4" /> Update Project
+          </Button>
+          {canDeleteProject && (
+            <Button
+              variant="outline"
+              className="gap-2 text-destructive border-destructive/40 hover:bg-destructive/10"
+              onClick={handleDeleteProject}
+              disabled={deletingProject}
+            >
+              <Trash2 className="w-4 h-4" /> {deletingProject ? "Deleting..." : "Delete Project"}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -281,6 +409,55 @@ export default function ProjectDetailPage() {
               </div>
             </div>
           </div>
+          <div className="md:col-span-2 bg-card border border-border rounded-lg p-6">
+            <h3 className="font-display font-semibold text-foreground mb-3">Team Assignments</h3>
+            {(project.assignees ?? []).length === 0 ? (
+              <p className="text-sm text-muted-foreground">No team members assigned.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2 mb-4">
+                {(project.assignees ?? []).map((a) => (
+                  <span key={a.userId} className="text-xs px-2 py-1 rounded-full bg-secondary text-foreground">
+                    {a.name}{a.designation ? ` · ${a.designation}` : ""}
+                  </span>
+                ))}
+              </div>
+            )}
+            {canAssignMembers && apiOn && (
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">Select assignees for this transaction:</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {assignmentOptions.map((member) => {
+                    const checked = (project.assignees ?? []).some((a) => a.userId === member.id);
+                    return (
+                      <label key={member.id} className="flex items-center gap-2 text-sm border border-border rounded-md px-2 py-1.5">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            const current = project.assignees ?? [];
+                            const nextIds = e.target.checked
+                              ? [...current.map((a) => a.userId), member.id]
+                              : current.map((a) => a.userId).filter((id) => id !== member.id);
+                            setSavingAssignments(true);
+                            void setProjectAssignmentsApi(project.id, [...new Set(nextIds)])
+                              .then((updated) => {
+                                upsertProject(updated);
+                              })
+                              .catch((err) => {
+                                toast.error(err instanceof Error ? err.message : "Could not update assignments.");
+                              })
+                              .finally(() => setSavingAssignments(false));
+                          }}
+                          disabled={savingAssignments}
+                        />
+                        <span>{member.name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
         </motion.div>
       )}
 
@@ -299,14 +476,21 @@ export default function ProjectDetailPage() {
 
       {activeTab === "attachments" && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-          <p className="text-xs text-muted-foreground mb-3">
-            Combined upload + checklist + DocuSign:{" "}
-            <Link to="/documents" className="text-accent font-medium hover:underline">
-              Documents
-            </Link>{" "}
-            hub. You can still manage the file pool below.
-          </p>
-          <TransactionDocumentsWorkspace projectId={project.id} view="pool-only" />
+          <div className="mb-3 rounded-md border border-border bg-secondary/20 px-3 py-2.5">
+            <p className="text-xs text-muted-foreground">
+              Upload is disabled on this tab by design. Use the{" "}
+              <Link to="/documents" className="text-accent font-medium hover:underline">
+                Documents
+              </Link>{" "}
+              hub for uploads/checklist/DocuSign. This tab is for browsing and organizing stored files.
+            </p>
+            <div className="mt-2">
+              <Button size="sm" variant="outline" onClick={() => navigate("/documents")}>
+                Open Documents Hub
+              </Button>
+            </div>
+          </div>
+          <TransactionDocumentsWorkspace projectId={project.id} view="pool-only" allowPoolUpload={false} />
         </motion.div>
       )}
 
@@ -314,17 +498,156 @@ export default function ProjectDetailPage() {
       {activeTab === "tasks" && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
           <div className="bg-card border border-border rounded-lg">
-            <div className="px-6 py-4 border-b border-border">
+            <div className="px-6 py-4 border-b border-border flex items-center justify-between">
               <h3 className="font-display font-semibold text-foreground">Task Roadmap</h3>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" onClick={() => setShowAddTask((v) => !v)}>
+                  <Plus className="w-3 h-3 mr-1" /> Add Task
+                </Button>
+                <div className="flex items-center gap-1 bg-secondary rounded-md p-1">
+                  {(["All", "Pending", "In Progress", "Complete"] as const).map((status) => (
+                    <button
+                      key={status}
+                      type="button"
+                      onClick={() => setTaskFilter(status)}
+                      className={`px-2.5 py-1 text-xs rounded transition-colors ${
+                        taskFilter === status
+                          ? "bg-background text-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {status}
+                    </button>
+                  ))}
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    const taskIds = project.tasks.map((t) => t.id);
+                    if (taskIds.length === 0) return;
+                    if (apiOn) {
+                      void patchProjectTasksBulkStatusApi(project.id, taskIds, "Complete")
+                        .then((updated) => {
+                          upsertProject(updated);
+                          toast.success("All tasks marked complete.");
+                        })
+                        .catch((e) => {
+                          toast.error(e instanceof Error ? e.message : "Could not update tasks.");
+                        });
+                      return;
+                    }
+                    for (const task of project.tasks) {
+                      setTaskStatusStore(project.id, task.id, "Complete");
+                    }
+                    toast.success("All tasks marked complete.");
+                  }}
+                >
+                  Mark All Complete
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    const taskIds = project.tasks.map((t) => t.id);
+                    if (taskIds.length === 0) return;
+                    if (apiOn) {
+                      void patchProjectTasksBulkStatusApi(project.id, taskIds, "Pending")
+                        .then((updated) => {
+                          upsertProject(updated);
+                          toast.success("All tasks reset to pending.");
+                        })
+                        .catch((e) => {
+                          toast.error(e instanceof Error ? e.message : "Could not update tasks.");
+                        });
+                      return;
+                    }
+                    for (const task of project.tasks) {
+                      setTaskStatusStore(project.id, task.id, "Pending");
+                    }
+                    toast.success("All tasks reset to pending.");
+                  }}
+                >
+                  Reset All
+                </Button>
+              </div>
             </div>
+            {showAddTask && (
+              <div className="px-6 py-3 border-b border-border bg-secondary/20 flex items-center gap-2">
+                <Input
+                  placeholder="Task title (e.g. Upload signed disclosures)"
+                  value={newTaskTitle}
+                  onChange={(e) => setNewTaskTitle(e.target.value)}
+                  className="flex-1"
+                />
+                <Input
+                  type="date"
+                  value={newTaskDueDate}
+                  onChange={(e) => setNewTaskDueDate(e.target.value)}
+                  className="w-44"
+                />
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    const title = newTaskTitle.trim();
+                    if (!title) {
+                      toast.error("Task title is required.");
+                      return;
+                    }
+                    if (apiOn) {
+                      void createProjectTaskApi(project.id, {
+                        title,
+                        stage: project.stage,
+                        dueDate: newTaskDueDate || undefined,
+                      })
+                        .then((updated) => {
+                          upsertProject(updated);
+                          setNewTaskTitle("");
+                          setNewTaskDueDate("");
+                          setShowAddTask(false);
+                          toast.success("Task added.");
+                        })
+                        .catch((e) => {
+                          toast.error(e instanceof Error ? e.message : "Could not add task.");
+                        });
+                      return;
+                    }
+                    addProjectTaskStore(project.id, {
+                      title,
+                      stage: project.stage,
+                      status: "Pending",
+                      dueDate: newTaskDueDate || new Date().toISOString().split("T")[0],
+                    });
+                    setNewTaskTitle("");
+                    setNewTaskDueDate("");
+                    setShowAddTask(false);
+                    toast.success("Task added.");
+                  }}
+                >
+                  Save
+                </Button>
+              </div>
+            )}
             <div className="divide-y divide-border">
-              {project.tasks.map(task => {
+              {visibleTasks.map(task => {
                 const isComplete = task.status === "Complete";
                 return (
                   <div key={task.id} className="flex items-center gap-4 px-6 py-3">
                     <button
                       onClick={() => {
-                        setTaskStatusStore(project.id, task.id, isComplete ? "Pending" : "Complete");
+                        const nextStatus = isComplete ? "Pending" : "Complete";
+                        if (apiOn) {
+                          void patchProjectTaskStatusApi(project.id, task.id, nextStatus)
+                            .then((updated) => {
+                              upsertProject(updated);
+                              toast.success(isComplete ? "Task unchecked" : "Task completed!");
+                            })
+                            .catch((e) => {
+                              toast.error(e instanceof Error ? e.message : "Could not update task.");
+                            });
+                          return;
+                        }
+                        setTaskStatusStore(project.id, task.id, nextStatus);
                         toast.success(isComplete ? "Task unchecked" : "Task completed!");
                       }}
                       className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
@@ -334,14 +657,32 @@ export default function ProjectDetailPage() {
                       {isComplete && <CheckSquare className="w-3 h-3" />}
                     </button>
                     <div className="flex-1 min-w-0">
-                      <p className={`text-sm font-medium ${isComplete ? "line-through text-muted-foreground" : "text-foreground"}`}>
-                        {task.title}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p className={`text-sm font-medium ${isComplete ? "line-through text-muted-foreground" : "text-foreground"}`}>
+                          {task.title}
+                        </p>
+                        <span
+                          className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                            task.status === "Complete"
+                              ? "bg-success/15 text-success"
+                              : task.status === "In Progress"
+                                ? "bg-info/15 text-info"
+                                : "bg-secondary text-muted-foreground"
+                          }`}
+                        >
+                          {task.status}
+                        </span>
+                      </div>
                       <p className="text-xs text-muted-foreground">{task.stage} • Due: {task.dueDate}</p>
                     </div>
                   </div>
                 );
               })}
+              {visibleTasks.length === 0 && (
+                <div className="px-6 py-8 text-center text-sm text-muted-foreground">
+                  No tasks match this filter.
+                </div>
+              )}
             </div>
           </div>
         </motion.div>
@@ -386,12 +727,26 @@ export default function ProjectDetailPage() {
                 <div className="flex justify-end gap-2">
                   <Button variant="outline" onClick={() => { setShowComposeEmail(false); setEmailAttachments([]); }}>Cancel</Button>
                   <Button className="gap-2" onClick={() => {
-                    sendEmailStore({
+                    const payload = {
                       to: composeTo || client?.email || "",
                       subject: composeSubject || `Re: ${project.propertyAddress}`,
                       body: composeBody,
-                      projectId: project.id,
-                    });
+                    };
+                    if (apiOn) {
+                      void createProjectEmailApi(project.id, payload)
+                        .then((updated) => {
+                          upsertProject(updated);
+                          toast.success("Email logged to transaction!");
+                          setShowComposeEmail(false);
+                          setEmailAttachments([]);
+                          setComposeTo(""); setComposeSubject(""); setComposeBody("");
+                        })
+                        .catch((e) => {
+                          toast.error(e instanceof Error ? e.message : "Could not log email.");
+                        });
+                      return;
+                    }
+                    sendEmailStore({ ...payload, projectId: project.id });
                     toast.success("Email sent & logged to transaction!");
                     setShowComposeEmail(false);
                     setEmailAttachments([]);
@@ -438,17 +793,57 @@ export default function ProjectDetailPage() {
       {activeTab === "notes" && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-card border border-border rounded-lg p-6">
           <h3 className="font-display font-semibold text-foreground mb-4">Transaction Notes</h3>
-          <Textarea placeholder="Add a timestamped note..." rows={3} className="mb-2" />
-          <Button size="sm" onClick={() => toast.success("Note added")}>Add Note</Button>
+          <Textarea
+            placeholder="Add a timestamped note..."
+            rows={3}
+            className="mb-2"
+            value={newNoteBody}
+            onChange={(e) => setNewNoteBody(e.target.value)}
+          />
+          <Button
+            size="sm"
+            onClick={() => {
+              const body = newNoteBody.trim();
+              if (!body) {
+                toast.error("Note text is required.");
+                return;
+              }
+              if (apiOn) {
+                void createProjectNoteApi(project.id, body)
+                  .then((updated) => {
+                    upsertProject(updated);
+                    setNewNoteBody("");
+                    toast.success("Note added.");
+                  })
+                  .catch((e) => {
+                    toast.error(e instanceof Error ? e.message : "Could not add note.");
+                  });
+                return;
+              }
+              const localNote = {
+                id: `n-${Date.now()}`,
+                body,
+                author: user?.name ?? "Kathryn",
+                createdAt: new Date().toISOString().split("T")[0],
+              };
+              upsertProject({ ...project, notes: [localNote, ...(project.notes ?? [])] });
+              setNewNoteBody("");
+              toast.success("Note added.");
+            }}
+          >
+            Add Note
+          </Button>
           <div className="mt-6 space-y-3">
-            <div className="border-l-2 border-accent pl-3">
-              <p className="text-xs text-muted-foreground">2026-02-22 · Kathryn</p>
-              <p className="text-sm text-foreground">Spoke with Sarah; she'll send the SPQ by EOD Friday.</p>
-            </div>
-            <div className="border-l-2 border-border pl-3">
-              <p className="text-xs text-muted-foreground">2026-02-15 · Kathryn</p>
-              <p className="text-sm text-foreground">NHD report ordered from disclosure source.</p>
-            </div>
+            {(project.notes ?? []).length === 0 ? (
+              <p className="text-sm text-muted-foreground">No notes yet.</p>
+            ) : (
+              (project.notes ?? []).map((note, index) => (
+                <div key={note.id} className={`border-l-2 pl-3 ${index === 0 ? "border-accent" : "border-border"}`}>
+                  <p className="text-xs text-muted-foreground">{note.createdAt} · {note.author}</p>
+                  <p className="text-sm text-foreground">{note.body}</p>
+                </div>
+              ))
+            )}
           </div>
         </motion.div>
       )}
@@ -469,6 +864,22 @@ export default function ProjectDetailPage() {
                 <Input type="date" value={newDeadlineDate} onChange={(e) => setNewDeadlineDate(e.target.value)} className="w-44" />
                 <Button size="sm" onClick={() => {
                   if (!newDeadlineTitle.trim() || !newDeadlineDate) { toast.error("Title and date required"); return; }
+                  if (apiOn) {
+                    void createProjectDeadlineApi(project.id, {
+                      title: newDeadlineTitle.trim(),
+                      date: newDeadlineDate,
+                      type: "deadline",
+                    })
+                      .then((updated) => {
+                        upsertProject(updated);
+                        setNewDeadlineTitle(""); setNewDeadlineDate(""); setShowAddDeadline(false);
+                        toast.success("Deadline added");
+                      })
+                      .catch((e) => {
+                        toast.error(e instanceof Error ? e.message : "Could not add deadline.");
+                      });
+                    return;
+                  }
                   addProjectDeadlineStore(project.id, newDeadlineTitle.trim(), newDeadlineDate, "deadline");
                   setNewDeadlineTitle(""); setNewDeadlineDate(""); setShowAddDeadline(false);
                   toast.success("Deadline added");

@@ -101,6 +101,14 @@ const App = () => (
               }
             />
             <Route
+              path="/projects/:id/edit"
+              element={
+                <PermissionRoute permission="projects.edit">
+                  <AddProjectPage />
+                </PermissionRoute>
+              }
+            />
+            <Route
               path="/documents"
               element={
                 <PermissionRoute permission="documents.view">

@@ -27,6 +27,12 @@ import {
   createProjectFileFolder,
   ApiRequestError,
 } from "@/api/storedFiles";
+import {
+  createProjectDocumentNoteApi,
+  createProjectDocumentApi,
+  deleteProjectDocumentApi,
+  patchProjectDocumentStatusApi,
+} from "@/api/projects";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
@@ -47,18 +53,23 @@ interface DocRow {
   status: DocumentStatus;
   customStatus?: string;
   required: boolean;
+  sourceRuleId?: string;
+  sourceRuleActionId?: string;
   notesCount: number;
+  notes: { date: string; text: string; author: string }[];
   attachedFileIds: string[];
 }
 
 export interface TransactionDocumentsWorkspaceProps {
   projectId: string;
   view: TransactionDocumentsView;
+  allowPoolUpload?: boolean;
 }
 
 export default function TransactionDocumentsWorkspace({
   projectId,
   view,
+  allowPoolUpload = true,
 }: TransactionDocumentsWorkspaceProps) {
   const project = useAppStore((s) => s.projects.find((p) => p.id === projectId));
   const client = useAppStore((s) => s.clients.find((c) => c.id === project?.clientId));
@@ -77,6 +88,7 @@ export default function TransactionDocumentsWorkspace({
   const uploadFileToDocumentStore = useAppStore((s) => s.uploadFileToDocument);
   const hydrateProjectFilePoolStore = useAppStore((s) => s.hydrateProjectFilePool);
   const appendProjectAttachmentsStore = useAppStore((s) => s.appendProjectAttachments);
+  const upsertProject = useAppStore((s) => s.upsertProject);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [newDocName, setNewDocName] = useState("");
@@ -96,6 +108,8 @@ export default function TransactionDocumentsWorkspace({
   const [docuSignOpen, setDocuSignOpen] = useState(false);
   const [docuSignDocs, setDocuSignDocs] = useState<DocRow[]>([]);
   const [docuSignRecipient, setDocuSignRecipient] = useState("");
+  const [docNoteDrafts, setDocNoteDrafts] = useState<Record<string, string>>({});
+  const [savingDocNoteId, setSavingDocNoteId] = useState<string | null>(null);
   const [poolAccessDenied, setPoolAccessDenied] = useState(false);
   const canViewDocs = hasPermission(user, "documents.view");
   const canUploadDocs = hasPermission(user, "documents.upload");
@@ -113,7 +127,10 @@ export default function TransactionDocumentsWorkspace({
         status: d.status,
         customStatus: (d as { customStatus?: string }).customStatus,
         required: d.required,
-        notesCount: d.notes.length,
+        sourceRuleId: (d as { sourceRuleId?: string }).sourceRuleId,
+        sourceRuleActionId: (d as { sourceRuleActionId?: string }).sourceRuleActionId,
+        notesCount: (d.notes ?? []).length,
+        notes: d.notes ?? [],
         attachedFileIds: d.attachedFileIds ?? [],
       })),
     [project]
@@ -203,7 +220,50 @@ export default function TransactionDocumentsWorkspace({
   const folders = project.fileFolders ?? [];
 
   const updateDocStatus = (docId: string, status: DocumentStatus, customStatus?: string) => {
-    setDocStatusStore(project.id, docId, status, customStatus);
+    if (!getApiBaseUrl()) {
+      setDocStatusStore(project.id, docId, status, customStatus);
+      return;
+    }
+    void patchProjectDocumentStatusApi(project.id, docId, status, customStatus)
+      .then((updated) => {
+        upsertProject(updated);
+      })
+      .catch((e) => {
+        toast.error(e instanceof Error ? e.message : "Could not update document status.");
+      });
+  };
+
+  const saveDocumentNote = (doc: DocRow) => {
+    const body = (docNoteDrafts[doc.id] ?? "").trim();
+    if (!body) {
+      toast.error("Note text is required.");
+      return;
+    }
+    if (!getApiBaseUrl()) {
+      const localNote = {
+        date: new Date().toISOString().split("T")[0],
+        text: body,
+        author: user?.name ?? "Kathryn",
+      };
+      const nextDocuments = (project.documents ?? []).map((d) =>
+        d.id === doc.id ? { ...d, notes: [localNote, ...(d.notes ?? [])] } : d
+      );
+      upsertProject({ ...project, documents: nextDocuments });
+      setDocNoteDrafts((prev) => ({ ...prev, [doc.id]: "" }));
+      toast.success("Note added.");
+      return;
+    }
+    setSavingDocNoteId(doc.id);
+    void createProjectDocumentNoteApi(project.id, doc.id, body)
+      .then((updated) => {
+        upsertProject(updated);
+        setDocNoteDrafts((prev) => ({ ...prev, [doc.id]: "" }));
+        toast.success("Note added.");
+      })
+      .catch((e) => {
+        toast.error(e instanceof Error ? e.message : "Could not add note.");
+      })
+      .finally(() => setSavingDocNoteId(null));
   };
 
   const toggleSelect = (docId: string) => {
@@ -231,9 +291,41 @@ export default function TransactionDocumentsWorkspace({
   const addCustomDoc = () => {
     if (!newDocName.trim()) return;
     const name = newDocName.trim();
-    addProjectDocumentStore(project.id, name);
-    setNewDocName("");
-    toast.success(`Added "${name}" to checklist`);
+    if (!getApiBaseUrl()) {
+      addProjectDocumentStore(project.id, name);
+      setNewDocName("");
+      toast.success(`Added "${name}" to checklist`);
+      return;
+    }
+    void createProjectDocumentApi(project.id, name)
+      .then((updated) => {
+        upsertProject(updated);
+        setNewDocName("");
+        toast.success(`Added "${name}" to checklist`);
+      })
+      .catch((e) => {
+        toast.error(e instanceof Error ? e.message : "Could not add document.");
+      });
+  };
+
+  const removeChecklistDoc = (doc: DocRow) => {
+    if (doc.required) {
+      toast.error("Required checklist rows cannot be deleted.");
+      return;
+    }
+    if (!window.confirm(`Delete checklist row "${doc.name}"?`)) return;
+    if (!getApiBaseUrl()) {
+      toast.message("Delete is only available with API enabled.");
+      return;
+    }
+    void deleteProjectDocumentApi(project.id, doc.id)
+      .then((updated) => {
+        upsertProject(updated);
+        toast.success("Checklist row deleted");
+      })
+      .catch((e) => {
+        toast.error(e instanceof Error ? e.message : "Could not delete checklist row.");
+      });
   };
 
   const cancelNewFolder = () => {
@@ -632,15 +724,17 @@ export default function TransactionDocumentsWorkspace({
         <div
           className="p-4 border-2 border-dashed border-transparent rounded-lg m-2 transition-colors hover:border-border/80"
           onDragOver={(e) => e.preventDefault()}
-          onDrop={canUploadDocs ? onPoolDrop : undefined}
+          onDrop={allowPoolUpload && canUploadDocs ? onPoolDrop : undefined}
         >
-          <input
-            ref={poolFileInputRef}
-            type="file"
-            accept={POOL_ACCEPT}
-            className="hidden"
-            onChange={onPoolFilesPicked}
-          />
+          {allowPoolUpload ? (
+            <input
+              ref={poolFileInputRef}
+              type="file"
+              accept={POOL_ACCEPT}
+              className="hidden"
+              onChange={onPoolFilesPicked}
+            />
+          ) : null}
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <h3 className="font-display font-semibold text-foreground text-sm">
               {storageScope === "all"
@@ -650,12 +744,16 @@ export default function TransactionDocumentsWorkspace({
                   : folders.find((f) => f.id === storageScope)?.name ?? "Folder"}{" "}
               · {filteredPoolFiles.length} shown
             </h3>
-            <Button size="sm" className="gap-1" type="button" onClick={triggerPoolUpload} disabled={!canUploadDocs}>
-              <Upload className="w-3 h-3" /> Upload
-            </Button>
+            {allowPoolUpload ? (
+              <Button size="sm" className="gap-1" type="button" onClick={triggerPoolUpload} disabled={!canUploadDocs}>
+                <Upload className="w-3 h-3" /> Upload
+              </Button>
+            ) : null}
           </div>
           <p className="text-[11px] text-muted-foreground mb-3">
-            {view === "full"
+            {!allowPoolUpload
+              ? "Browse files and organize folders. Upload from the Documents hub."
+              : view === "full"
               ? "PDF and Word · Upload one file at a time (DocuSign naming and tabs). Link each to a checklist row below."
               : view === "pool-only"
                 ? "PDF and Word · Upload one file at a time. DocuSign on each row when connected."
@@ -774,6 +872,7 @@ export default function TransactionDocumentsWorkspace({
                 <th className="px-3 py-2 text-center font-medium w-28">DocuSign</th>
                 <th className="px-3 py-2 text-center font-medium w-12">Upload</th>
                 <th className="px-3 py-2 text-center font-medium w-12">Download</th>
+                <th className="px-3 py-2 text-center font-medium w-12">Delete</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -795,6 +894,11 @@ export default function TransactionDocumentsWorkspace({
                       {doc.required && (
                         <span className="text-[9px] bg-destructive/10 text-destructive px-1 py-0.5 rounded font-semibold uppercase">
                           Req
+                        </span>
+                      )}
+                      {doc.sourceRuleId && (
+                        <span className="text-[9px] bg-secondary text-muted-foreground px-1 py-0.5 rounded font-semibold">
+                          rule #{doc.sourceRuleId}
                         </span>
                       )}
                     </div>
@@ -843,8 +947,31 @@ export default function TransactionDocumentsWorkspace({
                       </PopoverTrigger>
                       <PopoverContent className="w-72" align="end">
                         <p className="text-xs font-semibold mb-2">Notes — {doc.name}</p>
-                        <Textarea placeholder="Add a note..." rows={3} className="text-xs" />
-                        <Button size="sm" className="mt-2 w-full" onClick={() => toast.success("Note added")}>
+                        <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                          {doc.notes.length === 0 ? (
+                            <p className="text-xs text-muted-foreground">No notes yet.</p>
+                          ) : (
+                            doc.notes.map((n, idx) => (
+                              <div key={`${doc.id}-note-${idx}`} className="rounded border border-border bg-secondary/20 p-2">
+                                <p className="text-[10px] text-muted-foreground">{n.date} · {n.author}</p>
+                                <p className="text-xs text-foreground">{n.text}</p>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                        <Textarea
+                          placeholder="Add a note..."
+                          rows={3}
+                          className="text-xs mt-2"
+                          value={docNoteDrafts[doc.id] ?? ""}
+                          onChange={(e) => setDocNoteDrafts((prev) => ({ ...prev, [doc.id]: e.target.value }))}
+                        />
+                        <Button
+                          size="sm"
+                          className="mt-2 w-full"
+                          onClick={() => saveDocumentNote(doc)}
+                          disabled={savingDocNoteId === doc.id}
+                        >
                           Save Note
                         </Button>
                       </PopoverContent>
@@ -920,11 +1047,24 @@ export default function TransactionDocumentsWorkspace({
                       <Download className="w-3.5 h-3.5" />
                     </Button>
                   </td>
+                  <td className="px-3 py-1.5 text-center">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0 text-destructive"
+                      type="button"
+                      disabled={doc.required}
+                      onClick={() => removeChecklistDoc(doc)}
+                      title={doc.required ? "Required rows cannot be deleted" : "Delete checklist row"}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </td>
                 </tr>
               ))}
               <tr className="bg-secondary/20">
                 <td className="px-3 py-2" />
-                <td className="px-3 py-2" colSpan={7}>
+                <td className="px-3 py-2" colSpan={8}>
                   <div className="flex items-center gap-2">
                     <Input
                       value={newDocName}
