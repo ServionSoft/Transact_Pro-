@@ -9,6 +9,7 @@ import { registerRoleProfilesRoutes } from "./roleProfilesRouter.js";
 import { registerSmtpSettingsRoutes } from "./smtpSettingsRouter.js";
 import { registerTeamMembersRoutes } from "./teamMembersRouter.js";
 import { registerProjectsRoutes } from "./projectsRouter.js";
+import { registerEmailTemplatesRoutes } from "./emailTemplatesRouter.js";
 
 export function registerRoutes(app: Express, config: AppConfig): void {
   app.get("/health", async (_req: Request, res: Response) => {
@@ -33,6 +34,7 @@ export function registerRoutes(app: Express, config: AppConfig): void {
   registerAuthRoutes(app, config, pool);
   registerClientsRoutes(app, config, pool);
   registerProjectsRoutes(app, config, pool);
+  registerEmailTemplatesRoutes(app, config, pool);
   registerDocumentRulesRoutes(app, config, pool);
   registerStoredFilesRoutes(app, config, pool);
   registerTeamMembersRoutes(app, config, pool);

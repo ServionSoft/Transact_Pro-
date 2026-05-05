@@ -5,6 +5,12 @@ import { Plus, Edit, Trash2, Save, X, Users, Mail as MailIcon, UserPlus, Shield,
 import { teamMembers as initialTeam, type EmailTemplate, type TeamMember } from "@/data/mockData";
 import { getApiBaseUrl } from "@/lib/apiConfig";
 import { listTeamMembersFromApi, type TeamMemberListItem } from "@/api/teamMembers";
+import {
+  createEmailTemplateApi,
+  deleteEmailTemplateApi,
+  listEmailTemplatesFromApi,
+  updateEmailTemplateApi,
+} from "@/api/emailTemplates";
 import { useAuthStore } from "@/store/authStore";
 import { useAppStore } from "@/store/appStore";
 import FormattingRulesTabComponent from "@/components/settings/FormattingRulesTab";
@@ -61,6 +67,7 @@ export default function SettingsPage() {
     (s) => s.user?.role === "super_admin" || s.user?.permissions?.includes("team_members.invite")
   );
   const [activeTab, setActiveTab] = useState("templates");
+  const apiOn = Boolean(getApiBaseUrl());
 
   useEffect(() => {
     const tab = (location.state as { activeTab?: string } | null)?.activeTab;
@@ -70,9 +77,13 @@ export default function SettingsPage() {
 
   // Templates state — backed by shared store
   const templates = useAppStore(s => s.emailTemplates);
+  const setEmailTemplates = useAppStore(s => s.setEmailTemplates);
   const addEmailTemplate = useAppStore(s => s.addEmailTemplate);
   const updateEmailTemplate = useAppStore(s => s.updateEmailTemplate);
   const deleteEmailTemplateAction = useAppStore(s => s.deleteEmailTemplate);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [templatesError, setTemplatesError] = useState<string | null>(null);
+  const [templatesReload, setTemplatesReload] = useState(0);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [newTemplate, setNewTemplate] = useState({ name: "", category: "Agent Email", subject: "", body: "" });
@@ -104,6 +115,26 @@ export default function SettingsPage() {
   });
 
   useEffect(() => {
+    if (!apiOn || activeTab !== "templates") return;
+    let cancelled = false;
+    setTemplatesLoading(true);
+    setTemplatesError(null);
+    void listEmailTemplatesFromApi()
+      .then((rows) => {
+        if (!cancelled) setEmailTemplates(rows);
+      })
+      .catch((e) => {
+        if (!cancelled) setTemplatesError(e instanceof Error ? e.message : "Could not load templates.");
+      })
+      .finally(() => {
+        if (!cancelled) setTemplatesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, apiOn, setEmailTemplates, templatesReload]);
+
+  useEffect(() => {
     if (!getApiBaseUrl() || !canViewTeam) return;
     let cancelled = false;
     setTeamLoading(true);
@@ -128,25 +159,58 @@ export default function SettingsPage() {
     setEditValues({ name: t.name, category: t.category, subject: t.subject, body: t.body });
   };
 
-  const saveEdit = () => {
+  const saveEdit = async () => {
     if (!editingId) return;
-    updateEmailTemplate(editingId, editValues);
+    if (apiOn) {
+      try {
+        const updated = await updateEmailTemplateApi(editingId, {
+          name: String(editValues.name ?? ""),
+          category: String(editValues.category ?? ""),
+          subject: String(editValues.subject ?? ""),
+          body: String(editValues.body ?? ""),
+        });
+        updateEmailTemplate(editingId, updated);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Could not update template.");
+        return;
+      }
+    } else {
+      updateEmailTemplate(editingId, editValues);
+    }
     setEditingId(null);
     toast.success("Template updated!");
   };
 
-  const addTemplate = () => {
+  const addTemplate = async () => {
     if (!newTemplate.name || !newTemplate.subject) {
       toast.error("Name and subject are required.");
       return;
     }
-    addEmailTemplate(newTemplate);
+    if (apiOn) {
+      try {
+        const created = await createEmailTemplateApi(newTemplate);
+        setEmailTemplates([created, ...templates]);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Could not create template.");
+        return;
+      }
+    } else {
+      addEmailTemplate(newTemplate);
+    }
     setShowNew(false);
     setNewTemplate({ name: "", category: "Agent Email", subject: "", body: "" });
     toast.success("Template created!");
   };
 
-  const deleteTemplate = (id: string) => {
+  const deleteTemplate = async (id: string) => {
+    if (apiOn) {
+      try {
+        await deleteEmailTemplateApi(id);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Could not delete template.");
+        return;
+      }
+    }
     deleteEmailTemplateAction(id);
     toast.success("Template deleted.");
   };
@@ -191,6 +255,17 @@ export default function SettingsPage() {
       {/* Email Templates Tab */}
       {activeTab === "templates" && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+          {templatesLoading && (
+            <p className="text-sm text-muted-foreground mb-3">Loading templates...</p>
+          )}
+          {templatesError && (
+            <p className="text-sm text-destructive mb-3">
+              {templatesError}{" "}
+              <Button variant="link" className="p-0 h-auto" onClick={() => setTemplatesReload((x) => x + 1)}>
+                Retry
+              </Button>
+            </p>
+          )}
           <div className="flex justify-end mb-4">
             <Button onClick={() => setShowNew(true)} className="gap-2">
               <Plus className="w-4 h-4" /> New Template

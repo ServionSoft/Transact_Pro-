@@ -11,7 +11,6 @@ import {
   projects as seedProjects,
   calendarEvents as seedCalendar,
   reminderDrafts as seedReminders,
-  emailTemplates as seedTemplates,
   type Client,
   type Project,
   type ProjectStage,
@@ -120,6 +119,7 @@ interface AppState {
   sendReminder: (id: string) => void;
 
   // ---- Email ----
+  setEmailTemplates: (templates: EmailTemplate[]) => void;
   sendEmail: (input: Omit<SentEmail, "id" | "date"> & { date?: string }) => void;
   removeProjectEmail: (projectId: string, emailId: string) => void;
   addEmailTemplate: (t: Omit<EmailTemplate, "id">) => void;
@@ -128,13 +128,14 @@ interface AppState {
 }
 
 const initialClients = getApiBaseUrl() ? [] : seedClients;
+const initialEmailTemplates: EmailTemplate[] = [];
 
 export const useAppStore = create<AppState>((set, get) => ({
   clients: initialClients,
   projects: seedProjects,
   calendarEvents: seedCalendar,
   reminderDrafts: seedReminders,
-  emailTemplates: seedTemplates,
+  emailTemplates: initialEmailTemplates,
   sentEmails: [],
 
   setClients: (clients) => set(() => ({ clients })),
@@ -541,6 +542,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
     }),
 
+  setEmailTemplates: (emailTemplates) => set(() => ({ emailTemplates })),
   sendEmail: (input) => {
     const sent: SentEmail = {
       id: uid("se"),

@@ -392,7 +392,7 @@ export async function createProjectDeadlineApi(
 
 export async function createProjectEmailApi(
   projectId: string,
-  body: { to: string; subject: string; body: string; from?: string }
+  body: { to: string; subject: string; body: string; from?: string; templateId?: string }
 ): Promise<{ project: Project; emailSendFailed?: boolean; emailSendError?: string }> {
   const json = await apiCall(`/api/projects/${encodeURIComponent(projectId)}/emails`, {
     method: "POST",

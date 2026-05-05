@@ -818,44 +818,6 @@ export const projects: Project[] = [
   },
 ];
 
-export const emailTemplates: EmailTemplate[] = [
-  {
-    id: "et1",
-    name: "Initial Agent Outreach",
-    category: "Agent Email",
-    subject: "New Transaction Opened — {{property_address}}",
-    body: "Hi {{agent_name}},\n\nI've opened a new transaction file for {{property_address}}. I'll be your transaction coordinator for this deal.\n\nPlease send over any documents you have so far, and I'll begin processing the file.\n\nBest regards,\nKathryn Santos",
-  },
-  {
-    id: "et2",
-    name: "Document Request",
-    category: "Document Request",
-    subject: "Documents Needed — {{property_address}}",
-    body: "Hi {{agent_name}},\n\nI'm reaching out regarding the transaction at {{property_address}}. The following documents are still needed:\n\n{{document_list}}\n\nPlease send these at your earliest convenience.\n\nThank you,\nKathryn Santos",
-  },
-  {
-    id: "et3",
-    name: "Deadline Reminder",
-    category: "Contact Reminder",
-    subject: "Upcoming Deadline — {{deadline_name}} — {{property_address}}",
-    body: "Hi {{agent_name}},\n\nThis is a reminder that the {{deadline_name}} for {{property_address}} is due on {{deadline_date}}.\n\nPlease ensure all required items are submitted before this date.\n\nBest regards,\nKathryn Santos",
-  },
-  {
-    id: "et4",
-    name: "Escrow Update",
-    category: "Agent Email",
-    subject: "Escrow Update — {{property_address}}",
-    body: "Hi {{agent_name}},\n\nHere's a quick update on the escrow for {{property_address}}:\n\n{{update_details}}\n\nPlease let me know if you have any questions.\n\nBest regards,\nKathryn Santos",
-  },
-  {
-    id: "et5",
-    name: "Close of Escrow Confirmation",
-    category: "Agent Email",
-    subject: "Congratulations — {{property_address}} Has Closed!",
-    body: "Hi {{agent_name}},\n\nI'm happy to confirm that escrow for {{property_address}} has officially closed and been recorded.\n\nIt's been a pleasure coordinating this transaction. I look forward to working with you again!\n\nWarm regards,\nKathryn Santos",
-  },
-];
-
 export const calendarEvents: CalendarEvent[] = [
   { id: "ce1", title: "Seller Disclosures Due", date: "2026-02-28", projectId: "p1", projectName: "1247 Ocean View Dr", type: "deadline", propertyAddress: "1247 Ocean View Dr, Malibu" },
   { id: "ce2", title: "NHD Report Expected", date: "2026-02-22", projectId: "p1", projectName: "1247 Ocean View Dr", type: "reminder", propertyAddress: "1247 Ocean View Dr, Malibu" },

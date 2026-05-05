@@ -1274,7 +1274,7 @@ export async function createProjectEmail(
   pool: Pool,
   config: AppConfig,
   projectId: string,
-  input: { to: string; subject: string; body: string; from?: string },
+  input: { to: string; subject: string; body: string; from?: string; templateId?: string | null },
   sentByUserId: string | null
 ): Promise<
   | { project: ProjectDetailApi; emailSendFailed?: boolean; emailSendError?: string }
@@ -1315,18 +1315,20 @@ export async function createProjectEmail(
     "noreply@invalid";
   const sentBy =
     sentByUserId && /^\d+$/.test(sentByUserId) ? sentByUserId : null;
+  const templateId =
+    input.templateId && /^\d+$/.test(input.templateId) ? input.templateId : null;
   const ins = await pool.query<{ id: string }>(
-    `INSERT INTO public.emails (
+      `INSERT INTO public.emails (
        project_id, client_id, template_id, direction, subject, body, from_address, to_address,
        cc, bcc, gmail_message_id, sent_by_user_id, sent_at, delivery_status, delivery_error, smtp_message_id,
        created_at, updated_at
      ) VALUES (
-       $1::bigint, NULL, NULL, 'outbound'::public.email_direction, $2, $3, $4, $5,
-       NULL, NULL, NULL, $6::bigint, NULL, 'pending'::public.email_delivery_status, NULL, NULL,
+       $1::bigint, NULL, $2::bigint, 'outbound'::public.email_direction, $3, $4, $5, $6,
+       NULL, NULL, NULL, $7::bigint, NULL, 'pending'::public.email_delivery_status, NULL, NULL,
        now(), now()
      )
      RETURNING id::text`,
-    [projectId, subject, body, fromAddress, to, sentBy]
+    [projectId, templateId, subject, body, fromAddress, to, sentBy]
   );
   const emailId = ins.rows[0]?.id;
   if (!emailId) {

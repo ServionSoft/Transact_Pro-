@@ -358,18 +358,19 @@ export function createProjectsController(pool: Pool, config: AppConfig) {
     },
 
     async createEmail(req: Request, res: Response): Promise<void> {
-      const body = req.body as { to?: unknown; subject?: unknown; body?: unknown; from?: unknown };
+      const body = req.body as { to?: unknown; subject?: unknown; body?: unknown; from?: unknown; templateId?: unknown };
       const to = typeof body?.to === "string" ? body.to : "";
       const subject = typeof body?.subject === "string" ? body.subject : "";
       const emailBody = typeof body?.body === "string" ? body.body : "";
       const from = typeof body?.from === "string" ? body.from : "";
+      const templateId = typeof body?.templateId === "string" ? body.templateId : "";
       try {
         const user = currentUser(req);
         const result = await createProjectEmail(
           pool,
           config,
           req.params.id,
-          { to, subject, body: emailBody, from },
+          { to, subject, body: emailBody, from, templateId },
           user?.id ?? null
         );
         if ("error" in result) {

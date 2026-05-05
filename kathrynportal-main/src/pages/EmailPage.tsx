@@ -1,8 +1,12 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Send } from "lucide-react";
 import { useAppStore } from "@/store/appStore";
 import { isTransactionProject } from "@/data/mockData";
+import { createProjectEmailApi, listProjectsFromApi, type ProjectListItem } from "@/api/projects";
+import { listEmailTemplatesFromApi } from "@/api/emailTemplates";
+import { getApiBaseUrl } from "@/lib/apiConfig";
+import { useAuthStore } from "@/store/authStore";
 import PageHeader from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +22,14 @@ export default function EmailPage() {
   const projects = useAppStore(s => s.projects);
   const transactionProjects = projects.filter(isTransactionProject);
   const emailTemplates = useAppStore(s => s.emailTemplates);
+  const setEmailTemplates = useAppStore((s) => s.setEmailTemplates);
   const sendEmail = useAppStore(s => s.sendEmail);
+  const upsertProject = useAppStore(s => s.upsertProject);
+  const user = useAuthStore((s) => s.user);
+  const apiOn = Boolean(getApiBaseUrl());
+  const [apiTransactions, setApiTransactions] = useState<ProjectListItem[]>([]);
+  const [loadingTransactions, setLoadingTransactions] = useState(false);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
 
   const [to, setTo] = useState(toParam);
   const [subject, setSubject] = useState("");
@@ -26,12 +37,92 @@ export default function EmailPage() {
   const [selectedTemplate, setSelectedTemplate] = useState("");
   const [selectedProject, setSelectedProject] = useState("");
 
+  useEffect(() => {
+    if (!apiOn) {
+      setApiTransactions([]);
+      return;
+    }
+    let cancelled = false;
+    setLoadingTransactions(true);
+    void listProjectsFromApi()
+      .then((rows) => {
+        if (!cancelled) {
+          setApiTransactions(rows.filter((p) => p.type === "Listing" || p.type === "Buyer File"));
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          toast.error("Could not load transactions.", {
+            description: e instanceof Error ? e.message : "Unknown error",
+          });
+          setApiTransactions([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingTransactions(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiOn]);
+
+  useEffect(() => {
+    if (!apiOn) return;
+    let cancelled = false;
+    setLoadingTemplates(true);
+    void listEmailTemplatesFromApi()
+      .then((rows) => {
+        if (!cancelled) setEmailTemplates(rows);
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          toast.error("Could not load email templates.", {
+            description: e instanceof Error ? e.message : "Unknown error",
+          });
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingTemplates(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiOn, setEmailTemplates]);
+
+  const transactionOptions = useMemo(
+    () =>
+      apiOn
+        ? apiTransactions.map((p) => ({
+            id: p.id,
+            propertyAddress: p.propertyAddress,
+            clientName: p.clientName,
+            clientId: p.clientId,
+          }))
+        : transactionProjects.map((p) => ({
+            id: p.id,
+            propertyAddress: p.propertyAddress,
+            clientName: p.clientName,
+            clientId: p.clientId,
+          })),
+    [apiOn, apiTransactions, transactionProjects]
+  );
+
+  const handleProjectChange = (projectId: string) => {
+    setSelectedProject(projectId);
+    const selected = transactionOptions.find((p) => p.id === projectId);
+    if (!selected) return;
+    const linkedClient = clients.find((c) => c.id === selected.clientId);
+    if (linkedClient?.email) {
+      setTo(linkedClient.email);
+    }
+  };
+
   const applyTemplate = (templateId: string) => {
     const tpl = emailTemplates.find(t => t.id === templateId);
     if (!tpl) return;
     setSelectedTemplate(templateId);
 
-    const project = transactionProjects.find(p => p.id === selectedProject);
+    const project = transactionOptions.find(p => p.id === selectedProject);
     let subj = tpl.subject;
     let bd = tpl.body;
 
@@ -49,17 +140,39 @@ export default function EmailPage() {
     setBody(bd);
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!to || !subject) {
       toast.error("Please fill in recipient and subject.");
       return;
     }
-    sendEmail({ to, subject, body, projectId: selectedProject || undefined });
-    toast.success("Email sent!", { description: `Email sent to ${to}` });
-    setTo("");
-    setSubject("");
-    setBody("");
-    setSelectedTemplate("");
+    try {
+      if (apiOn && selectedProject) {
+        const { project: updated, emailSendFailed, emailSendError } = await createProjectEmailApi(selectedProject, {
+          to,
+          subject,
+          body,
+          from: user?.email || undefined,
+          ...(selectedTemplate ? { templateId: selectedTemplate } : {}),
+        });
+        upsertProject(updated);
+        if (emailSendFailed) {
+          toast.warning("Email saved; SMTP delivery failed.", {
+            description: emailSendError ?? "Check Settings → Email / SMTP.",
+          });
+        } else {
+          toast.success("Email sent!", { description: `Email sent to ${to}` });
+        }
+      } else {
+        sendEmail({ to, subject, body, projectId: selectedProject || undefined });
+        toast.success("Email sent!", { description: `Email sent to ${to}` });
+      }
+      setTo("");
+      setSubject("");
+      setBody("");
+      setSelectedTemplate("");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not send email.");
+    }
   };
 
   // Recently sent (mock)
@@ -77,10 +190,12 @@ export default function EmailPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground">Link to transaction</label>
-                <Select value={selectedProject} onValueChange={v => setSelectedProject(v)}>
-                  <SelectTrigger><SelectValue placeholder="Select transaction..." /></SelectTrigger>
+                <Select value={selectedProject} onValueChange={handleProjectChange}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={loadingTransactions ? "Loading transactions..." : "Select transaction..."} />
+                  </SelectTrigger>
                   <SelectContent>
-                    {transactionProjects.map(p => (
+                    {transactionOptions.map(p => (
                       <SelectItem key={p.id} value={p.id}>{p.propertyAddress.split(",")[0]} — {p.clientName}</SelectItem>
                     ))}
                   </SelectContent>
@@ -89,7 +204,7 @@ export default function EmailPage() {
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground">Use Template</label>
                 <Select value={selectedTemplate} onValueChange={applyTemplate}>
-                  <SelectTrigger><SelectValue placeholder="Choose a template..." /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder={loadingTemplates ? "Loading templates..." : "Choose a template..."} /></SelectTrigger>
                   <SelectContent>
                     {emailTemplates.map(t => (
                       <SelectItem key={t.id} value={t.id}>{t.name} ({t.category})</SelectItem>
