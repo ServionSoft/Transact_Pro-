@@ -35,7 +35,7 @@ import { useAuthStore } from "@/store/authStore";
 
 const triggerFieldOptions: { value: RuleTriggerField; label: string; values: string[] }[] = [
   { value: "transactionType", label: "Transaction Type", values: ["Listing", "Buyer File"] },
-  { value: "propertyType", label: "Property Type", values: ["SFR", "Condo", "Vacant Land", "Townhouse", "Multi-Family", "Other"] },
+  { value: "propertyType", label: "Property Type", values: ["SFR", "Condo", "Vacant Land", "Townhouse", "Multi-Family", "Mobile/Manufactured Home", "Commercial", "Other"] },
   { value: "exemptSeller", label: "Exempt Seller", values: ["Yes", "No"] },
   { value: "hoa", label: "HOA", values: ["Yes", "No"] },
   { value: "tenantOccupied", label: "Tenant Occupied", values: ["Yes", "No"] },

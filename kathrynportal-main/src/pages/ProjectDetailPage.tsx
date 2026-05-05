@@ -1,13 +1,14 @@
 import { useParams, useNavigate, Link } from "react-router-dom";
 import {
   ArrowLeft, FileText, CheckSquare, Mail, Calendar, Clock, Send,
-  Paperclip, PenLine, Plus, X, Save, MessageSquare, Trash2,
+  Paperclip, PenLine, Plus, X, Save, MessageSquare, Trash2, Printer, Download,
 } from "lucide-react";
 import { useState, useMemo, useLayoutEffect, useEffect } from "react";
 import { useAppStore } from "@/store/appStore";
 import {
   createProjectDeadlineApi,
   createProjectEmailApi,
+  deleteProjectEmailApi,
   createProjectNoteApi,
   createProjectTaskApi,
   deleteProjectApi,
@@ -60,6 +61,7 @@ export default function ProjectDetailPage() {
   const setTaskStatusStore = useAppStore((s) => s.setTaskStatus);
   const addProjectDeadlineStore = useAppStore((s) => s.addProjectDeadline);
   const sendEmailStore = useAppStore((s) => s.sendEmail);
+  const removeProjectEmailStore = useAppStore((s) => s.removeProjectEmail);
   const apiOn = Boolean(getApiBaseUrl());
   const [activeTab, setActiveTab] = useState("overview");
 
@@ -96,6 +98,12 @@ export default function ProjectDetailPage() {
   const [deletingProject, setDeletingProject] = useState(false);
   const canDeleteProject = hasPermission(user, "projects.delete");
   const canAssignMembers = hasPermission(user, "projects.assign_members");
+  const canEditProject = hasPermission(user, "projects.edit");
+
+  const sortedDeadlines = useMemo(
+    () => [...(project?.deadlines ?? [])].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
+    [project?.deadlines]
+  );
 
   useEffect(() => {
     if (id === CRM_DOCUMENT_VAULT_PROJECT_ID) return;
@@ -108,7 +116,7 @@ export default function ProjectDetailPage() {
       })
       .catch((e) => {
         if (!cancelled) {
-          toast.error(e instanceof Error ? e.message : "Could not load project.");
+          toast.error(e instanceof Error ? e.message : "Could not load transaction.");
         }
       })
       .finally(() => {
@@ -161,13 +169,34 @@ export default function ProjectDetailPage() {
   if (!project) {
     return (
       <div className="p-8 text-center">
-        <p className="text-muted-foreground">{loadingProject ? "Loading project..." : "Project not found."}</p>
-        <Button variant="outline" onClick={() => navigate("/projects")} className="mt-4">Back to Projects</Button>
+        <p className="text-muted-foreground">{loadingProject ? "Loading transaction..." : "Transaction not found."}</p>
+        <Button variant="outline" onClick={() => navigate("/projects")} className="mt-4">Back to Transactions</Button>
       </div>
     );
   }
 
   const client = clients.find(c => c.id === project.clientId);
+  const transactionMeta = (
+    project.metadata &&
+    typeof project.metadata === "object" &&
+    "transaction" in project.metadata &&
+    project.metadata.transaction &&
+    typeof project.metadata.transaction === "object"
+  ) ? (project.metadata.transaction as Record<string, unknown>) : null;
+  const rpaSeller = typeof transactionMeta?.rpaSeller === "string" ? transactionMeta.rpaSeller : "";
+  const prelimSeller = typeof transactionMeta?.prelimSeller === "string" ? transactionMeta.prelimSeller : "";
+  const sellerMatchOverride = typeof transactionMeta?.sellerMatchOverride === "string" ? transactionMeta.sellerMatchOverride : "";
+  const sellerMismatchNotes = typeof transactionMeta?.sellerMismatchNotes === "string" ? transactionMeta.sellerMismatchNotes : "";
+  const autoSellerMatch = rpaSeller.trim() && prelimSeller.trim()
+    ? rpaSeller.toLowerCase().replace(/[^a-z0-9]/g, "") === prelimSeller.toLowerCase().replace(/[^a-z0-9]/g, "")
+      ? "Yes"
+      : "No"
+    : "Pending";
+  const effectiveSellerMatch = sellerMatchOverride === "yes"
+    ? "Yes"
+    : sellerMatchOverride === "no"
+      ? "No"
+      : autoSellerMatch;
 
   const openNextStepEdit = () => {
     setNextStepText(project.nextStep);
@@ -212,14 +241,14 @@ export default function ProjectDetailPage() {
   const handleDeleteProject = () => {
     if (!project || deletingProject) return;
     if (!canDeleteProject) {
-      toast.error("You do not have permission to delete this project.");
+      toast.error("You do not have permission to delete this transaction.");
       return;
     }
-    const confirmed = window.confirm(`Delete project "${project.propertyAddress}"? This action archives it from active lists.`);
+    const confirmed = window.confirm(`Delete transaction "${project.propertyAddress}"? This action archives it from active lists.`);
     if (!confirmed) return;
     if (!getApiBaseUrl()) {
       deleteProjectStore(project.id);
-      toast.success("Project deleted.");
+      toast.success("Transaction deleted.");
       navigate("/projects");
       return;
     }
@@ -227,27 +256,59 @@ export default function ProjectDetailPage() {
     void deleteProjectApi(project.id)
       .then(() => {
         deleteProjectStore(project.id);
-        toast.success("Project deleted.");
+        toast.success("Transaction deleted.");
         navigate("/projects");
       })
       .catch((e) => {
-        toast.error(e instanceof Error ? e.message : "Could not delete project.");
+        toast.error(e instanceof Error ? e.message : "Could not delete transaction.");
       })
       .finally(() => {
         setDeletingProject(false);
       });
   };
 
+  const downloadDeadlinesCsv = () => {
+    const escapeCsv = (value: string) => {
+      const v = value ?? "";
+      if (/[",\n]/.test(v)) return `"${v.replace(/"/g, "\"\"")}"`;
+      return v;
+    };
+    const rows = [
+      ["Title", "Type", "Date", "Transaction", "Property Address", "Client"],
+      ...sortedDeadlines.map((dl) => [
+        dl.title,
+        dl.type,
+        dl.date,
+        project.name,
+        project.propertyAddress,
+        project.clientName,
+      ]),
+    ];
+    const csv = `${rows.map((r) => r.map((c) => escapeCsv(String(c ?? ""))).join(",")).join("\n")}\n`;
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const fileBase = project.propertyAddress.split(",")[0]?.trim().replace(/\s+/g, "-").toLowerCase() || "transaction";
+    a.href = url;
+    a.download = `${fileBase}-deadlines.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success("Deadlines CSV downloaded.");
+  };
+
   return (
-    <div className="p-8 max-w-7xl mx-auto">
-      <button onClick={() => navigate("/projects")} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6 transition-colors">
-        <ArrowLeft className="w-4 h-4" /> Back to Projects
+    <div className="p-5 md:p-6 max-w-7xl mx-auto space-y-3">
+      <button onClick={() => navigate("/projects")} className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors">
+        <ArrowLeft className="w-4 h-4" /> Back to Transactions
       </button>
 
-      <div className="flex items-start justify-between mb-2">
-        <div>
-          <div className="flex items-center gap-3 mb-1 flex-wrap">
-            <h1 className="text-2xl font-display font-bold text-foreground">{project.propertyAddress.split(",")[0]}</h1>
+      <div className="bg-card border border-border rounded-lg px-4 py-3 md:px-5 md:py-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
+              <h1 className="text-xl md:text-2xl font-display font-bold text-foreground truncate">{project.propertyAddress.split(",")[0]}</h1>
             <StatusBadge status={project.stage} type="stage" />
             {(() => {
               const isBuyer = project.type === "Buyer Representation" || project.type === "Buyer File";
@@ -260,46 +321,48 @@ export default function ProjectDetailPage() {
               );
             })()}
           </div>
-          <p className="text-sm text-muted-foreground">
-            {project.clientName} • {project.listPrice}
+          <p className="text-xs md:text-sm text-muted-foreground">
+            {project.clientName} <span className="mx-1">•</span> {project.listPrice}
           </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => navigate(`/email?to=${project.clientName}`)} className="gap-2">
-            <Mail className="w-4 h-4" /> Email
+          </div>
+          <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={() => navigate(`/email?to=${project.clientName}`)} className="gap-1.5 h-8">
+            <Mail className="w-3.5 h-3.5" /> Email
           </Button>
-          <Button variant="outline" className="gap-2" onClick={() => navigate(`/projects/${project.id}/edit`)}>
-            <PenLine className="w-4 h-4" /> Update Project
+          <Button size="sm" variant="outline" className="gap-1.5 h-8" onClick={() => navigate(`/projects/${project.id}/edit`)}>
+            <PenLine className="w-3.5 h-3.5" /> Update
           </Button>
           {canDeleteProject && (
             <Button
+              size="sm"
               variant="outline"
-              className="gap-2 text-destructive border-destructive/40 hover:bg-destructive/10"
+              className="gap-1.5 h-8 text-destructive border-destructive/40 hover:bg-destructive/10"
               onClick={handleDeleteProject}
               disabled={deletingProject}
             >
-              <Trash2 className="w-4 h-4" /> {deletingProject ? "Deleting..." : "Delete Project"}
+              <Trash2 className="w-3.5 h-3.5" /> {deletingProject ? "Deleting..." : "Delete"}
             </Button>
           )}
+          </div>
         </div>
       </div>
 
       {/* DocuSign status indicator */}
-      <div className="flex items-center gap-2 mt-3 mb-4 flex-wrap">
+      <div className="flex items-center gap-1.5 flex-wrap">
         <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mr-1">DocuSign:</span>
-        <span className="text-xs px-2.5 py-1 rounded-full bg-status-out-sig/15 text-status-out-sig font-medium">
+        <span className="text-[11px] px-2 py-0.5 rounded-full bg-status-out-sig/15 text-status-out-sig font-medium">
           {sigCounts.out} out for signature
         </span>
-        <span className="text-xs px-2.5 py-1 rounded-full bg-status-signed/15 text-status-signed font-medium">
+        <span className="text-[11px] px-2 py-0.5 rounded-full bg-status-signed/15 text-status-signed font-medium">
           {sigCounts.signed} signed
         </span>
-        <span className="text-xs px-2.5 py-1 rounded-full bg-status-needs-sig/15 text-status-needs-sig font-medium">
+        <span className="text-[11px] px-2 py-0.5 rounded-full bg-status-needs-sig/15 text-status-needs-sig font-medium">
           {sigCounts.awaiting} awaiting
         </span>
       </div>
 
       {/* Next Step Banner */}
-      <div className="bg-accent/10 border border-accent/20 rounded-lg p-4 mb-6">
+      <div className="bg-accent/10 border border-accent/20 rounded-lg px-3 py-2.5 mb-2">
         {editingNextStep ? (
           <div className="space-y-3">
             <div className="flex items-center gap-2">
@@ -316,13 +379,13 @@ export default function ProjectDetailPage() {
             </div>
           </div>
         ) : (
-          <div className="flex items-center gap-3">
-            <Clock className="w-5 h-5 text-accent shrink-0" />
+          <div className="flex items-center gap-2.5">
+            <Clock className="w-4 h-4 text-accent shrink-0" />
             <div className="flex-1">
-              <p className="text-sm font-medium text-foreground">{project.nextStep}</p>
+              <p className="text-sm font-medium text-foreground leading-tight">{project.nextStep}</p>
               <p className="text-xs text-muted-foreground">Next step due: {project.nextStepDate}</p>
             </div>
-            <Button size="sm" variant="outline" onClick={openNextStepEdit} className="gap-1">
+            <Button size="sm" variant="outline" onClick={openNextStepEdit} className="gap-1 h-8">
               <PenLine className="w-3 h-3" /> Update
             </Button>
           </div>
@@ -330,18 +393,18 @@ export default function ProjectDetailPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-border mb-6 overflow-x-auto">
+      <div className="flex gap-1 border-b border-border mb-3 overflow-x-auto">
         {tabs.map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+            className={`flex items-center gap-1.5 px-3 py-2 text-xs md:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
               activeTab === tab.id
                 ? "border-accent text-foreground"
                 : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >
-            <tab.icon className="w-4 h-4" /> {tab.label}
+            <tab.icon className="w-3.5 h-3.5" /> {tab.label}
           </button>
         ))}
       </div>
@@ -357,7 +420,7 @@ export default function ProjectDetailPage() {
               ["Year Built", project.yearBuilt],
               ["Representation", project.representationSide],
               ["List Price", project.listPrice],
-              ["Project Type", project.type],
+              ["Transaction type", project.type],
             ].map(([label, value]) => (
               <div key={label} className="flex justify-between text-sm">
                 <span className="text-muted-foreground">{label}</span>
@@ -380,9 +443,28 @@ export default function ProjectDetailPage() {
             ))}
             <div className="pt-3 border-t border-border">
               <Link to={`/clients/${project.clientId}`} className="text-sm text-accent hover:underline">
-                View Client Profile →
+                View contact profile →
               </Link>
             </div>
+          </div>
+          <div className="md:col-span-2 bg-card border border-border rounded-lg p-6 space-y-4">
+            <h3 className="font-display font-semibold text-foreground">Seller Identity Check</h3>
+            {[
+              ["RPA Seller", rpaSeller || "Not provided"],
+              ["Prelim Seller", prelimSeller || "Not provided"],
+              ["Seller Name Match?", effectiveSellerMatch],
+            ].map(([label, value]) => (
+              <div key={label} className="flex justify-between text-sm gap-4">
+                <span className="text-muted-foreground">{label}</span>
+                <span className="text-foreground font-medium text-right">{value}</span>
+              </div>
+            ))}
+            {effectiveSellerMatch === "No" && (
+              <div className="pt-2 border-t border-border">
+                <p className="text-xs text-muted-foreground mb-1">Mismatch Notes</p>
+                <p className="text-sm text-foreground">{sellerMismatchNotes || "No notes added."}</p>
+              </div>
+            )}
           </div>
           <div className="md:col-span-2 bg-card border border-border rounded-lg p-6">
             <h3 className="font-display font-semibold text-foreground mb-3">Progress Overview</h3>
@@ -772,30 +854,59 @@ export default function ProjectDetailPage() {
               <div className="divide-y divide-border">
                 {project.emails.map(email => (
                   <div key={email.id} className="px-6 py-4">
-                    <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${
-                        email.direction === "outbound" ? "bg-info/15 text-info" : "bg-success/15 text-success"
-                      }`}>
-                        {email.direction === "outbound" ? "Outbound" : "Received"}
-                      </span>
-                      {email.direction === "outbound" && (
-                        <span
-                          className={`text-xs px-2 py-0.5 rounded-full ${
-                            (email.deliveryStatus ?? "sent") === "sent"
-                              ? "bg-success/15 text-success"
-                              : (email.deliveryStatus ?? "sent") === "pending"
-                                ? "bg-secondary text-muted-foreground"
-                                : "bg-destructive/15 text-destructive"
-                          }`}
-                        >
-                          {(email.deliveryStatus ?? "sent") === "sent"
-                            ? "Delivered"
-                            : (email.deliveryStatus ?? "sent") === "pending"
-                              ? "Sending…"
-                              : "Failed"}
+                    <div className="flex items-start justify-between gap-3 mb-1">
+                      <div className="flex items-center gap-2 flex-wrap min-w-0">
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${
+                          email.direction === "outbound" ? "bg-info/15 text-info" : "bg-success/15 text-success"
+                        }`}>
+                          {email.direction === "outbound" ? "Outbound" : "Received"}
                         </span>
+                        {email.direction === "outbound" && (
+                          <span
+                            className={`text-xs px-2 py-0.5 rounded-full ${
+                              (email.deliveryStatus ?? "sent") === "sent"
+                                ? "bg-success/15 text-success"
+                                : (email.deliveryStatus ?? "sent") === "pending"
+                                  ? "bg-secondary text-muted-foreground"
+                                  : "bg-destructive/15 text-destructive"
+                            }`}
+                          >
+                            {(email.deliveryStatus ?? "sent") === "sent"
+                              ? "Delivered"
+                              : (email.deliveryStatus ?? "sent") === "pending"
+                                ? "Sending…"
+                                : "Failed"}
+                          </span>
+                        )}
+                        <span className="text-xs text-muted-foreground">{email.date}</span>
+                      </div>
+                      {canEditProject && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 shrink-0 text-muted-foreground hover:text-destructive"
+                          title="Delete from thread"
+                          onClick={() => {
+                            if (!window.confirm("Remove this message from the communication thread? This cannot be undone.")) return;
+                            if (apiOn) {
+                              void deleteProjectEmailApi(project.id, email.id)
+                                .then((updated) => {
+                                  upsertProject(updated);
+                                  toast.success("Email removed from thread.");
+                                })
+                                .catch((e) => {
+                                  toast.error(e instanceof Error ? e.message : "Could not delete email.");
+                                });
+                            } else {
+                              removeProjectEmailStore(project.id, email.id);
+                              toast.success("Email removed from thread.");
+                            }
+                          }}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
                       )}
-                      <span className="text-xs text-muted-foreground">{email.date}</span>
                     </div>
                     <p className="text-sm font-medium text-foreground">{email.subject}</p>
                     <p className="text-xs text-muted-foreground mt-0.5">
@@ -877,15 +988,28 @@ export default function ProjectDetailPage() {
       {/* Timeline */}
       {activeTab === "calendar" && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-          <div className="bg-card border border-border rounded-lg">
-            <div className="px-6 py-4 border-b border-border flex items-center justify-between">
+          <div className="bg-card border border-border rounded-lg overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-border flex items-center justify-between">
               <h3 className="font-display font-semibold text-foreground">Deadlines & Reminders</h3>
-              <Button size="sm" variant="outline" onClick={() => setShowAddDeadline((v) => !v)} className="gap-1">
-                <Plus className="w-3 h-3" /> Add Deadline
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1 h-8"
+                  onClick={() => navigate(`/projects/${project.id}/deadlines/print`)}
+                >
+                  <Printer className="w-3.5 h-3.5" /> Print PDF
+                </Button>
+                <Button size="sm" variant="outline" className="gap-1 h-8" onClick={downloadDeadlinesCsv}>
+                  <Download className="w-3.5 h-3.5" /> CSV
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setShowAddDeadline((v) => !v)} className="gap-1 h-8">
+                  <Plus className="w-3 h-3" /> Add Deadline
+                </Button>
+              </div>
             </div>
             {showAddDeadline && (
-              <div className="px-6 py-3 border-b border-border bg-secondary/20 flex items-center gap-2">
+              <div className="px-4 py-2.5 border-b border-border bg-secondary/20 flex items-center gap-2">
                 <Input placeholder="Title (e.g. Final Walkthrough)" value={newDeadlineTitle} onChange={(e) => setNewDeadlineTitle(e.target.value)} className="flex-1" />
                 <Input type="date" value={newDeadlineDate} onChange={(e) => setNewDeadlineDate(e.target.value)} className="w-44" />
                 <Button size="sm" onClick={() => {
@@ -912,16 +1036,16 @@ export default function ProjectDetailPage() {
                 }}>Save</Button>
               </div>
             )}
-            <div className="divide-y divide-border">
-              {project.deadlines.map(dl => (
-                <div key={dl.id} className="flex items-center justify-between px-6 py-4">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{dl.title}</p>
+            <div className="divide-y divide-border max-h-[62vh] overflow-y-auto">
+              {sortedDeadlines.map(dl => (
+                <div key={dl.id} className="flex items-center justify-between px-4 py-2.5 gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-foreground truncate">{dl.title}</p>
                     <p className="text-xs text-muted-foreground">{dl.type === "deadline" ? "📅 Deadline" : "🔔 Reminder"}</p>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm text-accent font-medium">{dl.date}</span>
-                    <Button size="sm" variant="outline" onClick={() => openReminderDraft(dl.title, dl.date)}>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs md:text-sm text-accent font-medium">{dl.date}</span>
+                    <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs" onClick={() => openReminderDraft(dl.title, dl.date)}>
                       Draft Reminder
                     </Button>
                   </div>

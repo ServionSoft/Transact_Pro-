@@ -3,6 +3,7 @@ import type { Pool } from "pg";
 export type ClientApiRow = {
   id: string;
   name: string;
+  preferredName: string;
   email: string;
   phone: string;
   company: string;
@@ -19,6 +20,7 @@ export type ClientApiRow = {
 
 export type ClientUpsertInput = {
   name: string;
+  preferredName?: string;
   email: string;
   phone?: string;
   company?: string;
@@ -85,6 +87,7 @@ function validateClientInput(input: ClientUpsertInput): ServiceError | null {
 type ClientDbRow = {
   id: string;
   name: string;
+  preferred_name: string | null;
   email: string | null;
   phone: string | null;
   company: string | null;
@@ -105,6 +108,7 @@ function rowToClient(row: ClientDbRow): ClientApiRow {
   return {
     id: row.id,
     name: row.name,
+    preferredName: row.preferred_name ?? "",
     email: row.email ?? "",
     phone: row.phone ?? "",
     company: row.company ?? "",
@@ -143,6 +147,7 @@ export async function listClients(pool: Pool, archived = false): Promise<ClientA
     `SELECT
        c.id::text,
        c.name,
+       c.preferred_name,
        c.email,
        c.phone,
        c.company,
@@ -155,7 +160,7 @@ export async function listClients(pool: Pool, archived = false): Promise<ClientA
        c.notes,
        c.created_at,
        COUNT(p.id)::int AS project_count
-     FROM public.clients c
+     FROM public.contacts c
      LEFT JOIN public.projects p ON p.client_id = c.id
      WHERE ${archived ? "c.deleted_at IS NOT NULL" : "c.deleted_at IS NULL"}
      GROUP BY c.id
@@ -171,6 +176,7 @@ export async function getClientById(pool: Pool, id: string): Promise<ClientApiRo
     `SELECT
        c.id::text,
        c.name,
+       c.preferred_name,
        c.email,
        c.phone,
        c.company,
@@ -183,7 +189,7 @@ export async function getClientById(pool: Pool, id: string): Promise<ClientApiRo
        c.notes,
        c.created_at,
        COUNT(p.id)::int AS project_count
-     FROM public.clients c
+     FROM public.contacts c
      LEFT JOIN public.projects p ON p.client_id = c.id
      WHERE c.id = $1::bigint
        AND c.deleted_at IS NULL
@@ -202,19 +208,34 @@ export async function createClient(
   const validation = validateClientInput(input);
   if (validation) return { error: validation };
 
+  const emailKey = normalizeText(input.email).toLowerCase();
+  const existingId = await pool.query<{ id: string }>(
+    `SELECT id::text FROM public.contacts
+     WHERE deleted_at IS NULL
+       AND email IS NOT NULL
+       AND lower(btrim(email::text)) = $1
+     LIMIT 1`,
+    [emailKey]
+  );
+  if (existingId.rows[0]?.id) {
+    const existing = await getClientById(pool, existingId.rows[0].id);
+    if (existing) return { client: existing };
+  }
+
   const status = statusToDb(input.status) ?? "active";
   const createdBy = await resolveCreatedByUserId(pool, createdByUserId);
   const { rows } = await pool.query<{ id: string }>(
-    `INSERT INTO public.clients (
-       name, email, phone, company, agent_role_text, status, notes,
+    `INSERT INTO public.contacts (
+       name, preferred_name, email, phone, company, agent_role_text, status, notes,
        primary_address, city, state, zip, created_by_user_id, created_at, updated_at
      ) VALUES (
-       $1, $2, $3, $4, $5, $6::public.client_status, $7,
-       $8, $9, $10, $11, $12, now(), now()
+       $1, $2, $3, $4, $5, $6, $7::public.client_status, $8,
+       $9, $10, $11, $12, $13, now(), now()
      )
      RETURNING id::text`,
     [
       normalizeText(input.name),
+      normalizeText(input.preferredName) || null,
       normalizeText(input.email),
       normalizeText(input.phone),
       normalizeText(input.company),
@@ -254,23 +275,25 @@ export async function updateClient(
 
   const status = statusToDb(input.status) ?? "active";
   const { rowCount } = await pool.query(
-    `UPDATE public.clients
+    `UPDATE public.contacts
      SET name = $1,
-         email = $2,
-         phone = $3,
-         company = $4,
-         agent_role_text = $5,
-         status = $6::public.client_status,
-         notes = $7,
-         primary_address = $8,
-         city = $9,
-         state = $10,
-         zip = $11,
+         preferred_name = $2,
+         email = $3,
+         phone = $4,
+         company = $5,
+         agent_role_text = $6,
+         status = $7::public.client_status,
+         notes = $8,
+         primary_address = $9,
+         city = $10,
+         state = $11,
+         zip = $12,
          updated_at = now()
-     WHERE id = $12::bigint
+     WHERE id = $13::bigint
        AND deleted_at IS NULL`,
     [
       normalizeText(input.name),
+      normalizeText(input.preferredName) || null,
       normalizeText(input.email),
       normalizeText(input.phone),
       normalizeText(input.company),
@@ -302,7 +325,7 @@ export async function archiveClient(
     return { error: { status: 404, code: "CLIENT_NOT_FOUND", message: "Client not found." } };
   }
   const { rowCount } = await pool.query(
-    `UPDATE public.clients
+    `UPDATE public.contacts
      SET deleted_at = now(),
          updated_at = now()
      WHERE id = $1::bigint
@@ -323,7 +346,7 @@ export async function unarchiveClient(
     return { error: { status: 404, code: "CLIENT_NOT_FOUND", message: "Client not found." } };
   }
   const { rowCount } = await pool.query(
-    `UPDATE public.clients
+    `UPDATE public.contacts
      SET deleted_at = NULL,
          updated_at = now()
      WHERE id = $1::bigint
@@ -353,7 +376,7 @@ export async function permanentlyDeleteClient(
       },
     };
   }
-  const { rowCount } = await pool.query(`DELETE FROM public.clients WHERE id = $1::bigint`, [id]);
+  const { rowCount } = await pool.query(`DELETE FROM public.contacts WHERE id = $1::bigint`, [id]);
   if (!rowCount) {
     return { error: { status: 404, code: "CLIENT_NOT_FOUND", message: "Client not found." } };
   }

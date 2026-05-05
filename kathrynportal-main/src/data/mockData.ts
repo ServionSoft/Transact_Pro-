@@ -95,6 +95,8 @@ export type TaskStatus = "Pending" | "In Progress" | "Complete";
 export interface Client {
   id: string;
   name: string;
+  /** Informal / display name (legal name stays in name). */
+  preferredName?: string;
   email: string;
   phone: string;
   company: string;
@@ -171,7 +173,7 @@ export const CRM_DOCUMENT_VAULT_PROJECT_ID = "crm-doc-vault";
 
 export interface Project {
   id: string;
-  /** When true, project is the CRM document library only — hide from Projects and client links */
+  /** When true, project is the CRM document library only — hide from Transactions and contact links */
   isCrmDocumentVault?: boolean;
   name: string;
   clientId: string;
@@ -199,7 +201,7 @@ export interface Project {
   metadata?: Record<string, unknown>;
 }
 
-/** Transactions shown under Projects / clients (excludes the CRM document vault). */
+/** Transactions shown in the app (excludes the CRM document vault). */
 export function isTransactionProject(p: Project): boolean {
   return !p.isCrmDocumentVault;
 }
@@ -834,7 +836,7 @@ export const emailTemplates: EmailTemplate[] = [
   {
     id: "et3",
     name: "Deadline Reminder",
-    category: "Client Reminder",
+    category: "Contact Reminder",
     subject: "Upcoming Deadline — {{deadline_name}} — {{property_address}}",
     body: "Hi {{agent_name}},\n\nThis is a reminder that the {{deadline_name}} for {{property_address}} is due on {{deadline_date}}.\n\nPlease ensure all required items are submitted before this date.\n\nBest regards,\nKathryn Santos",
   },

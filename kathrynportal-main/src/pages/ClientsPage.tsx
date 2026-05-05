@@ -17,7 +17,8 @@ export default function ClientsPage() {
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("All");
   const [showArchived, setShowArchived] = useState(false);
-  const [loading, setLoading] = useState(false);
+  /** When API is on, start loading so we never flash an empty count before the first fetch. */
+  const [loading, setLoading] = useState(() => Boolean(getApiBaseUrl()));
   const [loadError, setLoadError] = useState<string | null>(null);
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
@@ -32,9 +33,9 @@ export default function ClientsPage() {
       const rows = await listClientsFromApi({ archived: showArchived });
       setClients(rows);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Could not load clients.";
+      const msg = e instanceof Error ? e.message : "Could not load contacts.";
       setLoadError(msg);
-      toast.error("Could not load clients", { description: msg });
+      toast.error("Could not load contacts", { description: msg });
     } finally {
       setLoading(false);
     }
@@ -49,10 +50,14 @@ export default function ClientsPage() {
   const canArchive = !apiOn || hasPermission(user, "clients.archive");
 
   const filtered = clients.filter(c => {
-    const matchSearch = c.name.toLowerCase().includes(search.toLowerCase()) ||
-      c.email.toLowerCase().includes(search.toLowerCase()) ||
-      c.company.toLowerCase().includes(search.toLowerCase()) ||
-      c.propertyAddress.toLowerCase().includes(search.toLowerCase());
+    const q = search.toLowerCase();
+    const pref = (c.preferredName ?? "").toLowerCase();
+    const matchSearch =
+      c.name.toLowerCase().includes(q) ||
+      pref.includes(q) ||
+      c.email.toLowerCase().includes(q) ||
+      c.company.toLowerCase().includes(q) ||
+      c.propertyAddress.toLowerCase().includes(q);
     const matchStatus = showArchived || filterStatus === "All" || c.status === filterStatus;
     return matchSearch && matchStatus;
   });
@@ -60,12 +65,12 @@ export default function ClientsPage() {
   return (
     <div className="p-8 max-w-7xl mx-auto">
       <PageHeader
-        title="Clients"
-        subtitle={loading ? "Loading..." : `${clients.length} ${showArchived ? "archived" : "total"} clients`}
+        title="Contacts"
+        subtitle={loading ? "Loading..." : `${clients.length} ${showArchived ? "archived" : "total"} contacts`}
         actions={
           canCreate ? (
             <Button onClick={() => navigate("/clients/new")} className="gap-2" disabled={showArchived}>
-              <Plus className="w-4 h-4" /> Add Client
+              <Plus className="w-4 h-4" /> Add contact
             </Button>
           ) : undefined
         }
@@ -75,7 +80,7 @@ export default function ClientsPage() {
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Search clients..."
+            placeholder="Search contacts..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
@@ -114,13 +119,13 @@ export default function ClientsPage() {
 
       {showArchived && (
         <p className="text-xs text-muted-foreground mb-3">
-          Archived clients are hidden from active workflows. Use restore to move them back.
+          Archived contacts are hidden from active workflows. Use restore to move them back.
         </p>
       )}
 
       {loadError && (
         <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
-          <p className="font-medium">Could not load clients from API.</p>
+          <p className="font-medium">Could not load contacts from API.</p>
           <p className="text-xs mt-1 text-muted-foreground">{loadError}</p>
           <Button variant="outline" size="sm" className="mt-2" onClick={() => void refresh()}>
             Retry
@@ -137,7 +142,7 @@ export default function ClientsPage() {
               <th className="px-6 py-3 font-medium">Role</th>
               <th className="px-6 py-3 font-medium">Phone</th>
               <th className="px-6 py-3 font-medium">Status</th>
-              <th className="px-6 py-3 font-medium">Projects</th>
+              <th className="px-6 py-3 font-medium">Transactions</th>
               <th className="px-6 py-3 font-medium"></th>
             </tr>
           </thead>
@@ -169,12 +174,12 @@ export default function ClientsPage() {
                       disabled={!canArchive}
                       onClick={async () => {
                         if (!canArchive) {
-                          toast.error("You do not have permission to restore clients.");
+                          toast.error("You do not have permission to restore contacts.");
                           return;
                         }
                         try {
                           await unarchiveClientApi(client.id);
-                          toast.success("Client restored.");
+                          toast.success("Contact restored.");
                           void refresh();
                         } catch (e) {
                           toast.error(e instanceof Error ? e.message : "Could not restore client.");
@@ -193,7 +198,7 @@ export default function ClientsPage() {
         </table>
         {filtered.length === 0 && (
           <div className="px-6 py-12 text-center text-muted-foreground text-sm">
-            {showArchived ? "No archived clients found." : "No clients found."}
+            {showArchived ? "No archived contacts found." : "No contacts found."}
           </div>
         )}
       </div>

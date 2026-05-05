@@ -76,9 +76,9 @@ export default function EmailPage() {
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Link to Project</label>
+                <label className="text-sm font-medium text-foreground">Link to transaction</label>
                 <Select value={selectedProject} onValueChange={v => setSelectedProject(v)}>
-                  <SelectTrigger><SelectValue placeholder="Select project..." /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="Select transaction..." /></SelectTrigger>
                   <SelectContent>
                     {transactionProjects.map(p => (
                       <SelectItem key={p.id} value={p.id}>{p.propertyAddress.split(",")[0]} — {p.clientName}</SelectItem>

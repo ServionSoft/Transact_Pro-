@@ -12,6 +12,7 @@ import { useAuthStore } from "@/store/authStore";
 
 function toFormValues(client: {
   name: string;
+  preferredName?: string;
   email: string;
   phone: string;
   company: string;
@@ -25,10 +26,11 @@ function toFormValues(client: {
 }): ClientFormValues {
   return {
     name: client.name,
+    preferredName: client.preferredName ?? "",
     email: client.email,
     phone: client.phone,
     company: client.company,
-    role: client.role,
+    role: client.role?.trim() || "Other",
     status: client.status,
     propertyAddress: client.propertyAddress,
     city: client.city,
@@ -51,6 +53,7 @@ export default function EditClientPage() {
       ? toFormValues(storeClient)
       : {
           name: "",
+          preferredName: "",
           email: "",
           phone: "",
           company: "",
@@ -69,7 +72,7 @@ export default function EditClientPage() {
   useEffect(() => {
     if (!id || !getApiBaseUrl()) return;
     if (!hasPermission(user, "clients.edit")) {
-      toast.error("You do not have permission to edit clients.");
+      toast.error("You do not have permission to edit contacts.");
       navigate(`/clients/${id}`, { replace: true });
       return;
     }
@@ -85,7 +88,7 @@ export default function EditClientPage() {
         }
       } catch (e) {
         if (!cancelled) {
-          toast.error(e instanceof Error ? e.message : "Could not load client.");
+          toast.error(e instanceof Error ? e.message : "Could not load contact.");
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -99,7 +102,7 @@ export default function EditClientPage() {
   if (!id) {
     return (
       <div className="p-8 text-center text-muted-foreground">
-        Invalid client id.
+        Invalid contact id.
       </div>
     );
   }
@@ -107,7 +110,7 @@ export default function EditClientPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (getApiBaseUrl() && !hasPermission(user, "clients.edit")) {
-      toast.error("You do not have permission to edit clients.");
+      toast.error("You do not have permission to edit contacts.");
       navigate(`/clients/${id}`);
       return;
     }
@@ -121,15 +124,15 @@ export default function EditClientPage() {
         const body: ClientUpsertBody = { ...form };
         const updated = await updateClientApi(id, body);
         upsertClient(updated);
-        toast.success("Client updated.");
+        toast.success("Contact updated.");
         navigate(`/clients/${updated.id}`);
         return;
       }
       updateClientLocal(id, form);
-      toast.success("Client updated.");
+      toast.success("Contact updated.");
       navigate(`/clients/${id}`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not update client.");
+      toast.error(err instanceof Error ? err.message : "Could not update contact.");
     } finally {
       setIsSubmitting(false);
     }
@@ -144,19 +147,19 @@ export default function EditClientPage() {
         onClick={() => navigate(id ? `/clients/${id}` : "/clients")}
         className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6 transition-colors"
       >
-        <ArrowLeft className="w-4 h-4" /> Back to Client
+        <ArrowLeft className="w-4 h-4" /> Back to contact
       </button>
-      <PageHeader title="Edit Client" subtitle="Update contact details and primary address." />
+      <PageHeader title="Edit contact" subtitle="Update contact details and primary address." />
 
       {loading ? (
         <div className="bg-card border border-border rounded-lg p-6 text-sm text-muted-foreground">
-          Loading client...
+          Loading contact...
         </div>
       ) : (
         <ClientForm
           values={form}
           isSubmitting={isSubmitting}
-          submitLabel="Update Client"
+          submitLabel="Save changes"
           onSubmit={handleSubmit}
           onChange={onChange}
           onCancel={() => navigate(`/clients/${id}`)}

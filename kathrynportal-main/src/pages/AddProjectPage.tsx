@@ -12,6 +12,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PrimaryContactPicker } from "@/components/shared/PrimaryContactPicker";
+import { ContactLinkPicker } from "@/components/shared/ContactLinkPicker";
+import type { Client } from "@/data/mockData";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import PageHeader from "@/components/shared/PageHeader";
@@ -21,17 +24,24 @@ type TxType = "Listing" | "Buyer File";
 type LoanType = "Conventional" | "FHA/VA" | "All Cash" | "Other";
 type YesNo = "yes" | "no" | "";
 
+function normalizeSellerName(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
 interface AgentParty {
+  contactId?: string;
   name: string; email: string; phone: string;
   licenseNumber: string; brokerage: string; brokerageLicense: string;
   notes: string;
 }
-interface SimpleParty { name: string; email: string; }
+interface SimpleParty { contactId?: string; name: string; email: string; }
 interface EscrowParty {
+  contactId?: string;
   name: string; email: string; phone: string; company: string;
   address: string; cityStateZip: string;
 }
 interface PersonParty {
+  contactId?: string;
   name: string; email: string; salutation: string;
   entityType: string; entityName: string; title: string;
 }
@@ -48,6 +58,81 @@ const blankPerson = (): PersonParty => ({
   name: "", email: "", salutation: "", entityType: "", entityName: "", title: "",
 });
 
+function labelFromClient(c: Client): string {
+  return (c.preferredName?.trim()) || c.name;
+}
+
+function applyAgentContact(prev: AgentParty, id: string, options: Client[]): AgentParty {
+  if (!id) return { ...prev, contactId: undefined };
+  const c = options.find((x) => x.id === id);
+  if (!c) return { ...prev, contactId: id };
+  return {
+    ...prev,
+    contactId: id,
+    name: labelFromClient(c),
+    email: c.email || prev.email,
+    phone: c.phone || prev.phone,
+    brokerage: c.company || prev.brokerage,
+  };
+}
+
+function applySimpleContact(prev: SimpleParty, id: string, options: Client[]): SimpleParty {
+  if (!id) return { ...prev, contactId: undefined };
+  const c = options.find((x) => x.id === id);
+  if (!c) return { ...prev, contactId: id };
+  return {
+    ...prev,
+    contactId: id,
+    name: labelFromClient(c),
+    email: c.email || prev.email,
+  };
+}
+
+function applyEscrowContact(prev: EscrowParty, id: string, options: Client[]): EscrowParty {
+  if (!id) return { ...prev, contactId: undefined };
+  const c = options.find((x) => x.id === id);
+  if (!c) return { ...prev, contactId: id };
+  const cityLine = [c.city, c.state, c.zip].filter(Boolean).join(" ");
+  return {
+    ...prev,
+    contactId: id,
+    name: labelFromClient(c),
+    email: c.email || prev.email,
+    phone: c.phone || prev.phone,
+    company: c.company || prev.company,
+    address: c.propertyAddress || prev.address,
+    cityStateZip: cityLine || prev.cityStateZip,
+  };
+}
+
+function applyPersonContact(prev: PersonParty, id: string, options: Client[]): PersonParty {
+  if (!id) return { ...prev, contactId: undefined };
+  const c = options.find((x) => x.id === id);
+  if (!c) return { ...prev, contactId: id };
+  return {
+    ...prev,
+    contactId: id,
+    name: labelFromClient(c),
+    email: c.email || prev.email,
+  };
+}
+
+function applyLenderContact(
+  prev: { contactId?: string; name: string; company: string },
+  id: string,
+  options: Client[]
+): { contactId?: string; name: string; company: string } {
+  if (!id) return { ...prev, contactId: undefined };
+  const c = options.find((x) => x.id === id);
+  if (!c) return { ...prev, contactId: id };
+  return {
+    ...prev,
+    contactId: id,
+    name: labelFromClient(c),
+    company: c.company || prev.company,
+  };
+}
+
 export default function AddProjectPage() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
@@ -60,6 +145,13 @@ export default function AddProjectPage() {
   const upsertProject = useAppStore((s) => s.upsertProject);
   const apiOn = Boolean(getApiBaseUrl());
   const [clientOptions, setClientOptions] = useState(clients);
+  const mergePartyClientOptions = () => {
+    const fromStore = useAppStore.getState().clients;
+    const byId = new Map<string, Client>();
+    for (const c of clientOptions) byId.set(c.id, c);
+    for (const c of fromStore) byId.set(c.id, c);
+    return Array.from(byId.values());
+  };
   const [ruleCatalog, setRuleCatalog] = useState(conditionalFormattingRules);
   const [loadingEditProject, setLoadingEditProject] = useState(false);
 
@@ -105,7 +197,7 @@ export default function AddProjectPage() {
   const [listingAgentTC, setListingAgentTC] = useState<SimpleParty>(blankSimple());
   const [escrow, setEscrow] = useState<EscrowParty>(blankEscrow());
   const [escrowAssistant, setEscrowAssistant] = useState<SimpleParty>(blankSimple());
-  const [lender, setLender] = useState({ name: "", company: "" });
+  const [lender, setLender] = useState<{ contactId?: string; name: string; company: string }>({ name: "", company: "" });
   const [sellers, setSellers] = useState<PersonParty[]>([blankPerson()]);
   const [buyers, setBuyers] = useState<PersonParty[]>([blankPerson()]);
 
@@ -125,6 +217,9 @@ export default function AddProjectPage() {
     spbbPct: "",
     ftc: "" as YesNo,
     ftcAmount: "", ftcPaidBy: "",
+    rpaSeller: "", prelimSeller: "",
+    sellerMatchOverride: "" as YesNo,
+    sellerMismatchNotes: "",
     nhdRpa: "", homeWarranty: "", escrowNumber: "", notes: "",
   });
 
@@ -144,6 +239,13 @@ export default function AddProjectPage() {
   const isAllCash = transaction.loanType === "All Cash";
   const noHOA = property.hoa === "no";
   const isListing = type === "Listing";
+  const autoSellerNameMatch: YesNo =
+    transaction.rpaSeller.trim() && transaction.prelimSeller.trim()
+      ? normalizeSellerName(transaction.rpaSeller) === normalizeSellerName(transaction.prelimSeller)
+        ? "yes"
+        : "no"
+      : "";
+  const sellerNameMatchStatus: YesNo = transaction.sellerMatchOverride || autoSellerNameMatch;
 
   useEffect(() => {
     if (!apiOn) {
@@ -166,7 +268,7 @@ export default function AddProjectPage() {
         if (!cancelled) {
           setClientOptions(clients);
           setRuleCatalog(conditionalFormattingRules);
-          toast.error("Could not load live clients/rules. Using local fallback.", {
+          toast.error("Could not load live contacts/rules. Using local fallback.", {
             description: e instanceof Error ? e.message : "Unknown error",
           });
         }
@@ -531,7 +633,7 @@ export default function AddProjectPage() {
   return (
     <div className="p-8 max-w-4xl mx-auto">
       <button onClick={() => navigate("/projects")} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6 transition-colors">
-        <ArrowLeft className="w-4 h-4" /> Back to Projects
+        <ArrowLeft className="w-4 h-4" /> Back to Transactions
       </button>
       <PageHeader
         title={isEditMode ? "Update Transaction" : "New Transaction"}
@@ -539,12 +641,12 @@ export default function AddProjectPage() {
       />
       {isEditMode && loadingEditProject ? (
         <div className="mb-4 rounded-md border border-border bg-secondary/20 p-3 text-sm text-muted-foreground">
-          Loading project details...
+          Loading transaction details...
         </div>
       ) : null}
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Transaction type + client (always visible at top) */}
+        {/* Transaction type + primary contact (always visible at top) */}
         <div className="bg-card border border-border rounded-lg p-6 space-y-5">
           <div className="space-y-3">
             <Label className="text-sm font-semibold">Transaction Type *</Label>
@@ -569,15 +671,8 @@ export default function AddProjectPage() {
           </div>
 
           <div className="space-y-2">
-            <Label>Link to Client (optional)</Label>
-            <Select value={clientId} onValueChange={onClientChange}>
-              <SelectTrigger><SelectValue placeholder="Search or select a client..." /></SelectTrigger>
-              <SelectContent>
-                {clientOptions.map(c => (
-                  <SelectItem key={c.id} value={c.id}>{c.name} — {c.company}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label>Primary contact (optional)</Label>
+            <PrimaryContactPicker value={clientId} options={clientOptions} onValueChange={onClientChange} />
           </div>
         </div>
 
@@ -669,9 +764,45 @@ export default function AddProjectPage() {
         <Section title="Parties" open={open.parties} onToggle={() => toggle("parties")}>
           <div className="space-y-6">
             <PartyGroup title="Buyer's Agent">
+              <div className="mb-3">
+                <Label className="text-xs text-muted-foreground">Saved contact</Label>
+                <ContactLinkPicker
+                  variant="party"
+                  defaultCreateRole="Buyer's Agent"
+                  partyPlaceholder="Link buyer's agent…"
+                  value={buyerAgents[0]?.contactId ?? ""}
+                  options={clientOptions}
+                  onValueChange={(cid) => {
+                    const opts = mergePartyClientOptions();
+                    setBuyerAgents((prev) => [
+                      applyAgentContact(prev[0] ?? blankAgent(), cid, opts),
+                      ...prev.slice(1),
+                    ]);
+                  }}
+                />
+              </div>
               <AgentForm value={buyerAgents[0]} onChange={a => setBuyerAgents([a, ...buyerAgents.slice(1)])} />
             </PartyGroup>
             <PartyGroup title="Buyer's Agent 2 (optional)">
+              <div className="mb-3">
+                <Label className="text-xs text-muted-foreground">Saved contact</Label>
+                <ContactLinkPicker
+                  variant="party"
+                  defaultCreateRole="Buyer's Agent"
+                  partyPlaceholder="Link buyer's agent 2…"
+                  value={buyerAgents[1]?.contactId ?? ""}
+                  options={clientOptions}
+                  onValueChange={(cid) => {
+                    const opts = mergePartyClientOptions();
+                    setBuyerAgents((prev) => {
+                      const next = [...prev];
+                      const base = next[1] ?? blankAgent();
+                      next[1] = applyAgentContact(base, cid, opts);
+                      return next;
+                    });
+                  }}
+                />
+              </div>
               <AgentForm value={buyerAgents[1] || blankAgent()} onChange={a => {
                 const next = [...buyerAgents]; next[1] = a; setBuyerAgents(next);
               }} />
@@ -682,20 +813,98 @@ export default function AddProjectPage() {
             </div>
             {additionalBuyerAgent && (
               <PartyGroup title="Additional Buyer's Agent">
+                <div className="mb-3">
+                  <Label className="text-xs text-muted-foreground">Saved contact</Label>
+                  <ContactLinkPicker
+                    variant="party"
+                    defaultCreateRole="Buyer's Agent"
+                    partyPlaceholder="Link additional buyer's agent…"
+                    value={buyerAgent3.contactId ?? ""}
+                    options={clientOptions}
+                    onValueChange={(cid) => {
+                      const opts = mergePartyClientOptions();
+                      setBuyerAgent3((prev) => applyAgentContact(prev, cid, opts));
+                    }}
+                  />
+                </div>
                 <AgentForm value={buyerAgent3} onChange={setBuyerAgent3} />
               </PartyGroup>
             )}
             <PartyGroup title="Buyer's Agent's TC">
+              <div className="mb-3">
+                <Label className="text-xs text-muted-foreground">Saved contact</Label>
+                <ContactLinkPicker
+                  variant="party"
+                  defaultCreateRole="Buyer's Agent's TC"
+                  partyPlaceholder="Link TC contact…"
+                  value={buyerAgentTC.contactId ?? ""}
+                  options={clientOptions}
+                  onValueChange={(cid) => {
+                    const opts = mergePartyClientOptions();
+                    setBuyerAgentTC((prev) => applySimpleContact(prev, cid, opts));
+                  }}
+                />
+              </div>
               <SimpleForm value={buyerAgentTC} onChange={setBuyerAgentTC} />
             </PartyGroup>
             <PartyGroup title="Buyer's Agent's Assistant">
+              <div className="mb-3">
+                <Label className="text-xs text-muted-foreground">Saved contact</Label>
+                <ContactLinkPicker
+                  variant="party"
+                  defaultCreateRole="Buyer's Agent's Assistant"
+                  partyPlaceholder="Link assistant contact…"
+                  value={buyerAgentAssistant.contactId ?? ""}
+                  options={clientOptions}
+                  onValueChange={(cid) => {
+                    const opts = mergePartyClientOptions();
+                    setBuyerAgentAssistant((prev) => applySimpleContact(prev, cid, opts));
+                  }}
+                />
+              </div>
               <SimpleForm value={buyerAgentAssistant} onChange={setBuyerAgentAssistant} />
             </PartyGroup>
 
             <PartyGroup title="Listing Agent">
+              <div className="mb-3">
+                <Label className="text-xs text-muted-foreground">Saved contact</Label>
+                <ContactLinkPicker
+                  variant="party"
+                  defaultCreateRole="Listing Agent"
+                  partyPlaceholder="Link listing agent…"
+                  value={listingAgents[0]?.contactId ?? ""}
+                  options={clientOptions}
+                  onValueChange={(cid) => {
+                    const opts = mergePartyClientOptions();
+                    setListingAgents((prev) => [
+                      applyAgentContact(prev[0] ?? blankAgent(), cid, opts),
+                      ...prev.slice(1),
+                    ]);
+                  }}
+                />
+              </div>
               <AgentForm value={listingAgents[0]} onChange={a => setListingAgents([a, ...listingAgents.slice(1)])} />
             </PartyGroup>
             <PartyGroup title="Listing Agent 2 (optional)">
+              <div className="mb-3">
+                <Label className="text-xs text-muted-foreground">Saved contact</Label>
+                <ContactLinkPicker
+                  variant="party"
+                  defaultCreateRole="Listing Agent"
+                  partyPlaceholder="Link listing agent 2…"
+                  value={listingAgents[1]?.contactId ?? ""}
+                  options={clientOptions}
+                  onValueChange={(cid) => {
+                    const opts = mergePartyClientOptions();
+                    setListingAgents((prev) => {
+                      const next = [...prev];
+                      const base = next[1] ?? blankAgent();
+                      next[1] = applyAgentContact(base, cid, opts);
+                      return next;
+                    });
+                  }}
+                />
+              </div>
               <AgentForm value={listingAgents[1] || blankAgent()} onChange={a => {
                 const next = [...listingAgents]; next[1] = a; setListingAgents(next);
               }} />
@@ -706,14 +915,56 @@ export default function AddProjectPage() {
             </div>
             {additionalListingAgent && (
               <PartyGroup title="Additional Listing Agent">
+                <div className="mb-3">
+                  <Label className="text-xs text-muted-foreground">Saved contact</Label>
+                  <ContactLinkPicker
+                    variant="party"
+                    defaultCreateRole="Listing Agent"
+                    partyPlaceholder="Link additional listing agent…"
+                    value={listingAgent3.contactId ?? ""}
+                    options={clientOptions}
+                    onValueChange={(cid) => {
+                      const opts = mergePartyClientOptions();
+                      setListingAgent3((prev) => applyAgentContact(prev, cid, opts));
+                    }}
+                  />
+                </div>
                 <AgentForm value={listingAgent3} onChange={setListingAgent3} />
               </PartyGroup>
             )}
             <PartyGroup title="Listing Agent's TC">
+              <div className="mb-3">
+                <Label className="text-xs text-muted-foreground">Saved contact</Label>
+                <ContactLinkPicker
+                  variant="party"
+                  defaultCreateRole="Listing Agent's TC"
+                  partyPlaceholder="Link listing TC contact…"
+                  value={listingAgentTC.contactId ?? ""}
+                  options={clientOptions}
+                  onValueChange={(cid) => {
+                    const opts = mergePartyClientOptions();
+                    setListingAgentTC((prev) => applySimpleContact(prev, cid, opts));
+                  }}
+                />
+              </div>
               <SimpleForm value={listingAgentTC} onChange={setListingAgentTC} />
             </PartyGroup>
 
             <PartyGroup title="Escrow Officer">
+              <div className="mb-3">
+                <Label className="text-xs text-muted-foreground">Saved contact</Label>
+                <ContactLinkPicker
+                  variant="party"
+                  defaultCreateRole="Escrow Officer"
+                  partyPlaceholder="Link escrow officer…"
+                  value={escrow.contactId ?? ""}
+                  options={clientOptions}
+                  onValueChange={(cid) => {
+                    const opts = mergePartyClientOptions();
+                    setEscrow((prev) => applyEscrowContact(prev, cid, opts));
+                  }}
+                />
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <Field label="Name"><Input value={escrow.name} onChange={e => setEscrow({ ...escrow, name: e.target.value })} /></Field>
                 <Field label="Email"><Input type="email" value={escrow.email} onChange={e => setEscrow({ ...escrow, email: e.target.value })} /></Field>
@@ -724,10 +975,38 @@ export default function AddProjectPage() {
               </div>
             </PartyGroup>
             <PartyGroup title="Escrow Assistant">
+              <div className="mb-3">
+                <Label className="text-xs text-muted-foreground">Saved contact</Label>
+                <ContactLinkPicker
+                  variant="party"
+                  defaultCreateRole="Escrow Assistant"
+                  partyPlaceholder="Link escrow assistant…"
+                  value={escrowAssistant.contactId ?? ""}
+                  options={clientOptions}
+                  onValueChange={(cid) => {
+                    const opts = mergePartyClientOptions();
+                    setEscrowAssistant((prev) => applySimpleContact(prev, cid, opts));
+                  }}
+                />
+              </div>
               <SimpleForm value={escrowAssistant} onChange={setEscrowAssistant} />
             </PartyGroup>
 
             <PartyGroup title="Lender">
+              <div className="mb-3">
+                <Label className="text-xs text-muted-foreground">Saved contact</Label>
+                <ContactLinkPicker
+                  variant="party"
+                  defaultCreateRole="Lender"
+                  partyPlaceholder="Link lender contact…"
+                  value={lender.contactId ?? ""}
+                  options={clientOptions}
+                  onValueChange={(cid) => {
+                    const opts = mergePartyClientOptions();
+                    setLender((prev) => applyLenderContact(prev, cid, opts));
+                  }}
+                />
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <Field label="Name"><Input value={lender.name} onChange={e => setLender({ ...lender, name: e.target.value })} /></Field>
                 <Field label="Company"><Input value={lender.company} onChange={e => setLender({ ...lender, company: e.target.value })} /></Field>
@@ -753,6 +1032,24 @@ export default function AddProjectPage() {
                           <X className="w-4 h-4" />
                         </button>
                       )}
+                    </div>
+                    <div className="mb-3">
+                      <Label className="text-xs text-muted-foreground">Saved contact</Label>
+                      <ContactLinkPicker
+                        variant="party"
+                        defaultCreateRole="Seller"
+                        partyPlaceholder="Link seller contact…"
+                        value={s.contactId ?? ""}
+                        options={clientOptions}
+                        onValueChange={(cid) => {
+                          const opts = mergePartyClientOptions();
+                          setSellers((prev) => {
+                            const next = [...prev];
+                            next[i] = applyPersonContact(next[i] ?? blankPerson(), cid, opts);
+                            return next;
+                          });
+                        }}
+                      />
                     </div>
                     <PersonForm value={s} onChange={(v) => {
                       const next = [...sellers]; next[i] = v; setSellers(next);
@@ -781,6 +1078,24 @@ export default function AddProjectPage() {
                           <X className="w-4 h-4" />
                         </button>
                       )}
+                    </div>
+                    <div className="mb-3">
+                      <Label className="text-xs text-muted-foreground">Saved contact</Label>
+                      <ContactLinkPicker
+                        variant="party"
+                        defaultCreateRole="Buyer"
+                        partyPlaceholder="Link buyer contact…"
+                        value={b.contactId ?? ""}
+                        options={clientOptions}
+                        onValueChange={(cid) => {
+                          const opts = mergePartyClientOptions();
+                          setBuyers((prev) => {
+                            const next = [...prev];
+                            next[i] = applyPersonContact(next[i] ?? blankPerson(), cid, opts);
+                            return next;
+                          });
+                        }}
+                      />
                     </div>
                     <PersonForm value={b} onChange={(v) => {
                       const next = [...buyers]; next[i] = v; setBuyers(next);
@@ -840,6 +1155,62 @@ export default function AddProjectPage() {
                 </Field>
               </>
             )}
+            <Field label="RPA Seller" hint="Optional. Seller name/vesting exactly as shown on the RPA.">
+              <Input
+                value={transaction.rpaSeller}
+                onChange={e => setTransaction(p => ({ ...p, rpaSeller: e.target.value }))}
+                placeholder="e.g. John Smith and Jane Smith, Trustees..."
+              />
+            </Field>
+            <Field label="Prelim Seller" hint="Optional. Seller name/vesting exactly as shown on the Preliminary Title Report.">
+              <Input
+                value={transaction.prelimSeller}
+                onChange={e => setTransaction(p => ({ ...p, prelimSeller: e.target.value }))}
+                placeholder="e.g. John A Smith and Jane B Smith, Trustees..."
+              />
+            </Field>
+            <Field
+              label="Seller Name Match?"
+              className="md:col-span-2"
+              hint={autoSellerNameMatch
+                ? "Auto-calculated from both names. You can override if needed."
+                : "Pending until both RPA Seller and Prelim Seller are filled."}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <Select
+                  value={transaction.sellerMatchOverride || "__auto__"}
+                  onValueChange={(v) => setTransaction((p) => ({ ...p, sellerMatchOverride: v === "__auto__" ? "" : (v as YesNo) }))}
+                >
+                  <SelectTrigger className="w-[220px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__auto__">
+                      Auto ({autoSellerNameMatch === "yes" ? "Yes" : autoSellerNameMatch === "no" ? "No" : "Pending"})
+                    </SelectItem>
+                    <SelectItem value="yes">Yes</SelectItem>
+                    <SelectItem value="no">No</SelectItem>
+                  </SelectContent>
+                </Select>
+                <span className="text-xs text-muted-foreground">
+                  Effective status: {sellerNameMatchStatus === "yes" ? "Yes" : sellerNameMatchStatus === "no" ? "No" : "Pending"}
+                </span>
+              </div>
+            </Field>
+            {sellerNameMatchStatus === "no" && (
+              <Field
+                label="Mismatch Notes"
+                className="md:col-span-2"
+                hint="Optional. Explain why names differ (trust text, vesting, spelling, etc.)."
+              >
+                <Textarea
+                  value={transaction.sellerMismatchNotes}
+                  onChange={e => setTransaction(p => ({ ...p, sellerMismatchNotes: e.target.value }))}
+                  rows={2}
+                  placeholder="Reason for mismatch between RPA Seller and Prelim Seller..."
+                />
+              </Field>
+            )}
             <Field label="NHD Details (RPA)" className="md:col-span-2"><Input value={transaction.nhdRpa} onChange={e => setTransaction(p => ({ ...p, nhdRpa: e.target.value }))} placeholder="Company, with/without environmental, who pays" /></Field>
             <Field label="Home Warranty"><Input value={transaction.homeWarranty} onChange={e => setTransaction(p => ({ ...p, homeWarranty: e.target.value }))} /></Field>
             <Field label="Escrow #"><Input value={transaction.escrowNumber} onChange={e => setTransaction(p => ({ ...p, escrowNumber: e.target.value }))} /></Field>
@@ -857,7 +1228,7 @@ export default function AddProjectPage() {
               <Select value={property.propertyType} onValueChange={(v) => setProperty(p => ({ ...p, propertyType: v }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {["SFR", "Condo", "Vacant Land", "Townhouse", "Multi-Family", "Other"].map(o => (
+                  {["SFR", "Condo", "Vacant Land", "Townhouse", "Multi-Family", "Mobile/Manufactured Home", "Commercial", "Other"].map(o => (
                     <SelectItem key={o} value={o}>{o}</SelectItem>
                   ))}
                 </SelectContent>

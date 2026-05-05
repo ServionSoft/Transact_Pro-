@@ -8,6 +8,7 @@ import {
   createProjectDeadline,
   createProjectDocument,
   createProjectEmail,
+  deleteProjectEmail,
   createProjectTask,
   createProject,
   deleteProject,
@@ -389,6 +390,25 @@ export function createProjectsController(pool: Pool, config: AppConfig) {
         });
       } catch {
         res.status(500).json({ success: false, error: { code: "PROJECT_EMAIL_CREATE_FAILED", message: "Could not send project email." } });
+      }
+    },
+
+    async deleteEmail(req: Request, res: Response): Promise<void> {
+      try {
+        const result = await deleteProjectEmail(pool, req.params.id, req.params.emailId);
+        if ("error" in result) {
+          res.status(result.error.status).json({
+            success: false,
+            error: { code: result.error.code, message: result.error.message },
+          });
+          return;
+        }
+        res.json({ success: true, data: { project: result.project }, message: "" });
+      } catch {
+        res.status(500).json({
+          success: false,
+          error: { code: "PROJECT_EMAIL_DELETE_FAILED", message: "Could not delete project email." },
+        });
       }
     },
 

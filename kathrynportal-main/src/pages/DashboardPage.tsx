@@ -15,8 +15,8 @@ export default function DashboardPage() {
   const calendarEvents = useAppStore(s => s.calendarEvents);
 
   const statCards = [
-    { label: "Active Projects", value: transactionProjects.filter(p => p.stage !== "Closed").length, icon: FolderKanban, color: "bg-primary text-primary-foreground" },
-    { label: "Active Clients", value: clients.filter(c => c.status === "Active").length, icon: Users, color: "bg-accent text-accent-foreground" },
+    { label: "Active Transactions", value: transactionProjects.filter(p => p.stage !== "Closed").length, icon: FolderKanban, color: "bg-primary text-primary-foreground" },
+    { label: "Active Contacts", value: clients.filter(c => c.status === "Active").length, icon: Users, color: "bg-accent text-accent-foreground" },
     { label: "Upcoming Deadlines", value: calendarEvents.filter(e => e.type === "deadline").length, icon: AlertTriangle, color: "bg-destructive/10 text-destructive" },
     { label: "Due This Week", value: 3, icon: Clock, color: "bg-info/10 text-info" },
   ];
@@ -135,12 +135,12 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Recent Projects Quick Access */}
+      {/* Recent transactions quick access */}
       <div className="mt-6 bg-card border border-border rounded-lg">
         <div className="px-6 py-4 border-b border-border flex items-center justify-between">
-          <h2 className="font-display font-semibold text-foreground">Active Projects</h2>
+          <h2 className="font-display font-semibold text-foreground">Active Transactions</h2>
           <Link to="/projects" className="text-sm text-accent hover:underline flex items-center gap-1">
-            All Projects <ArrowRight className="w-3 h-3" />
+            All Transactions <ArrowRight className="w-3 h-3" />
           </Link>
         </div>
         <div className="overflow-x-auto">
@@ -148,7 +148,7 @@ export default function DashboardPage() {
             <thead>
               <tr className="text-left text-xs text-muted-foreground uppercase tracking-wider">
                 <th className="px-6 py-3 font-medium">Property</th>
-                <th className="px-6 py-3 font-medium">Client</th>
+                <th className="px-6 py-3 font-medium">Contact</th>
                 <th className="px-6 py-3 font-medium">Type</th>
                 <th className="px-6 py-3 font-medium">Stage</th>
                 <th className="px-6 py-3 font-medium">Next Step</th>

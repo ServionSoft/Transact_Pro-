@@ -1,0 +1,10 @@
+2nd meeting points:
+
+ 1. need everything on same screen when inputting info , problem scroll n forth 
+2. give ability to add contact in project creation
+3. save AGENT CONTACT , ESCROW OFFICER contact , and have dropdown search able catch to be fed info of it in txt fields 
+4 ad preferred name text field
+5. add mobile/manufactured home commercial in property type in property info
+6. RPA seller and prelim seller in transaction details
+7.  time line work coming from project creation timeline , make declined print able 
+8. deadline date conditions not fall on Saturday and Sunday

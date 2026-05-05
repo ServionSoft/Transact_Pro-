@@ -6,6 +6,7 @@ import { authFetch } from "@/lib/authFetch";
 type ClientApiPayload = {
   id: string;
   name: string;
+  preferredName?: string;
   email: string;
   phone: string;
   company: string;
@@ -22,6 +23,7 @@ type ClientApiPayload = {
 
 export type ClientUpsertBody = {
   name: string;
+  preferredName?: string;
   email: string;
   phone: string;
   company: string;
@@ -44,6 +46,7 @@ function mapClient(p: ClientApiPayload): Client {
   return {
     id: p.id,
     name: p.name,
+    preferredName: p.preferredName ?? "",
     email: p.email,
     phone: p.phone,
     company: p.company,

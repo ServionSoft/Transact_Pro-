@@ -21,10 +21,10 @@ export default function AppSidebar() {
   const navItems = [
     { to: "/", icon: LayoutDashboard, label: "Dashboard", badge: 0 },
     ...(hasPermission(user, "clients.view")
-      ? [{ to: "/clients", icon: Users, label: "Clients", badge: 0 }]
+      ? [{ to: "/clients", icon: Users, label: "Contacts", badge: 0 }]
       : []),
     ...(hasPermission(user, "projects.view")
-      ? [{ to: "/projects", icon: FolderKanban, label: "Projects", badge: 0 }]
+      ? [{ to: "/projects", icon: FolderKanban, label: "Transactions", badge: 0 }]
       : []),
     ...(hasPermission(user, "documents.view")
       ? [{ to: "/documents", icon: Files, label: "Documents", badge: 0 }]

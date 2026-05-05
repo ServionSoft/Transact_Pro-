@@ -1,4 +1,5 @@
 import type { ClientStatus } from "@/data/mockData";
+import { CONTACT_ROLE_OPTIONS, isKnownContactRole } from "@/constants/contactRoles";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -7,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 export type ClientFormValues = {
   name: string;
+  preferredName: string;
   email: string;
   phone: string;
   company: string;
@@ -26,6 +28,10 @@ type ClientFormProps = {
   onChange: <K extends keyof ClientFormValues>(field: K, value: ClientFormValues[K]) => void;
   onSubmit: (e: React.FormEvent) => void;
   onCancel: () => void;
+  /** When set, enables submit button outside the form via the `form` attribute. */
+  formId?: string;
+  /** Hide built-in Cancel / Save row (e.g. dialog provides its own footer). Default true. */
+  showFooterActions?: boolean;
 };
 
 export default function ClientForm({
@@ -35,9 +41,11 @@ export default function ClientForm({
   onChange,
   onSubmit,
   onCancel,
+  formId,
+  showFooterActions = true,
 }: ClientFormProps) {
   return (
-    <form onSubmit={onSubmit} className="bg-card border border-border rounded-lg p-6 space-y-6">
+    <form id={formId} onSubmit={onSubmit} className="bg-card border border-border rounded-lg p-6 space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label htmlFor="name">Full Name *</Label>
@@ -47,6 +55,15 @@ export default function ClientForm({
             onChange={(e) => onChange("name", e.target.value)}
             placeholder="e.g. Sarah Mitchell"
             required
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="preferredName">Preferred name</Label>
+          <Input
+            id="preferredName"
+            value={values.preferredName}
+            onChange={(e) => onChange("preferredName", e.target.value)}
+            placeholder="What Kathryn uses day-to-day (optional)"
           />
         </div>
         <div className="space-y-2">
@@ -81,16 +98,18 @@ export default function ClientForm({
         <div className="space-y-2">
           <Label htmlFor="role">Role</Label>
           <Select value={values.role} onValueChange={(v) => onChange("role", v)}>
-            <SelectTrigger>
-              <SelectValue />
+            <SelectTrigger id="role">
+              <SelectValue placeholder="Select role" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="Listing Agent">Listing Agent</SelectItem>
-              <SelectItem value="Buyer's Agent">Buyer's Agent</SelectItem>
-              <SelectItem value="Dual Agent">Dual Agent</SelectItem>
-              <SelectItem value="Escrow Officer">Escrow Officer</SelectItem>
-              <SelectItem value="Lender">Lender</SelectItem>
-              <SelectItem value="Other">Other</SelectItem>
+              {values.role.trim() && !isKnownContactRole(values.role) ? (
+                <SelectItem value={values.role}>{values.role}</SelectItem>
+              ) : null}
+              {CONTACT_ROLE_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -112,7 +131,7 @@ export default function ClientForm({
       <div className="border-t border-border pt-6">
         <h3 className="font-display font-semibold text-foreground mb-2">Primary Address</h3>
         <p className="text-xs text-muted-foreground mb-4">
-          Used as the client's primary address record. Listing property addresses belong on projects.
+          Used as this contact's primary address. Listing property addresses belong on the transaction record.
         </p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="md:col-span-2 space-y-2">
@@ -147,19 +166,21 @@ export default function ClientForm({
           id="notes"
           value={values.notes}
           onChange={(e) => onChange("notes", e.target.value)}
-          placeholder="Any notes about this client..."
+          placeholder="Any notes about this contact..."
           rows={4}
         />
       </div>
 
-      <div className="flex justify-end gap-3 pt-4 border-t border-border">
-        <Button type="button" variant="outline" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button type="submit" disabled={Boolean(isSubmitting)}>
-          {isSubmitting ? "Saving..." : submitLabel}
-        </Button>
-      </div>
+      {showFooterActions ? (
+        <div className="flex justify-end gap-3 pt-4 border-t border-border">
+          <Button type="button" variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={Boolean(isSubmitting)}>
+            {isSubmitting ? "Saving..." : submitLabel}
+          </Button>
+        </div>
+      ) : null}
     </form>
   );
 }

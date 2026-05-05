@@ -1,9 +1,11 @@
 // Session-only in-memory store backed by Zustand. Acts as a single source of
 // truth for clients, projects, tasks, calendar events, reminders, sent emails,
-// and email templates. Seeds itself from the existing mock data so the rest of
-// the app keeps working unchanged.
+// and email templates. When VITE_API_URL is set, `clients` starts empty and is
+// filled from the API (no mock seed flash). Without an API URL, clients seed
+// from mock data for local demo.
 
 import { create } from "zustand";
+import { getApiBaseUrl } from "@/lib/apiConfig";
 import {
   clients as seedClients,
   projects as seedProjects,
@@ -119,13 +121,16 @@ interface AppState {
 
   // ---- Email ----
   sendEmail: (input: Omit<SentEmail, "id" | "date"> & { date?: string }) => void;
+  removeProjectEmail: (projectId: string, emailId: string) => void;
   addEmailTemplate: (t: Omit<EmailTemplate, "id">) => void;
   updateEmailTemplate: (id: string, patch: Partial<EmailTemplate>) => void;
   deleteEmailTemplate: (id: string) => void;
 }
 
+const initialClients = getApiBaseUrl() ? [] : seedClients;
+
 export const useAppStore = create<AppState>((set, get) => ({
-  clients: seedClients,
+  clients: initialClients,
   projects: seedProjects,
   calendarEvents: seedCalendar,
   reminderDrafts: seedReminders,
@@ -572,6 +577,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { sentEmails: [sent, ...s.sentEmails], projects };
     });
   },
+
+  removeProjectEmail: (projectId, emailId) =>
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id !== projectId ? p : { ...p, emails: p.emails.filter((e) => e.id !== emailId) }
+      ),
+    })),
 
   addEmailTemplate: (t) =>
     set((s) => ({ emailTemplates: [...s.emailTemplates, { ...t, id: uid("et") }] })),

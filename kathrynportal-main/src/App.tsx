@@ -13,6 +13,7 @@ import AddClientPage from "@/pages/AddClientPage";
 import EditClientPage from "@/pages/EditClientPage";
 import ProjectsPage from "@/pages/ProjectsPage";
 import ProjectDetailPage from "@/pages/ProjectDetailPage";
+import ProjectDeadlinesPrintPage from "@/pages/ProjectDeadlinesPrintPage";
 import AddProjectPage from "@/pages/AddProjectPage";
 import CalendarPage from "@/pages/CalendarPage";
 import TasksPage from "@/pages/TasksPage";
@@ -97,6 +98,14 @@ const App = () => (
               element={
                 <PermissionRoute permission="projects.view">
                   <ProjectDetailPage />
+                </PermissionRoute>
+              }
+            />
+            <Route
+              path="/projects/:id/deadlines/print"
+              element={
+                <PermissionRoute permission="projects.view">
+                  <ProjectDeadlinesPrintPage />
                 </PermissionRoute>
               }
             />

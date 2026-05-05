@@ -17,6 +17,7 @@ function parseClientBody(body: unknown): ClientUpsertInput | null {
   const b = body as Record<string, unknown>;
   return {
     name: typeof b.name === "string" ? b.name : "",
+    preferredName: typeof b.preferredName === "string" ? b.preferredName : "",
     email: typeof b.email === "string" ? b.email : "",
     phone: typeof b.phone === "string" ? b.phone : "",
     company: typeof b.company === "string" ? b.company : "",

@@ -375,7 +375,7 @@ export default function TeamMemberEditPage() {
 
           {canAssignProjects && projects.length > 0 && (
             <div className="space-y-3 border-t border-border pt-4">
-              <p className="text-sm font-medium">Project assignments</p>
+              <p className="text-sm font-medium">Transaction access</p>
               <div className="grid gap-2 sm:grid-cols-2 max-h-48 overflow-y-auto pr-1">
                 {projects.map((p) => (
                   <label key={p.id} className="flex items-center gap-2 text-sm">

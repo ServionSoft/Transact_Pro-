@@ -36,7 +36,7 @@ export default function ClientDetailPage() {
         if (!cancelled) upsertClient(row);
       } catch (err) {
         if (!cancelled) {
-          toast.error(err instanceof Error ? err.message : "Could not load client.");
+          toast.error(err instanceof Error ? err.message : "Could not load contact.");
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -60,7 +60,7 @@ export default function ClientDetailPage() {
       .catch(() => {
         if (!cancelled) {
           setLinkedApiProjects([]);
-          toast.error("Could not load linked projects.");
+          toast.error("Could not load linked transactions.");
         }
       })
       .finally(() => {
@@ -75,7 +75,7 @@ export default function ClientDetailPage() {
     return (
       <div className="p-8 max-w-5xl mx-auto">
         <div className="bg-card border border-border rounded-lg p-6 text-sm text-muted-foreground">
-          Loading client...
+          Loading contact...
         </div>
       </div>
     );
@@ -84,8 +84,8 @@ export default function ClientDetailPage() {
   if (!client) {
     return (
       <div className="p-8 text-center">
-        <p className="text-muted-foreground">Client not found.</p>
-        <Button variant="outline" onClick={() => navigate("/clients")} className="mt-4">Back to Clients</Button>
+        <p className="text-muted-foreground">Contact not found.</p>
+        <Button variant="outline" onClick={() => navigate("/clients")} className="mt-4">Back to Contacts</Button>
       </div>
     );
   }
@@ -103,7 +103,7 @@ export default function ClientDetailPage() {
   return (
     <div className="p-8 max-w-5xl mx-auto">
       <button onClick={() => navigate("/clients")} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6 transition-colors">
-        <ArrowLeft className="w-4 h-4" /> Back to Clients
+        <ArrowLeft className="w-4 h-4" /> Back to Contacts
       </button>
 
       <PageHeader
@@ -125,29 +125,29 @@ export default function ClientDetailPage() {
               disabled={apiOn && !canArchiveClient}
               onClick={async () => {
                 if (apiOn && !canArchiveClient) {
-                  toast.error("You do not have permission to archive clients.");
+                  toast.error("You do not have permission to archive contacts.");
                   return;
                 }
                 if (apiOn) {
                   const msg =
-                    "Archive this client? It will be hidden from the client list but project history remains.";
+                    "Archive this contact? It will be hidden from the contact list but transaction history remains.";
                   if (!confirm(msg)) return;
                   try {
                     await archiveClientApi(client.id);
                     removeClientFromList(client.id);
-                    toast.success("Client archived.");
+                    toast.success("Contact archived.");
                     navigate("/clients");
                     return;
                   } catch (err) {
-                    const message = err instanceof Error ? err.message : "Could not archive client.";
+                    const message = err instanceof Error ? err.message : "Could not archive contact.";
                     toast.error(message);
                   }
                   return;
                 }
 
-                if (confirm(`Delete ${client.name}? This will also remove their projects.`)) {
+                if (confirm(`Delete ${client.name}? This will also remove their transactions.`)) {
                   deleteClient(client.id);
-                  toast.success("Client deleted");
+                  toast.success("Contact deleted");
                   navigate("/clients");
                 }
               }}
@@ -160,17 +160,17 @@ export default function ClientDetailPage() {
                 className="gap-2 text-destructive hover:text-destructive"
                 onClick={async () => {
                   if (linkedProjectCount > 0) {
-                    toast.error("Client has linked projects. Delete or reassign those projects first.");
+                    toast.error("This contact has linked transactions. Delete or reassign those transactions first.");
                     return;
                   }
-                  if (!confirm("Permanently delete this client? This cannot be undone.")) return;
+                  if (!confirm("Permanently delete this contact? This cannot be undone.")) return;
                   try {
                     await permanentlyDeleteClientApi(client.id);
                     removeClientFromList(client.id);
-                    toast.success("Client permanently deleted.");
+                    toast.success("Contact permanently deleted.");
                     navigate("/clients");
                   } catch (err) {
-                    toast.error(err instanceof Error ? err.message : "Could not permanently delete client.");
+                    toast.error(err instanceof Error ? err.message : "Could not permanently delete contact.");
                   }
                 }}
               >
@@ -229,7 +229,7 @@ export default function ClientDetailPage() {
           </div>
         </div>
 
-        {/* Notes & Projects */}
+        {/* Notes & transactions */}
         <div className="lg:col-span-2 space-y-6">
           {/* Notes */}
           <div className="bg-card border border-border rounded-lg p-6">
@@ -237,19 +237,19 @@ export default function ClientDetailPage() {
             <p className="text-sm text-muted-foreground">{client.notes || "No notes yet."}</p>
           </div>
 
-          {/* Projects */}
+          {/* Linked transactions */}
           <div className="bg-card border border-border rounded-lg">
             <div className="px-6 py-4 border-b border-border flex items-center justify-between">
               <h3 className="font-display font-semibold text-foreground">
                 <FolderKanban className="w-4 h-4 inline mr-2" />
-                Linked Projects ({linkedProjectCount})
+                Linked transactions ({linkedProjectCount})
               </h3>
               <Button size="sm" onClick={() => navigate(`/projects/new?clientId=${encodeURIComponent(client.id)}`)}>
-                New Project
+                New transaction
               </Button>
             </div>
             {linkedProjectsLoading ? (
-              <div className="px-6 py-8 text-center text-muted-foreground text-sm">Loading projects…</div>
+              <div className="px-6 py-8 text-center text-muted-foreground text-sm">Loading transactions…</div>
             ) : linkedProjectCount > 0 ? (
               <div className="divide-y divide-border">
                 {linkedProjects.map((p) => (
@@ -260,7 +260,7 @@ export default function ClientDetailPage() {
                   >
                     <div>
                       <p className="text-sm font-medium text-foreground">
-                        {(p.propertyAddress || "").split(",")[0] || p.name || "Project"}
+                        {(p.propertyAddress || "").split(",")[0] || p.name || "Transaction"}
                       </p>
                       <p className="text-xs text-muted-foreground">{p.type}</p>
                     </div>
@@ -269,7 +269,7 @@ export default function ClientDetailPage() {
                 ))}
               </div>
             ) : (
-              <div className="px-6 py-8 text-center text-muted-foreground text-sm">No projects linked yet.</div>
+              <div className="px-6 py-8 text-center text-muted-foreground text-sm">No transactions linked yet.</div>
             )}
           </div>
         </div>

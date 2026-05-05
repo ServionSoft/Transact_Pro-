@@ -410,6 +410,18 @@ export async function createProjectEmailApi(
   };
 }
 
+export async function deleteProjectEmailApi(projectId: string, emailId: string): Promise<Project> {
+  const json = await apiCall(
+    `/api/projects/${encodeURIComponent(projectId)}/emails/${encodeURIComponent(emailId)}`,
+    { method: "DELETE" }
+  );
+  const row = (json as { data?: { project?: unknown } }).data?.project;
+  if (!row || typeof row !== "object") {
+    throw new ApiRequestError("Invalid email delete response", 500, "");
+  }
+  return mapDetailRowToProject(row as ProjectDetailApiRow);
+}
+
 export async function createProjectNoteApi(projectId: string, body: string): Promise<Project> {
   const json = await apiCall(`/api/projects/${encodeURIComponent(projectId)}/notes`, {
     method: "POST",

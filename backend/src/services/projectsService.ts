@@ -253,6 +253,97 @@ function parseDateString(raw: string | undefined): string | null {
   return d.toISOString().split("T")[0];
 }
 
+/** Titles seeded from Add Project → Timeline / COP / SPRP; removed on re-sync so custom deadlines keep other titles. */
+const MANAGED_FORM_DEADLINE_TITLES = [
+  "Contract Date",
+  "Acceptance Date",
+  "Preapproval",
+  "Verification of Funds",
+  "EMD to Escrow",
+  "Seller Disclosures to Buyer",
+  "Investigation Contingency Removal",
+  "Insurance Contingency Removal",
+  "Review of Seller Docs Contingency Removal",
+  "Review of Prelim Contingency Removal",
+  "Review of Comm Int Discl Contingency Removal",
+  "Appraisal Contingency Removal",
+  "Loan Contingency Removal",
+  "Estimated COE",
+  "COP — Into Contract",
+  "COP — COE",
+  "SPRP — Into Contract",
+  "SPRP — COE",
+] as const;
+
+function collectDeadlineRowsFromProjectMetadata(metadata: unknown): { title: string; dueDate: string }[] {
+  const out: { title: string; dueDate: string }[] = [];
+  if (!metadata || typeof metadata !== "object") return out;
+  const md = metadata as Record<string, unknown>;
+
+  const pushDate = (raw: unknown, title: string) => {
+    if (typeof raw !== "string") return;
+    const d = parseDateString(raw);
+    if (d) out.push({ title, dueDate: d });
+  };
+
+  const timeline = md.timeline;
+  if (timeline && typeof timeline === "object") {
+    const tl = timeline as Record<string, unknown>;
+    pushDate(tl.contractDate, "Contract Date");
+    pushDate(tl.acceptanceDate, "Acceptance Date");
+    pushDate(tl.preapproval, "Preapproval");
+    pushDate(tl.verificationOfFunds, "Verification of Funds");
+    pushDate(tl.emdToEscrow, "EMD to Escrow");
+    pushDate(tl.sellerDisclosuresToBuyer, "Seller Disclosures to Buyer");
+    pushDate(tl.investigationContingency, "Investigation Contingency Removal");
+    pushDate(tl.insuranceContingency, "Insurance Contingency Removal");
+    pushDate(tl.reviewSellerDocs, "Review of Seller Docs Contingency Removal");
+    pushDate(tl.reviewPrelim, "Review of Prelim Contingency Removal");
+    pushDate(tl.reviewCommIntDiscl, "Review of Comm Int Discl Contingency Removal");
+    pushDate(tl.appraisalContingency, "Appraisal Contingency Removal");
+    pushDate(tl.loanContingency, "Loan Contingency Removal");
+    pushDate(tl.estimatedCOE, "Estimated COE");
+  }
+
+  if (md.showCOP === true && md.cop && typeof md.cop === "object") {
+    const c = md.cop as Record<string, unknown>;
+    pushDate(c.intoContract, "COP — Into Contract");
+    pushDate(c.coe, "COP — COE");
+  }
+  if (md.showSPRP === true && md.sprp && typeof md.sprp === "object") {
+    const s = md.sprp as Record<string, unknown>;
+    pushDate(s.intoContract, "SPRP — Into Contract");
+    pushDate(s.coe, "SPRP — COE");
+  }
+
+  return out;
+}
+
+/** Replaces only form-managed deadline rows; leaves ad-hoc deadlines (other titles) intact. */
+async function syncProjectDeadlinesFromFormMetadata(
+  pool: Pool,
+  projectId: string,
+  metadata: unknown
+): Promise<void> {
+  await pool.query(
+    `DELETE FROM public.project_deadlines
+     WHERE project_id = $1::bigint
+       AND title = ANY($2::text[])`,
+    [projectId, [...MANAGED_FORM_DEADLINE_TITLES]]
+  );
+  const rows = collectDeadlineRowsFromProjectMetadata(metadata);
+  for (const r of rows) {
+    await pool.query(
+      `INSERT INTO public.project_deadlines (
+         project_id, title, due_date, type, is_completed, created_at, updated_at
+       ) VALUES (
+         $1::bigint, $2, $3::date, 'deadline'::public.deadline_type, false, now(), now()
+       )`,
+      [projectId, r.title, r.dueDate]
+    );
+  }
+}
+
 function validateCreateInput(input: ProjectCreateInput): ServiceError | null {
   if (!normalizeText(input.name)) {
     return { status: 400, code: "PROJECT_NAME_REQUIRED", message: "Project name is required." };
@@ -378,8 +469,8 @@ export async function listProjects(
        COUNT(DISTINCT pdl.id) FILTER (WHERE pdl.is_completed = false) AS deadlines_count,
        COUNT(DISTINCT sf.id) FILTER (WHERE sf.deleted_at IS NULL) AS files_count
      FROM public.projects p
-     JOIN public.clients c ON c.id = p.client_id
-     LEFT JOIN public.contacts co ON co.id = p.escrow_officer_contact_id
+     JOIN public.contacts c ON c.id = p.client_id
+     LEFT JOIN public.transaction_party_contacts co ON co.id = p.escrow_officer_contact_id
      LEFT JOIN public.project_documents pd ON pd.project_id = p.id AND pd.deleted_at IS NULL
      LEFT JOIN public.project_tasks pt ON pt.project_id = p.id
      LEFT JOIN public.project_deadlines pdl ON pdl.project_id = p.id
@@ -636,8 +727,8 @@ export async function getProjectById(pool: Pool, projectId: string): Promise<Pro
        p.created_at,
        p.metadata_json
      FROM public.projects p
-     JOIN public.clients c ON c.id = p.client_id
-     LEFT JOIN public.contacts co ON co.id = p.escrow_officer_contact_id
+     JOIN public.contacts c ON c.id = p.client_id
+     LEFT JOIN public.transaction_party_contacts co ON co.id = p.escrow_officer_contact_id
      WHERE p.id = $1::bigint
        AND p.deleted_at IS NULL
      LIMIT 1`,
@@ -694,7 +785,7 @@ export async function createProject(
   }
   const clientId = normalizeText(input.clientId);
   const clientCheck = await pool.query<{ ok: string }>(
-    `SELECT 1::text AS ok FROM public.clients WHERE id = $1::bigint AND deleted_at IS NULL LIMIT 1`,
+    `SELECT 1::text AS ok FROM public.contacts WHERE id = $1::bigint AND deleted_at IS NULL LIMIT 1`,
     [clientId]
   );
   if (clientCheck.rows.length === 0) {
@@ -758,6 +849,7 @@ export async function createProject(
       ]
     );
   }
+  await syncProjectDeadlinesFromFormMetadata(pool, projectId, input.metadata ?? null);
   const created = await getProjectById(pool, projectId);
   if (!created) {
     return { error: { status: 500, code: "PROJECT_LOAD_FAILED", message: "Project was created but could not be loaded." } };
@@ -782,7 +874,7 @@ export async function updateProject(
   }
   const clientId = normalizeText(input.clientId);
   const clientCheck = await pool.query<{ ok: string }>(
-    `SELECT 1::text AS ok FROM public.clients WHERE id = $1::bigint AND deleted_at IS NULL LIMIT 1`,
+    `SELECT 1::text AS ok FROM public.contacts WHERE id = $1::bigint AND deleted_at IS NULL LIMIT 1`,
     [clientId]
   );
   if (clientCheck.rows.length === 0) {
@@ -863,6 +955,9 @@ export async function updateProject(
         ]
       );
     }
+  }
+  if (input.metadata !== undefined) {
+    await syncProjectDeadlinesFromFormMetadata(pool, projectId, input.metadata ?? null);
   }
   const updated = await getProjectById(pool, projectId);
   if (!updated) {
@@ -1271,6 +1366,29 @@ export async function createProjectEmail(
   }
   const project = await getProjectById(pool, projectId);
   if (!project) return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
+  return { project };
+}
+
+export async function deleteProjectEmail(
+  pool: Pool,
+  projectId: string,
+  emailId: string
+): Promise<{ project: ProjectDetailApi } | { error: ServiceError }> {
+  if (!/^\d+$/.test(projectId) || !/^\d+$/.test(emailId)) {
+    return { error: { status: 404, code: "PROJECT_EMAIL_NOT_FOUND", message: "Email not found." } };
+  }
+  const { rowCount } = await pool.query(
+    `DELETE FROM public.emails
+     WHERE id = $1::bigint AND project_id = $2::bigint`,
+    [emailId, projectId]
+  );
+  if (!rowCount) {
+    return { error: { status: 404, code: "PROJECT_EMAIL_NOT_FOUND", message: "Email not found." } };
+  }
+  const project = await getProjectById(pool, projectId);
+  if (!project) {
+    return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
+  }
   return { project };
 }
 

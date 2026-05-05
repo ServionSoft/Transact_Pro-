@@ -160,7 +160,7 @@ export default function SettingsPage() {
     toast.success("Team member removed.");
   };
 
-  const categories = ["Agent Email", "Client Reminder", "Document Request"];
+  const categories = ["Agent Email", "Contact Reminder", "Document Request"];
   const permissionProfileLabel = user?.roleProfileName?.trim()
     ? user.roleProfileName
     : user?.role === "super_admin"

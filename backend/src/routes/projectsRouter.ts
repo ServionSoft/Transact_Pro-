@@ -69,6 +69,9 @@ export function registerProjectsRoutes(app: Express, config: AppConfig, pool: Po
   router.post("/projects/:id/emails", requirePool(pool), auth, edit, (req, res) => {
     void ctrl.createEmail(req, res);
   });
+  router.delete("/projects/:id/emails/:emailId", requirePool(pool), auth, edit, (req, res) => {
+    void ctrl.deleteEmail(req, res);
+  });
   router.post("/projects/:id/notes", requirePool(pool), auth, edit, (req, res) => {
     void ctrl.createNote(req, res);
   });

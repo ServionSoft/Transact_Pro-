@@ -66,10 +66,10 @@ export default function ProjectsPage() {
       const rows = await listProjectsFromApi();
       setProjectRows(rows);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Could not load projects.";
+      const msg = e instanceof Error ? e.message : "Could not load transactions.";
       setLoadError(msg);
       setProjectRows([]);
-      toast.error("Could not load projects", { description: msg });
+      toast.error("Could not load transactions", { description: msg });
     } finally {
       setLoading(false);
     }
@@ -96,12 +96,12 @@ export default function ProjectsPage() {
   return (
     <div className="p-8 max-w-7xl mx-auto">
       <PageHeader
-        title="Projects"
+        title="Transactions"
         subtitle={loading ? "Loading..." : `${transactionProjects.length} total transactions`}
         actions={
           canCreate ? (
             <Button onClick={() => navigate("/projects/new")} className="gap-2">
-              <Plus className="w-4 h-4" /> New Project
+              <Plus className="w-4 h-4" /> New transaction
             </Button>
           ) : undefined
         }
@@ -109,7 +109,7 @@ export default function ProjectsPage() {
 
       {loadError && (
         <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
-          <p className="font-medium">Could not load projects from API.</p>
+          <p className="font-medium">Could not load transactions from API.</p>
           <p className="text-xs mt-1 text-muted-foreground">{loadError}</p>
           <Button variant="outline" size="sm" className="mt-2" onClick={() => void refresh()}>
             Retry
@@ -120,7 +120,7 @@ export default function ProjectsPage() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-6">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Search projects..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
+          <Input placeholder="Search transactions..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
         </div>
         <div className="flex gap-1 flex-wrap flex-1">
           {viewMode !== "kanban" && stages.map(s => (
@@ -197,7 +197,7 @@ export default function ProjectsPage() {
               <thead>
                 <tr className="text-left text-xs text-muted-foreground uppercase tracking-wider border-b border-border">
                   <th className="px-5 py-3 font-medium">Property</th>
-                  <th className="px-5 py-3 font-medium">Client</th>
+                  <th className="px-5 py-3 font-medium">Contact</th>
                   <th className="px-5 py-3 font-medium">Type</th>
                   <th className="px-5 py-3 font-medium">Stage</th>
                   <th className="px-5 py-3 font-medium">List Price</th>
@@ -311,7 +311,7 @@ export default function ProjectsPage() {
                   })}
                   {stageProjects.length === 0 && (
                     <div className="text-center py-8 text-xs text-muted-foreground">
-                      {listingOnly ? "Listings only" : "No projects"}
+                      {listingOnly ? "Listings only" : "No transactions"}
                     </div>
                   )}
                 </div>
@@ -322,7 +322,7 @@ export default function ProjectsPage() {
       )}
 
       {viewMode !== "kanban" && filtered.length === 0 && (
-        <div className="text-center py-12 text-muted-foreground text-sm">No projects found.</div>
+        <div className="text-center py-12 text-muted-foreground text-sm">No transactions found.</div>
       )}
     </div>
   );
