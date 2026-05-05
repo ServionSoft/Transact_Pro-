@@ -5,16 +5,24 @@ import { Link } from "react-router-dom";
 import PageHeader from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { getApiBaseUrl } from "@/lib/apiConfig";
 import {
+  createProjectReminderDraftApi,
   dismissReminderDraftApi,
   listCalendarEventsApi,
   sendReminderDraftApi,
   type CalendarEventApi,
 } from "@/api/projects";
 import type { CalendarEvent } from "@/data/mockData";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 
 const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -38,6 +46,10 @@ const eventDotColors: Record<string, string> = {
   close: "bg-success",
 };
 
+function isValidEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
 export default function CalendarPage() {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
@@ -47,6 +59,7 @@ export default function CalendarPage() {
   const apiOn = Boolean(getApiBaseUrl());
   const [loading, setLoading] = useState(false);
   const [actingId, setActingId] = useState<string | null>(null);
+  const [savingDraftEventId, setSavingDraftEventId] = useState<string | null>(null);
   const [apiEvents, setApiEvents] = useState<CalendarEventApi[]>([]);
   const [activeKinds, setActiveKinds] = useState<Array<CalendarEventApi["kind"]>>(["deadline", "reminder", "meeting", "close", "task"]);
 
@@ -89,6 +102,7 @@ export default function CalendarPage() {
       type: e.kind,
       propertyAddress: e.propertyAddress,
       clientName: e.clientName,
+      clientEmail: e.clientEmail,
       source: e.source,
       isOverdue: e.isOverdue,
     }));
@@ -108,7 +122,10 @@ export default function CalendarPage() {
     if (!apiOn) return;
     const first = `${year}-${String(month + 1).padStart(2, "0")}-01`;
     const last = `${year}-${String(month + 1).padStart(2, "0")}-${String(getDaysInMonth(year, month)).padStart(2, "0")}`;
-    const rows = await listCalendarEventsApi({ from: first, to: last, kinds: activeKinds });
+    const rows =
+      view === "reminders"
+        ? await listCalendarEventsApi({ kinds: ["reminder"] })
+        : await listCalendarEventsApi({ from: first, to: last, kinds: activeKinds });
     setApiEvents(rows);
   };
 
@@ -143,6 +160,78 @@ export default function CalendarPage() {
       setActingId(null);
     }
   };
+
+  const saveDraftFromEvent = async (e: CalendarEvent) => {
+    if (!apiOn) return;
+    if (!e.clientEmail || !isValidEmail(e.clientEmail)) {
+      toast.error("This event has no valid client email.");
+      return;
+    }
+    try {
+      setSavingDraftEventId(e.id);
+      await createProjectReminderDraftApi(e.projectId, {
+        ...(e.source === "project_deadlines" && e.sourceId ? { projectDeadlineId: e.sourceId } : {}),
+        reminderType: e.title || "Calendar Reminder",
+        to: e.clientEmail,
+        subject: `Upcoming Deadline — ${e.title}`,
+        body: `Hi ${e.clientName || ""},\n\nThis is a reminder that "${e.title}" for ${e.propertyAddress} is due on ${e.date}.\n\nBest regards,\nKathryn Santos`,
+      });
+      toast.success("Reminder draft saved.");
+      await refreshEvents();
+    } catch (err) {
+      toast.error("Could not save reminder draft", {
+        description: err instanceof Error ? err.message : "Please try again.",
+      });
+    } finally {
+      setSavingDraftEventId(null);
+    }
+  };
+
+  const kindLabel = (type: CalendarEvent["type"]) => {
+    if (type === "close") return "Close of Escrow";
+    if (type === "meeting") return "Meeting";
+    if (type === "task") return "Task Due";
+    if (type === "reminder") return "Reminder";
+    return "Deadline";
+  };
+
+  const renderEventChip = (e: CalendarEvent, className: string) => (
+    <ContextMenu>
+      <HoverCard openDelay={120} closeDelay={80}>
+        <HoverCardTrigger asChild>
+          <ContextMenuTrigger asChild>
+            <Link to={`/projects/${e.projectId}`} className={className}>
+              {e.title}
+            </Link>
+          </ContextMenuTrigger>
+        </HoverCardTrigger>
+        <HoverCardContent className="w-72" align="start">
+          <div className="space-y-2 text-xs">
+            <p className="font-semibold text-foreground">{e.title}</p>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+              <span className="text-muted-foreground">Type</span>
+              <span className="text-foreground">{kindLabel(e.type)}</span>
+              <span className="text-muted-foreground">Due</span>
+              <span className="text-foreground">{e.date}</span>
+              <span className="text-muted-foreground">Client</span>
+              <span className="text-foreground">{e.clientName || "Unknown"}</span>
+              <span className="text-muted-foreground">Property</span>
+              <span className="text-foreground truncate">{e.propertyAddress}</span>
+            </div>
+            {e.isOverdue ? <p className="text-destructive font-medium">Overdue</p> : null}
+          </div>
+        </HoverCardContent>
+      </HoverCard>
+      <ContextMenuContent>
+        <ContextMenuItem
+          disabled={!apiOn || !e.clientEmail || savingDraftEventId === e.id}
+          onSelect={() => void saveDraftFromEvent(e)}
+        >
+          Save reminder draft
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
 
   const getEventsForDay = (day: number) => {
     const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
@@ -224,9 +313,12 @@ export default function CalendarPage() {
                   <span className={`text-xs font-medium inline-flex items-center justify-center w-6 h-6 rounded-full ${isToday ? "bg-accent text-accent-foreground" : "text-foreground"}`}>{day}</span>
                   <div className="mt-1 space-y-0.5">
                     {visible.map((e) => (
-                      <Link key={e.id} to={`/projects/${e.projectId}`} className={`block text-[10px] px-1.5 py-0.5 rounded border truncate ${eventTypeColors[e.type]} ${e.isOverdue ? "ring-1 ring-destructive/50" : ""}`}>
-                        {e.title}
-                      </Link>
+                      <div key={e.id}>
+                        {renderEventChip(
+                          e,
+                          `block text-[10px] px-1.5 py-0.5 rounded border truncate ${eventTypeColors[e.type]} ${e.isOverdue ? "ring-1 ring-destructive/50" : ""}`
+                        )}
+                      </div>
                     ))}
                     {overflow > 0 && (
                       <Popover>
@@ -237,10 +329,12 @@ export default function CalendarPage() {
                           <p className="text-xs font-semibold mb-2">All events on {months[month]} {day}</p>
                           <div className="space-y-1">
                             {events.map((e) => (
-                              <Link key={e.id} to={`/projects/${e.projectId}`} className={`block text-xs px-2 py-1.5 rounded border ${eventTypeColors[e.type]} ${e.isOverdue ? "ring-1 ring-destructive/50" : ""}`}>
-                                <p className="font-medium">{e.title}</p>
-                                <p className="text-[10px] opacity-75">{e.propertyAddress}</p>
-                              </Link>
+                              <div key={e.id}>
+                                {renderEventChip(
+                                  e,
+                                  `block text-xs px-2 py-1.5 rounded border ${eventTypeColors[e.type]} ${e.isOverdue ? "ring-1 ring-destructive/50" : ""}`
+                                )}
+                              </div>
                             ))}
                           </div>
                         </PopoverContent>

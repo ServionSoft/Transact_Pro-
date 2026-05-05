@@ -1,8 +1,17 @@
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { CheckSquare, Mail, Upload, Edit3, Search, AlertTriangle, Clock, CalendarDays } from "lucide-react";
 import { useAppStore } from "@/store/appStore";
-import { isTransactionProject } from "@/data/mockData";
+import { isTransactionProject, type Project } from "@/data/mockData";
+import {
+  getProjectFromApi,
+  listProjectsFromApi,
+  patchProjectTaskStatusApi,
+  type ProjectListItem,
+} from "@/api/projects";
+import { getApiBaseUrl } from "@/lib/apiConfig";
+import { useAuthStore } from "@/store/authStore";
+import { hasPermission } from "@/lib/permissions";
 import PageHeader from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,9 +20,11 @@ import { toast } from "sonner";
 
 interface FlatTask {
   id: string;
+  taskId: string;
   title: string;
   dueDate: string;
   projectId: string;
+  clientId: string;
   propertyAddress: string;
   clientName: string;
   stage: string;
@@ -21,11 +32,12 @@ interface FlatTask {
   assignedTo: string;
 }
 
-const TODAY = new Date("2026-02-24");
-
 function bucket(dateStr: string): "overdue" | "today" | "week" | "later" {
+  const today = new Date();
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   const d = new Date(dateStr);
-  const diffDays = Math.floor((d.getTime() - TODAY.getTime()) / (1000 * 60 * 60 * 24));
+  const dueStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diffDays = Math.floor((dueStart.getTime() - todayStart.getTime()) / (1000 * 60 * 60 * 24));
   if (diffDays < 0) return "overdue";
   if (diffDays === 0) return "today";
   if (diffDays <= 7) return "week";
@@ -34,9 +46,54 @@ function bucket(dateStr: string): "overdue" | "today" | "week" | "later" {
 
 export default function TasksPage() {
   const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
+  const [apiProjects, setApiProjects] = useState<Project[]>([]);
   const projects = useAppStore(s => s.projects);
+  const clients = useAppStore(s => s.clients);
+  const upsertProject = useAppStore((s) => s.upsertProject);
   const setTaskStatus = useAppStore(s => s.setTaskStatus);
-  const transactionProjects = useMemo(() => projects.filter(isTransactionProject), [projects]);
+  const user = useAuthStore((s) => s.user);
+  const apiOn = Boolean(getApiBaseUrl());
+  const canEditTasks = hasPermission(user, "projects.edit");
+
+  useEffect(() => {
+    if (!apiOn) {
+      setApiProjects([]);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    void listProjectsFromApi()
+      .then(async (rows: ProjectListItem[]) => {
+        const ids = rows
+          .filter((p) => p.type === "Listing" || p.type === "Buyer File")
+          .map((p) => p.id);
+        const detailed = await Promise.all(ids.map((id) => getProjectFromApi(id).catch(() => null)));
+        if (cancelled) return;
+        const valid = detailed.filter((p): p is NonNullable<typeof p> => Boolean(p));
+        setApiProjects(valid);
+        valid.forEach((p) => upsertProject(p));
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        toast.error("Could not load tasks.", {
+          description: e instanceof Error ? e.message : "Unknown error",
+        });
+        setApiProjects([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiOn, upsertProject]);
+
+  const transactionProjects = useMemo(
+    () => (apiOn ? apiProjects : projects).filter(isTransactionProject),
+    [apiOn, apiProjects, projects]
+  );
 
   const allTasks = useMemo<FlatTask[]>(() => {
     return transactionProjects.flatMap(p =>
@@ -44,9 +101,11 @@ export default function TasksPage() {
         .filter(t => t.status !== "Complete")
         .map(t => ({
           id: `${p.id}::${t.id}`,
+          taskId: t.id,
           title: t.title,
           dueDate: t.dueDate,
           projectId: p.id,
+          clientId: p.clientId,
           propertyAddress: p.propertyAddress,
           clientName: p.clientName,
           stage: t.stage,
@@ -67,12 +126,31 @@ export default function TasksPage() {
 
   const overdue = filtered.filter(t => bucket(t.dueDate) === "overdue");
   const today = filtered.filter(t => bucket(t.dueDate) === "today");
-  const thisWeek = filtered.filter(t => ["week", "later"].includes(bucket(t.dueDate)));
+  const thisWeek = filtered.filter(t => bucket(t.dueDate) === "week" || bucket(t.dueDate) === "later");
 
-  const markDone = (id: string, title: string) => {
-    const [projectId, taskId] = id.split("::");
-    setTaskStatus(projectId, taskId, "Complete");
-    toast.success(`Marked "${title}" complete`);
+  const markDone = (task: FlatTask) => {
+    if (!canEditTasks) {
+      toast.error("You do not have permission to update tasks.");
+      return;
+    }
+    if (apiOn) {
+      setUpdatingTaskId(task.id);
+      void patchProjectTaskStatusApi(task.projectId, task.taskId, "Complete")
+        .then((updated) => {
+          upsertProject(updated);
+          setApiProjects((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+          toast.success(`Marked "${task.title}" complete`);
+        })
+        .catch((e) => {
+          toast.error(e instanceof Error ? e.message : "Could not update task.");
+        })
+        .finally(() => {
+          setUpdatingTaskId(null);
+        });
+      return;
+    }
+    setTaskStatus(task.projectId, task.taskId, "Complete");
+    toast.success(`Marked "${task.title}" complete`);
   };
 
   const groups = [
@@ -104,10 +182,7 @@ export default function TasksPage() {
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
-      <PageHeader
-        title="Task Dashboard"
-        subtitle={`${filtered.length} open tasks across all transactions`}
-      />
+      <PageHeader title="Task Dashboard" subtitle={`${filtered.length} open tasks across all transactions`} />
 
       <div className="flex items-center gap-3 mb-6">
         <div className="relative flex-1 max-w-sm">
@@ -144,7 +219,9 @@ export default function TasksPage() {
                 </span>
               </div>
             </div>
-            {g.tasks.length === 0 ? (
+            {loading && g.tasks.length === 0 ? (
+              <div className="px-5 py-6 text-center text-xs text-muted-foreground">Loading tasks...</div>
+            ) : g.tasks.length === 0 ? (
               <div className="px-5 py-6 text-center text-xs text-muted-foreground">
                 No tasks in this group.
               </div>
@@ -159,9 +236,10 @@ export default function TasksPage() {
                     className="flex items-center gap-3 px-5 py-3 hover:bg-secondary/30 transition-colors"
                   >
                     <button
-                      onClick={() => markDone(t.id, t.title)}
-                      className="w-5 h-5 rounded border-2 border-border hover:border-accent flex items-center justify-center shrink-0"
+                      onClick={() => markDone(t)}
+                      className="w-5 h-5 rounded border-2 border-border hover:border-accent flex items-center justify-center shrink-0 disabled:opacity-50"
                       aria-label="Mark done"
+                      disabled={!canEditTasks || updatingTaskId === t.id}
                     >
                       <CheckSquare className="w-3 h-3 opacity-0 hover:opacity-50" />
                     </button>
@@ -191,18 +269,39 @@ export default function TasksPage() {
                       {t.assignedTo}
                     </span>
                     <div className="flex gap-1">
-                      <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => markDone(t.id, t.title)} title="Mark done">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2"
+                        onClick={() => markDone(t)}
+                        title="Mark done"
+                        disabled={!canEditTasks || updatingTaskId === t.id}
+                      >
                         <CheckSquare className="w-3.5 h-3.5" />
                       </Button>
-                      <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => toast.info("Edit task")} title="Edit">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2"
+                        onClick={() => toast.info("Edit from transaction task section for now.")}
+                        title="Edit"
+                        disabled={!canEditTasks}
+                      >
                         <Edit3 className="w-3.5 h-3.5" />
                       </Button>
-                      <Link to={`/email?to=${t.clientName}`}>
+                      <Link to={`/email?to=${encodeURIComponent(clients.find((c) => c.id === t.clientId)?.email || "")}`}>
                         <Button size="sm" variant="ghost" className="h-7 px-2" title="Email">
                           <Mail className="w-3.5 h-3.5" />
                         </Button>
                       </Link>
-                      <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => toast.success("File uploaded")} title="Upload">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2"
+                        onClick={() => toast.info("Upload from transaction documents section for now.")}
+                        title="Upload"
+                        disabled={!canEditTasks}
+                      >
                         <Upload className="w-3.5 h-3.5" />
                       </Button>
                     </div>

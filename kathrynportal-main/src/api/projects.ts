@@ -108,6 +108,7 @@ export type CalendarEventApi = {
   projectName: string;
   propertyAddress: string;
   clientName: string;
+  clientEmail: string;
   title: string;
   date: string;
   kind: "task" | "deadline" | "reminder" | "meeting" | "close";

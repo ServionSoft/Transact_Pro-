@@ -135,6 +135,7 @@ export type CalendarEventApi = {
   projectName: string;
   propertyAddress: string;
   clientName: string;
+  clientEmail: string;
   title: string;
   date: string;
   kind: "task" | "deadline" | "reminder" | "meeting" | "close";
@@ -554,6 +555,7 @@ export async function listCalendarEvents(
     project_name: string;
     property_address: string;
     client_name: string;
+    client_email: string;
     title: string;
     event_date: string;
   }>(
@@ -563,6 +565,7 @@ export async function listCalendarEvents(
        p.name AS project_name,
        p.property_address,
        c.name AS client_name,
+       c.email AS client_email,
        pt.title,
        pt.due_date::text AS event_date
      FROM public.project_tasks pt
@@ -581,6 +584,7 @@ export async function listCalendarEvents(
     project_name: string;
     property_address: string;
     client_name: string;
+    client_email: string;
     title: string;
     event_date: string;
     deadline_type: string;
@@ -591,6 +595,7 @@ export async function listCalendarEvents(
        p.name AS project_name,
        p.property_address,
        c.name AS client_name,
+       c.email AS client_email,
        pdl.title,
        pdl.due_date::text AS event_date,
        pdl.type::text AS deadline_type
@@ -609,6 +614,7 @@ export async function listCalendarEvents(
     project_name: string;
     property_address: string;
     client_name: string;
+    client_email: string;
     title: string;
     event_date: string;
   }>(
@@ -618,6 +624,7 @@ export async function listCalendarEvents(
        p.name AS project_name,
        p.property_address,
        c.name AS client_name,
+       c.email AS client_email,
        COALESCE(NULLIF(btrim(rd.reminder_type), ''), 'Reminder Draft') AS title,
        COALESCE(pd.due_date::text, rd.created_at::date::text) AS event_date
      FROM public.reminder_drafts rd
@@ -639,6 +646,7 @@ export async function listCalendarEvents(
       projectName: r.project_name,
       propertyAddress: r.property_address,
       clientName: r.client_name,
+      clientEmail: r.client_email ?? "",
       title: r.title,
       date: r.event_date,
       kind: classifyCalendarKind(r.title, "task"),
@@ -652,6 +660,7 @@ export async function listCalendarEvents(
       projectName: r.project_name,
       propertyAddress: r.property_address,
       clientName: r.client_name,
+      clientEmail: r.client_email ?? "",
       title: r.title,
       date: r.event_date,
       kind: classifyCalendarKind(r.title, r.deadline_type === "reminder" ? "reminder" : "deadline"),
@@ -665,6 +674,7 @@ export async function listCalendarEvents(
       projectName: r.project_name,
       propertyAddress: r.property_address,
       clientName: r.client_name,
+      clientEmail: r.client_email ?? "",
       title: r.title,
       date: r.event_date,
       kind: "reminder" as const,

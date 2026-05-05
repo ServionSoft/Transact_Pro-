@@ -224,6 +224,7 @@ export interface CalendarEvent {
   type: "deadline" | "reminder" | "task" | "meeting" | "close";
   propertyAddress: string;
   clientName?: string;
+  clientEmail?: string;
   source?: "project_tasks" | "project_deadlines" | "reminder_drafts";
   isOverdue?: boolean;
 }
