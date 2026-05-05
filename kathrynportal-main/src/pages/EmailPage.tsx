@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { Send } from "lucide-react";
 import { useAppStore } from "@/store/appStore";
 import { isTransactionProject } from "@/data/mockData";
-import { createProjectEmailApi, listProjectsFromApi, type ProjectListItem } from "@/api/projects";
+import { createProjectEmailApi, getProjectFromApi, listProjectsFromApi, type ProjectListItem } from "@/api/projects";
 import { listEmailTemplatesFromApi } from "@/api/emailTemplates";
 import { getApiBaseUrl } from "@/lib/apiConfig";
 import { useAuthStore } from "@/store/authStore";
@@ -13,6 +13,19 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function applyTokens(input: string, tokenMap: Record<string, string>): string {
+  let out = input.replace(/\\n/g, "\n");
+  for (const [key, value] of Object.entries(tokenMap)) {
+    const re = new RegExp(`\\{\\{\\s*${escapeRegExp(key)}\\s*\\}\\}`, "gi");
+    out = out.replace(re, value);
+  }
+  return out;
+}
 
 export default function EmailPage() {
   const [searchParams] = useSearchParams();
@@ -36,6 +49,7 @@ export default function EmailPage() {
   const [body, setBody] = useState("");
   const [selectedTemplate, setSelectedTemplate] = useState("");
   const [selectedProject, setSelectedProject] = useState("");
+  const [selectedProjectDocList, setSelectedProjectDocList] = useState<string>("• [Documents listed here]");
 
   useEffect(() => {
     if (!apiOn) {
@@ -94,26 +108,63 @@ export default function EmailPage() {
       apiOn
         ? apiTransactions.map((p) => ({
             id: p.id,
+            name: p.name,
             propertyAddress: p.propertyAddress,
             clientName: p.clientName,
             clientId: p.clientId,
+            stage: p.stage,
+            type: p.type,
+            nextStep: p.nextStep,
+            nextStepDate: p.nextStepDate,
+            listPrice: p.listPrice,
+            escrowOfficer: p.escrowOfficer,
+            escrowCompany: p.escrowCompany,
+            propertyType: p.propertyType,
           }))
         : transactionProjects.map((p) => ({
             id: p.id,
+            name: p.name,
             propertyAddress: p.propertyAddress,
             clientName: p.clientName,
             clientId: p.clientId,
+            stage: p.stage,
+            type: p.type,
+            nextStep: p.nextStep,
+            nextStepDate: p.nextStepDate,
+            listPrice: p.listPrice,
+            escrowOfficer: p.escrowOfficer,
+            escrowCompany: p.escrowCompany,
+            propertyType: p.propertyType,
           })),
     [apiOn, apiTransactions, transactionProjects]
   );
 
-  const handleProjectChange = (projectId: string) => {
+  const buildDocumentList = (projectLike: { documents?: Array<{ name: string; status: string }> } | undefined): string => {
+    if (!projectLike?.documents || projectLike.documents.length === 0) return "• [Documents listed here]";
+    const pending = projectLike.documents.filter((d) => d.status !== "Completed" && d.status !== "Complete");
+    const source = pending.length > 0 ? pending : projectLike.documents;
+    const lines = source.slice(0, 10).map((d) => `• ${d.name}`);
+    return lines.length > 0 ? lines.join("\n") : "• [Documents listed here]";
+  };
+
+  const handleProjectChange = async (projectId: string) => {
     setSelectedProject(projectId);
     const selected = transactionOptions.find((p) => p.id === projectId);
     if (!selected) return;
     const linkedClient = clients.find((c) => c.id === selected.clientId);
     if (linkedClient?.email) {
       setTo(linkedClient.email);
+    }
+    const localProject = transactionProjects.find((p) => p.id === projectId);
+    setSelectedProjectDocList(buildDocumentList(localProject));
+    if (apiOn) {
+      try {
+        const full = await getProjectFromApi(projectId);
+        upsertProject(full);
+        setSelectedProjectDocList(buildDocumentList(full));
+      } catch {
+        // leave current fallback list if full project fetch fails
+      }
     }
   };
 
@@ -123,18 +174,38 @@ export default function EmailPage() {
     setSelectedTemplate(templateId);
 
     const project = transactionOptions.find(p => p.id === selectedProject);
-    let subj = tpl.subject;
-    let bd = tpl.body;
+    let subj = tpl.subject.replace(/\\n/g, "\n");
+    let bd = tpl.body.replace(/\\n/g, "\n");
 
     if (project) {
       const client = clients.find(c => c.id === project.clientId);
-      subj = subj.replace("{{property_address}}", project.propertyAddress);
-      bd = bd.replace(/\{\{property_address\}\}/g, project.propertyAddress);
-      bd = bd.replace(/\{\{agent_name\}\}/g, client?.name || "");
-      bd = bd.replace(/\{\{document_list\}\}/g, "• [Documents listed here]");
-      bd = bd.replace(/\{\{deadline_name\}\}/g, "[Deadline]");
-      bd = bd.replace(/\{\{deadline_date\}\}/g, "[Date]");
-      bd = bd.replace(/\{\{update_details\}\}/g, "[Update details here]");
+      const parts = project.propertyAddress.split(",").map((x) => x.trim());
+      const currentProjectDetails = transactionProjects.find((p) => p.id === selectedProject);
+      const tokenMap: Record<string, string> = {
+        agent_name: client?.name || project.clientName || "",
+        client_name: project.clientName || "",
+        property_address: project.propertyAddress || "",
+        property_street: parts[0] || "",
+        property_city: parts[1] || "",
+        property_state: parts[2] || "",
+        property_zip: parts[3] || "",
+        transaction_name: project.name || "",
+        transaction_type: project.type || "",
+        stage_name: project.stage || "",
+        deadline_name: project.nextStep || "Next deadline",
+        deadline_date: project.nextStepDate || "TBD",
+        next_step: project.nextStep || "",
+        next_step_date: project.nextStepDate || "",
+        list_price: project.listPrice || "",
+        escrow_officer: project.escrowOfficer || "",
+        escrow_company: project.escrowCompany || "",
+        property_type: project.propertyType || "",
+        document_list: buildDocumentList(currentProjectDetails) || selectedProjectDocList,
+        update_details: "[Update details here]",
+        today_date: new Date().toLocaleDateString(),
+      };
+      subj = applyTokens(subj, tokenMap);
+      bd = applyTokens(bd, tokenMap);
     }
     setSubject(subj);
     setBody(bd);
@@ -190,7 +261,7 @@ export default function EmailPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground">Link to transaction</label>
-                <Select value={selectedProject} onValueChange={handleProjectChange}>
+                <Select value={selectedProject} onValueChange={(v) => { void handleProjectChange(v); }}>
                   <SelectTrigger>
                     <SelectValue placeholder={loadingTransactions ? "Loading transactions..." : "Select transaction..."} />
                   </SelectTrigger>
@@ -211,6 +282,9 @@ export default function EmailPage() {
                     ))}
                   </SelectContent>
                 </Select>
+                <p className="text-[11px] text-muted-foreground">
+                  Tokens: {"{{agent_name}}"} {"{{client_name}}"} {"{{property_address}}"} {"{{stage_name}}"} {"{{deadline_name}}"} {"{{deadline_date}}"} {"{{next_step}}"} {"{{next_step_date}}"} {"{{transaction_type}}"} {"{{list_price}}"} {"{{today_date}}"}
+                </p>
               </div>
             </div>
             <div className="space-y-2">
