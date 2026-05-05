@@ -2,8 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Send } from "lucide-react";
 import { useAppStore } from "@/store/appStore";
-import { isTransactionProject } from "@/data/mockData";
-import { createProjectEmailApi, getProjectFromApi, listProjectsFromApi, type ProjectListItem } from "@/api/projects";
+import { isTransactionProject, type EmailThread } from "@/data/mockData";
+import {
+  createProjectEmailApi,
+  getProjectFromApi,
+  listProjectsFromApi,
+  listRecentEmailsFromApi,
+  type ProjectListItem,
+  type RecentEmailApi,
+} from "@/api/projects";
 import { listEmailTemplatesFromApi } from "@/api/emailTemplates";
 import { getApiBaseUrl } from "@/lib/apiConfig";
 import { useAuthStore } from "@/store/authStore";
@@ -16,6 +23,28 @@ import { toast } from "sonner";
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function isValidEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+type SidebarEmail = EmailThread & { projectLabel?: string };
+
+function mapRecentApiToSidebar(row: RecentEmailApi): SidebarEmail {
+  const label = row.propertyAddress?.split(",")[0]?.trim() || row.projectName;
+  return {
+    id: row.id,
+    subject: row.subject,
+    from: row.from,
+    to: row.to,
+    date: row.date,
+    body: row.body,
+    direction: row.direction,
+    deliveryStatus: row.deliveryStatus,
+    ...(row.deliveryError != null && row.deliveryError !== "" ? { deliveryError: row.deliveryError } : {}),
+    projectLabel: label,
+  };
 }
 
 function applyTokens(input: string, tokenMap: Record<string, string>): string {
@@ -43,6 +72,8 @@ export default function EmailPage() {
   const [apiTransactions, setApiTransactions] = useState<ProjectListItem[]>([]);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [recentSidebarEmails, setRecentSidebarEmails] = useState<SidebarEmail[]>([]);
+  const [loadingRecentEmails, setLoadingRecentEmails] = useState(false);
 
   const [to, setTo] = useState(toParam);
   const [subject, setSubject] = useState("");
@@ -102,6 +133,33 @@ export default function EmailPage() {
       cancelled = true;
     };
   }, [apiOn, setEmailTemplates]);
+
+  useEffect(() => {
+    if (!apiOn) {
+      setRecentSidebarEmails([]);
+      return;
+    }
+    let cancelled = false;
+    setLoadingRecentEmails(true);
+    void listRecentEmailsFromApi(25)
+      .then((rows) => {
+        if (!cancelled) setRecentSidebarEmails(rows.map(mapRecentApiToSidebar));
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          toast.error("Could not load recent emails.", {
+            description: e instanceof Error ? e.message : "Unknown error",
+          });
+          setRecentSidebarEmails([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingRecentEmails(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiOn]);
 
   const transactionOptions = useMemo(
     () =>
@@ -216,6 +274,10 @@ export default function EmailPage() {
       toast.error("Please fill in recipient and subject.");
       return;
     }
+    if (!isValidEmail(to)) {
+      toast.error("Recipient email is invalid.");
+      return;
+    }
     try {
       if (apiOn && selectedProject) {
         const { project: updated, emailSendFailed, emailSendError } = await createProjectEmailApi(selectedProject, {
@@ -226,6 +288,9 @@ export default function EmailPage() {
           ...(selectedTemplate ? { templateId: selectedTemplate } : {}),
         });
         upsertProject(updated);
+        void listRecentEmailsFromApi(25)
+          .then((rows) => setRecentSidebarEmails(rows.map(mapRecentApiToSidebar)))
+          .catch(() => {});
         if (emailSendFailed) {
           toast.warning("Email saved; SMTP delivery failed.", {
             description: emailSendError ?? "Check Settings → Email / SMTP.",
@@ -246,8 +311,18 @@ export default function EmailPage() {
     }
   };
 
-  // Recently sent (mock)
-  const recentEmails = projects.flatMap(p => p.emails).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 8);
+  const recentEmails = useMemo((): SidebarEmail[] => {
+    if (apiOn) return recentSidebarEmails;
+    return projects
+      .flatMap((p) =>
+        p.emails.map((em) => ({
+          ...em,
+          projectLabel: p.propertyAddress.split(",")[0]?.trim() || p.name,
+        }))
+      )
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 25);
+  }, [apiOn, recentSidebarEmails, projects]);
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
@@ -310,23 +385,33 @@ export default function EmailPage() {
         <div className="bg-card border border-border rounded-lg">
           <div className="px-5 py-4 border-b border-border">
             <h3 className="font-display font-semibold text-foreground text-sm">Recent Emails</h3>
+            <p className="text-[11px] text-muted-foreground mt-0.5">Across all transactions you can access</p>
           </div>
           <div className="divide-y divide-border max-h-[600px] overflow-y-auto">
-            {recentEmails.map(email => (
-              <div key={email.id} className="px-5 py-3 hover:bg-secondary/30 transition-colors cursor-pointer">
-                <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                  <span className={`w-2 h-2 rounded-full ${email.direction === "outbound" ? "bg-info" : "bg-success"}`} />
-                  {email.direction === "outbound" && email.deliveryStatus === "failed" && (
-                    <span className="text-xs text-destructive">Failed</span>
-                  )}
-                  <span className="text-xs text-muted-foreground">{email.date}</span>
+            {apiOn && loadingRecentEmails && recentEmails.length === 0 ? (
+              <div className="px-5 py-8 text-center text-xs text-muted-foreground">Loading recent emails…</div>
+            ) : recentEmails.length === 0 ? (
+              <div className="px-5 py-8 text-center text-xs text-muted-foreground">No emails yet.</div>
+            ) : (
+              recentEmails.map((email) => (
+                <div key={email.id} className="px-5 py-3 hover:bg-secondary/30 transition-colors cursor-pointer">
+                  <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                    <span className={`w-2 h-2 rounded-full ${email.direction === "outbound" ? "bg-info" : "bg-success"}`} />
+                    {email.direction === "outbound" && email.deliveryStatus === "failed" && (
+                      <span className="text-xs text-destructive">Failed</span>
+                    )}
+                    <span className="text-xs text-muted-foreground">{email.date}</span>
+                  </div>
+                  <p className="text-sm font-medium text-foreground truncate">{email.subject}</p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {email.direction === "outbound" ? `To: ${email.to}` : `From: ${email.from}`}
+                  </p>
+                  {email.projectLabel ? (
+                    <p className="text-[10px] text-muted-foreground truncate mt-0.5">{email.projectLabel}</p>
+                  ) : null}
                 </div>
-                <p className="text-sm font-medium text-foreground truncate">{email.subject}</p>
-                <p className="text-xs text-muted-foreground truncate">
-                  {email.direction === "outbound" ? `To: ${email.to}` : `From: ${email.from}`}
-                </p>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
       </div>

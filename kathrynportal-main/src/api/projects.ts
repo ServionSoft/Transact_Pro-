@@ -101,6 +101,35 @@ export type ProjectCreateBody = {
   metadata?: Record<string, unknown>;
 };
 
+export type CalendarEventApi = {
+  id: string;
+  sourceId: string;
+  projectId: string;
+  projectName: string;
+  propertyAddress: string;
+  clientName: string;
+  title: string;
+  date: string;
+  kind: "task" | "deadline" | "reminder" | "meeting" | "close";
+  source: "project_tasks" | "project_deadlines" | "reminder_drafts";
+  isOverdue: boolean;
+};
+
+export type RecentEmailApi = {
+  id: string;
+  projectId: string;
+  projectName: string;
+  propertyAddress: string;
+  subject: string;
+  from: string;
+  to: string;
+  date: string;
+  body: string;
+  direction: "inbound" | "outbound";
+  deliveryStatus: "pending" | "sent" | "failed";
+  deliveryError?: string | null;
+};
+
 function requireBase(): string {
   const base = getApiBaseUrl();
   if (!base) throw new Error("VITE_API_URL is not set");
@@ -390,6 +419,22 @@ export async function createProjectDeadlineApi(
   return mapDetailRowToProject(row as ProjectDetailApiRow);
 }
 
+export async function createProjectReminderDraftApi(
+  projectId: string,
+  body: { projectDeadlineId?: string; reminderType?: string; to: string; subject: string; body: string }
+): Promise<{ reminderDraftId: string }> {
+  const json = await apiCall(`/api/projects/${encodeURIComponent(projectId)}/reminder-drafts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const id = (json as { data?: { reminderDraftId?: unknown } }).data?.reminderDraftId;
+  if (typeof id !== "string" || !id.trim()) {
+    throw new ApiRequestError("Invalid reminder draft response", 500, "");
+  }
+  return { reminderDraftId: id };
+}
+
 export async function createProjectEmailApi(
   projectId: string,
   body: { to: string; subject: string; body: string; from?: string; templateId?: string }
@@ -455,4 +500,42 @@ export async function setProjectAssignmentsApi(projectId: string, userIds: strin
     throw new ApiRequestError("Invalid assignment update response", 500, "");
   }
   return mapDetailRowToProject(row as ProjectDetailApiRow);
+}
+
+export async function listCalendarEventsApi(options?: {
+  from?: string;
+  to?: string;
+  projectId?: string;
+  kinds?: Array<CalendarEventApi["kind"]>;
+}): Promise<CalendarEventApi[]> {
+  const q = new URLSearchParams();
+  if (options?.from) q.set("from", options.from);
+  if (options?.to) q.set("to", options.to);
+  if (options?.projectId) q.set("projectId", options.projectId);
+  if (options?.kinds?.length) q.set("kinds", options.kinds.join(","));
+  const qs = q.toString();
+  const json = await apiCall(`/api/calendar/events${qs ? `?${qs}` : ""}`);
+  const rows = (json as { data?: { events?: unknown } }).data?.events;
+  if (!Array.isArray(rows)) return [];
+  return rows as CalendarEventApi[];
+}
+
+export async function sendReminderDraftApi(reminderDraftId: string): Promise<void> {
+  await apiCall(`/api/calendar/reminder-drafts/${encodeURIComponent(reminderDraftId)}/send`, {
+    method: "POST",
+  });
+}
+
+export async function dismissReminderDraftApi(reminderDraftId: string): Promise<void> {
+  await apiCall(`/api/calendar/reminder-drafts/${encodeURIComponent(reminderDraftId)}/dismiss`, {
+    method: "PATCH",
+  });
+}
+
+export async function listRecentEmailsFromApi(limit = 25): Promise<RecentEmailApi[]> {
+  const capped = Math.min(100, Math.max(1, Math.floor(limit)));
+  const json = await apiCall(`/api/emails/recent?limit=${encodeURIComponent(String(capped))}`);
+  const rows = (json as { data?: { emails?: unknown } }).data?.emails;
+  if (!Array.isArray(rows)) return [];
+  return rows as RecentEmailApi[];
 }

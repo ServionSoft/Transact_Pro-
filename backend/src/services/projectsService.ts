@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import type { AppConfig } from "../config/env.js";
+import type { AuthUser } from "../middleware/auth.js";
 import { getSmtpSettings, sendMailWithStoredSettings } from "./smtpSettingsService.js";
 
 export type ProjectStageUi = "Listing Prep" | "Listing Complete" | "In Escrow" | "Ready to Close" | "Closed";
@@ -125,6 +126,20 @@ export type ProjectDetailApi = {
   assignees: ProjectAssigneeApi[];
   deadlines: ProjectDeadlineApi[];
   metadata?: Record<string, unknown>;
+};
+
+export type CalendarEventApi = {
+  id: string;
+  sourceId: string;
+  projectId: string;
+  projectName: string;
+  propertyAddress: string;
+  clientName: string;
+  title: string;
+  date: string;
+  kind: "task" | "deadline" | "reminder" | "meeting" | "close";
+  source: "project_tasks" | "project_deadlines" | "reminder_drafts";
+  isOverdue: boolean;
 };
 
 export type ProjectCreateInput = {
@@ -484,6 +499,273 @@ export async function listProjects(
   return rows.map(mapListRow);
 }
 
+function classifyCalendarKind(title: string, fallback: CalendarEventApi["kind"]): CalendarEventApi["kind"] {
+  const t = title.toLowerCase();
+  if (t.includes("close of escrow") || t.includes(" — coe") || t === "coe") return "close";
+  if (t.includes("meeting") || t.includes("appointment") || t.includes("inspection")) return "meeting";
+  return fallback;
+}
+
+function buildCalendarFilters(
+  user: AuthUser,
+  hasGlobalAccess: boolean,
+  projectId: string,
+  fromDate: string | null,
+  toDate: string | null
+): { whereSql: string; params: unknown[] } {
+  const params: unknown[] = [];
+  const where: string[] = ["p.deleted_at IS NULL"];
+  if (!hasGlobalAccess) {
+    params.push(user.id);
+    where.push(`EXISTS (SELECT 1 FROM public.project_assignments pa WHERE pa.project_id = p.id AND pa.user_id = $${params.length}::bigint)`);
+  }
+  if (projectId && /^\d+$/.test(projectId)) {
+    params.push(projectId);
+    where.push(`p.id = $${params.length}::bigint`);
+  }
+  if (fromDate) {
+    params.push(fromDate);
+    where.push(`ev.ev_date >= $${params.length}::date`);
+  }
+  if (toDate) {
+    params.push(toDate);
+    where.push(`ev.ev_date <= $${params.length}::date`);
+  }
+  return { whereSql: where.join(" AND "), params };
+}
+
+export async function listCalendarEvents(
+  pool: Pool,
+  input: { user: AuthUser; from?: string; to?: string; projectId?: string; kinds?: string[] }
+): Promise<CalendarEventApi[]> {
+  const fromDate = parseDateString(input.from);
+  const toDate = parseDateString(input.to);
+  const projectId = normalizeText(input.projectId);
+  const hasGlobalAccess =
+    input.user.role === "super_admin" ||
+    input.user.permissions.includes("project_access.global") ||
+    input.user.permissions.includes("projects.view_all");
+  const allowedKinds = new Set((input.kinds ?? []).map((k) => normalizeText(k).toLowerCase()).filter(Boolean));
+  const { whereSql, params } = buildCalendarFilters(input.user, hasGlobalAccess, projectId, fromDate, toDate);
+
+  const taskRows = await pool.query<{
+    id: string;
+    project_id: string;
+    project_name: string;
+    property_address: string;
+    client_name: string;
+    title: string;
+    event_date: string;
+  }>(
+    `SELECT
+       pt.id::text AS id,
+       p.id::text AS project_id,
+       p.name AS project_name,
+       p.property_address,
+       c.name AS client_name,
+       pt.title,
+       pt.due_date::text AS event_date
+     FROM public.project_tasks pt
+     JOIN public.projects p ON p.id = pt.project_id
+     JOIN public.contacts c ON c.id = p.client_id
+     CROSS JOIN LATERAL (SELECT pt.due_date AS ev_date) ev
+     WHERE ${whereSql}
+       AND pt.due_date IS NOT NULL
+       AND pt.status <> 'complete'::public.task_status`,
+    params
+  );
+
+  const deadlineRows = await pool.query<{
+    id: string;
+    project_id: string;
+    project_name: string;
+    property_address: string;
+    client_name: string;
+    title: string;
+    event_date: string;
+    deadline_type: string;
+  }>(
+    `SELECT
+       pdl.id::text AS id,
+       p.id::text AS project_id,
+       p.name AS project_name,
+       p.property_address,
+       c.name AS client_name,
+       pdl.title,
+       pdl.due_date::text AS event_date,
+       pdl.type::text AS deadline_type
+     FROM public.project_deadlines pdl
+     JOIN public.projects p ON p.id = pdl.project_id
+     JOIN public.contacts c ON c.id = p.client_id
+     CROSS JOIN LATERAL (SELECT pdl.due_date AS ev_date) ev
+     WHERE ${whereSql}
+       AND pdl.is_completed = false`,
+    params
+  );
+
+  const draftRows = await pool.query<{
+    id: string;
+    project_id: string;
+    project_name: string;
+    property_address: string;
+    client_name: string;
+    title: string;
+    event_date: string;
+  }>(
+    `SELECT
+       rd.id::text AS id,
+       p.id::text AS project_id,
+       p.name AS project_name,
+       p.property_address,
+       c.name AS client_name,
+       COALESCE(NULLIF(btrim(rd.reminder_type), ''), 'Reminder Draft') AS title,
+       COALESCE(pd.due_date::text, rd.created_at::date::text) AS event_date
+     FROM public.reminder_drafts rd
+     JOIN public.projects p ON p.id = rd.project_id
+     JOIN public.contacts c ON c.id = p.client_id
+     LEFT JOIN public.project_deadlines pd ON pd.id = rd.project_deadline_id
+     CROSS JOIN LATERAL (SELECT COALESCE(pd.due_date, rd.created_at::date) AS ev_date) ev
+     WHERE ${whereSql}
+       AND rd.status = 'draft'::public.reminder_status`,
+    params
+  );
+
+  const today = new Date().toISOString().split("T")[0];
+  const allEvents: CalendarEventApi[] = [
+    ...taskRows.rows.map((r) => ({
+      id: `task:${r.id}`,
+      sourceId: r.id,
+      projectId: r.project_id,
+      projectName: r.project_name,
+      propertyAddress: r.property_address,
+      clientName: r.client_name,
+      title: r.title,
+      date: r.event_date,
+      kind: classifyCalendarKind(r.title, "task"),
+      source: "project_tasks" as const,
+      isOverdue: r.event_date < today,
+    })),
+    ...deadlineRows.rows.map((r) => ({
+      id: `deadline:${r.id}`,
+      sourceId: r.id,
+      projectId: r.project_id,
+      projectName: r.project_name,
+      propertyAddress: r.property_address,
+      clientName: r.client_name,
+      title: r.title,
+      date: r.event_date,
+      kind: classifyCalendarKind(r.title, r.deadline_type === "reminder" ? "reminder" : "deadline"),
+      source: "project_deadlines" as const,
+      isOverdue: r.event_date < today,
+    })),
+    ...draftRows.rows.map((r) => ({
+      id: `reminder:${r.id}`,
+      sourceId: r.id,
+      projectId: r.project_id,
+      projectName: r.project_name,
+      propertyAddress: r.property_address,
+      clientName: r.client_name,
+      title: r.title,
+      date: r.event_date,
+      kind: "reminder" as const,
+      source: "reminder_drafts" as const,
+      isOverdue: r.event_date < today,
+    })),
+  ];
+
+  const deduped = new Map<string, CalendarEventApi>();
+  for (const event of allEvents) {
+    const key = `${event.projectId}|${event.date}|${event.kind}|${event.title.toLowerCase().trim()}`;
+    if (!deduped.has(key)) deduped.set(key, event);
+  }
+  let out = Array.from(deduped.values()).sort((a, b) => {
+    if (a.date === b.date) return a.title.localeCompare(b.title);
+    return a.date.localeCompare(b.date);
+  });
+  if (allowedKinds.size > 0) out = out.filter((e) => allowedKinds.has(e.kind));
+  return out;
+}
+
+export async function sendReminderDraft(
+  pool: Pool,
+  config: AppConfig,
+  reminderDraftId: string,
+  sentByUserId: string | null
+): Promise<{ ok: true } | { error: ServiceError }> {
+  if (!/^\d+$/.test(reminderDraftId)) {
+    return { error: { status: 404, code: "REMINDER_DRAFT_NOT_FOUND", message: "Reminder draft not found." } };
+  }
+  const row = await pool.query<{
+    id: string;
+    project_id: string;
+    subject: string;
+    body: string;
+    to_address: string;
+    status: string;
+  }>(
+    `SELECT id::text, project_id::text, subject, body, to_address, status::text
+     FROM public.reminder_drafts
+     WHERE id = $1::bigint
+     LIMIT 1`,
+    [reminderDraftId]
+  );
+  const draft = row.rows[0];
+  if (!draft) {
+    return { error: { status: 404, code: "REMINDER_DRAFT_NOT_FOUND", message: "Reminder draft not found." } };
+  }
+  if (draft.status !== "draft") {
+    return { error: { status: 409, code: "REMINDER_DRAFT_NOT_DRAFT", message: "Reminder draft is not in draft status." } };
+  }
+  const sendResult = await createProjectEmail(
+    pool,
+    config,
+    draft.project_id,
+    { to: draft.to_address, subject: draft.subject, body: draft.body },
+    sentByUserId
+  );
+  if ("error" in sendResult) return { error: sendResult.error };
+  if (sendResult.emailSendFailed) {
+    return {
+      error: {
+        status: 502,
+        code: "REMINDER_SEND_FAILED",
+        message: sendResult.emailSendError || "Could not send reminder email.",
+      },
+    };
+  }
+  await pool.query(
+    `UPDATE public.reminder_drafts
+     SET status = 'sent'::public.reminder_status,
+         sent_by_user_id = $2::bigint,
+         sent_at = now(),
+         updated_at = now()
+     WHERE id = $1::bigint`,
+    [reminderDraftId, sentByUserId && /^\d+$/.test(sentByUserId) ? sentByUserId : null]
+  );
+  return { ok: true };
+}
+
+export async function dismissReminderDraft(
+  pool: Pool,
+  reminderDraftId: string
+): Promise<{ ok: true } | { error: ServiceError }> {
+  if (!/^\d+$/.test(reminderDraftId)) {
+    return { error: { status: 404, code: "REMINDER_DRAFT_NOT_FOUND", message: "Reminder draft not found." } };
+  }
+  const { rowCount } = await pool.query(
+    `UPDATE public.reminder_drafts
+     SET status = 'dismissed'::public.reminder_status,
+         updated_at = now()
+     WHERE id = $1::bigint
+       AND status = 'draft'::public.reminder_status`,
+    [reminderDraftId]
+  );
+  if (!rowCount) {
+    return { error: { status: 404, code: "REMINDER_DRAFT_NOT_FOUND", message: "Reminder draft not found." } };
+  }
+  return { ok: true };
+}
+
 async function getProjectTasks(pool: Pool, projectId: string): Promise<ProjectTaskApi[]> {
   const { rows } = await pool.query<{
     id: string;
@@ -523,6 +805,97 @@ async function getProjectDeadlines(pool: Pool, projectId: string): Promise<Proje
 function mapDeliveryStatus(s: string | null | undefined): "pending" | "sent" | "failed" {
   if (s === "pending" || s === "failed") return s;
   return "sent";
+}
+
+export type RecentEmailApi = {
+  id: string;
+  projectId: string;
+  projectName: string;
+  propertyAddress: string;
+  subject: string;
+  from: string;
+  to: string;
+  date: string;
+  body: string;
+  direction: "inbound" | "outbound";
+  deliveryStatus: "pending" | "sent" | "failed";
+  deliveryError?: string | null;
+};
+
+/** Recent outbound/inbound emails across all visible projects (same access rules as calendar). */
+export async function listRecentProjectEmails(
+  pool: Pool,
+  config: AppConfig,
+  input: { user: AuthUser; limit?: number }
+): Promise<RecentEmailApi[]> {
+  const rawLimit = input.limit ?? 25;
+  const limit = Number.isFinite(rawLimit) ? Math.min(100, Math.max(1, Math.floor(rawLimit))) : 25;
+  const hasGlobalAccess =
+    input.user.role === "super_admin" ||
+    input.user.permissions.includes("project_access.global") ||
+    input.user.permissions.includes("projects.view_all");
+  const params: unknown[] = [config.crmVaultProjectId];
+  const where: string[] = ["p.deleted_at IS NULL", `p.id <> $1::bigint`];
+  if (!hasGlobalAccess) {
+    params.push(input.user.id);
+    where.push(
+      `EXISTS (SELECT 1 FROM public.project_assignments pa WHERE pa.project_id = p.id AND pa.user_id = $${params.length}::bigint)`
+    );
+  }
+  params.push(limit);
+  const limitParam = params.length;
+
+  const { rows } = await pool.query<{
+    id: string;
+    project_id: string;
+    project_name: string;
+    property_address: string;
+    subject: string;
+    from_address: string;
+    to_address: string;
+    body: string;
+    direction: string;
+    sent_at: Date | null;
+    created_at: Date;
+    delivery_status: string | null;
+    delivery_error: string | null;
+  }>(
+    `SELECT
+       e.id::text,
+       p.id::text AS project_id,
+       p.name AS project_name,
+       p.property_address,
+       e.subject,
+       e.from_address,
+       e.to_address,
+       e.body,
+       e.direction::text,
+       e.sent_at,
+       e.created_at,
+       e.delivery_status::text AS delivery_status,
+       e.delivery_error
+     FROM public.emails e
+     JOIN public.projects p ON p.id = e.project_id
+     WHERE ${where.join(" AND ")}
+     ORDER BY COALESCE(e.sent_at, e.created_at) DESC
+     LIMIT $${limitParam}::int`,
+    params
+  );
+
+  return rows.map((r) => ({
+    id: r.id,
+    projectId: r.project_id,
+    projectName: r.project_name,
+    propertyAddress: r.property_address,
+    subject: r.subject,
+    from: r.from_address,
+    to: r.to_address,
+    body: r.body,
+    date: (r.sent_at ?? r.created_at).toISOString().split("T")[0],
+    direction: r.direction === "inbound" ? "inbound" : "outbound",
+    deliveryStatus: mapDeliveryStatus(r.delivery_status),
+    ...(r.delivery_error?.trim() ? { deliveryError: r.delivery_error.trim() } : {}),
+  }));
 }
 
 async function getProjectEmails(pool: Pool, projectId: string): Promise<ProjectEmailApi[]> {
@@ -1268,6 +1641,62 @@ export async function createProjectDeadline(
   const project = await getProjectById(pool, projectId);
   if (!project) return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
   return { project };
+}
+
+export async function createReminderDraft(
+  pool: Pool,
+  projectId: string,
+  input: { projectDeadlineId?: string; reminderType?: string; subject: string; body: string; to: string }
+): Promise<{ id: string } | { error: ServiceError }> {
+  if (!/^\d+$/.test(projectId)) {
+    return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
+  }
+  const subject = normalizeText(input.subject);
+  const body = normalizeText(input.body);
+  const to = normalizeText(input.to);
+  const reminderType = normalizeText(input.reminderType) || "Reminder Draft";
+  const projectDeadlineId = normalizeText(input.projectDeadlineId);
+  if (!subject || !body || !to) {
+    return { error: { status: 400, code: "REMINDER_DRAFT_INVALID", message: "To, subject, and body are required." } };
+  }
+  const projectExists = await pool.query<{ ok: string }>(
+    `SELECT 1::text AS ok FROM public.projects WHERE id = $1::bigint AND deleted_at IS NULL LIMIT 1`,
+    [projectId]
+  );
+  if (!projectExists.rows[0]) {
+    return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
+  }
+  let deadlineRef: string | null = null;
+  if (projectDeadlineId && /^\d+$/.test(projectDeadlineId)) {
+    const dl = await pool.query<{ id: string }>(
+      `SELECT id::text
+       FROM public.project_deadlines
+       WHERE id = $1::bigint
+         AND project_id = $2::bigint
+       LIMIT 1`,
+      [projectDeadlineId, projectId]
+    );
+    if (!dl.rows[0]) {
+      return {
+        error: { status: 404, code: "PROJECT_DEADLINE_NOT_FOUND", message: "Project deadline not found for this transaction." },
+      };
+    }
+    deadlineRef = projectDeadlineId;
+  }
+  const ins = await pool.query<{ id: string }>(
+    `INSERT INTO public.reminder_drafts (
+       project_id, project_deadline_id, reminder_type, subject, body, to_address, status, sent_by_user_id, sent_at, created_at, updated_at
+     ) VALUES (
+       $1::bigint, $2::bigint, $3, $4, $5, $6, 'draft'::public.reminder_status, NULL, NULL, now(), now()
+     )
+     RETURNING id::text`,
+    [projectId, deadlineRef, reminderType, subject, body, to]
+  );
+  const id = ins.rows[0]?.id;
+  if (!id) {
+    return { error: { status: 500, code: "REMINDER_DRAFT_CREATE_FAILED", message: "Could not create reminder draft." } };
+  }
+  return { id };
 }
 
 export async function createProjectEmail(

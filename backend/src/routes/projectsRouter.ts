@@ -24,6 +24,18 @@ export function registerProjectsRoutes(app: Express, config: AppConfig, pool: Po
   router.get("/projects", requirePool(pool), auth, view, (req, res) => {
     void ctrl.list(req, res);
   });
+  router.get("/emails/recent", requirePool(pool), auth, view, (req, res) => {
+    void ctrl.listRecentEmails(req, res);
+  });
+  router.get("/calendar/events", requirePool(pool), auth, view, (req, res) => {
+    void ctrl.listCalendarEvents(req, res);
+  });
+  router.post("/calendar/reminder-drafts/:id/send", requirePool(pool), auth, edit, (req, res) => {
+    void ctrl.sendReminderDraft(req, res);
+  });
+  router.patch("/calendar/reminder-drafts/:id/dismiss", requirePool(pool), auth, edit, (req, res) => {
+    void ctrl.dismissReminderDraft(req, res);
+  });
   router.get("/projects/:id", requirePool(pool), auth, view, (req, res) => {
     void ctrl.getById(req, res);
   });
@@ -65,6 +77,9 @@ export function registerProjectsRoutes(app: Express, config: AppConfig, pool: Po
   });
   router.post("/projects/:id/deadlines", requirePool(pool), auth, edit, (req, res) => {
     void ctrl.createDeadline(req, res);
+  });
+  router.post("/projects/:id/reminder-drafts", requirePool(pool), auth, edit, (req, res) => {
+    void ctrl.createReminderDraft(req, res);
   });
   router.post("/projects/:id/emails", requirePool(pool), auth, edit, (req, res) => {
     void ctrl.createEmail(req, res);

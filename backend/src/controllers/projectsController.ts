@@ -6,9 +6,14 @@ import {
   createProjectDocumentNote,
   createProjectNote,
   createProjectDeadline,
+  createReminderDraft,
   createProjectDocument,
   createProjectEmail,
+  dismissReminderDraft as dismissReminderDraftService,
   deleteProjectEmail,
+  listCalendarEvents,
+  listRecentProjectEmails,
+  sendReminderDraft as sendReminderDraftService,
   createProjectTask,
   createProject,
   deleteProject,
@@ -89,6 +94,96 @@ export function createProjectsController(pool: Pool, config: AppConfig) {
         res.status(500).json({
           success: false,
           error: { code: "PROJECT_LIST_FAILED", message: "Could not load projects." },
+        });
+      }
+    },
+
+    async listRecentEmails(req: Request, res: Response): Promise<void> {
+      try {
+        const user = currentUser(req);
+        if (!user) {
+          res.status(401).json({
+            success: false,
+            error: { code: "UNAUTHORIZED", message: "Authentication required." },
+          });
+          return;
+        }
+        const limitRaw = typeof req.query.limit === "string" ? Number(req.query.limit) : 25;
+        const emails = await listRecentProjectEmails(pool, config, { user, limit: limitRaw });
+        res.json({ success: true, data: { emails }, message: "" });
+      } catch {
+        res.status(500).json({
+          success: false,
+          error: { code: "RECENT_EMAILS_FAILED", message: "Could not load recent emails." },
+        });
+      }
+    },
+
+    async listCalendarEvents(req: Request, res: Response): Promise<void> {
+      try {
+        const user = currentUser(req);
+        if (!user) {
+          res.status(401).json({
+            success: false,
+            error: { code: "UNAUTHORIZED", message: "Authentication required." },
+          });
+          return;
+        }
+        const from = typeof req.query.from === "string" ? req.query.from : "";
+        const to = typeof req.query.to === "string" ? req.query.to : "";
+        const projectId = typeof req.query.projectId === "string" ? req.query.projectId : "";
+        const kinds =
+          typeof req.query.kinds === "string"
+            ? req.query.kinds
+                .split(",")
+                .map((k) => k.trim())
+                .filter(Boolean)
+            : [];
+        const events = await listCalendarEvents(pool, { user, from, to, projectId, kinds });
+        res.json({ success: true, data: { events }, message: "" });
+      } catch {
+        res.status(500).json({
+          success: false,
+          error: { code: "CALENDAR_EVENTS_FAILED", message: "Could not load calendar events." },
+        });
+      }
+    },
+
+    async sendReminderDraft(req: Request, res: Response): Promise<void> {
+      try {
+        const user = currentUser(req);
+        const result = await sendReminderDraftService(pool, config, req.params.id, user?.id ?? null);
+        if ("error" in result) {
+          res.status(result.error.status).json({
+            success: false,
+            error: { code: result.error.code, message: result.error.message },
+          });
+          return;
+        }
+        res.json({ success: true, data: { sent: true }, message: "Reminder sent." });
+      } catch {
+        res.status(500).json({
+          success: false,
+          error: { code: "REMINDER_SEND_FAILED", message: "Could not send reminder." },
+        });
+      }
+    },
+
+    async dismissReminderDraft(req: Request, res: Response): Promise<void> {
+      try {
+        const result = await dismissReminderDraftService(pool, req.params.id);
+        if ("error" in result) {
+          res.status(result.error.status).json({
+            success: false,
+            error: { code: result.error.code, message: result.error.message },
+          });
+          return;
+        }
+        res.json({ success: true, data: { dismissed: true }, message: "Reminder dismissed." });
+      } catch {
+        res.status(500).json({
+          success: false,
+          error: { code: "REMINDER_DISMISS_FAILED", message: "Could not dismiss reminder." },
         });
       }
     },
@@ -354,6 +449,37 @@ export function createProjectsController(pool: Pool, config: AppConfig) {
         res.status(201).json({ success: true, data: { project: result.project }, message: "" });
       } catch {
         res.status(500).json({ success: false, error: { code: "PROJECT_DEADLINE_CREATE_FAILED", message: "Could not create project deadline." } });
+      }
+    },
+
+    async createReminderDraft(req: Request, res: Response): Promise<void> {
+      const body = req.body as {
+        projectDeadlineId?: unknown;
+        reminderType?: unknown;
+        subject?: unknown;
+        body?: unknown;
+        to?: unknown;
+      };
+      const projectDeadlineId = typeof body?.projectDeadlineId === "string" ? body.projectDeadlineId : "";
+      const reminderType = typeof body?.reminderType === "string" ? body.reminderType : "";
+      const subject = typeof body?.subject === "string" ? body.subject : "";
+      const draftBody = typeof body?.body === "string" ? body.body : "";
+      const to = typeof body?.to === "string" ? body.to : "";
+      try {
+        const result = await createReminderDraft(pool, req.params.id, {
+          projectDeadlineId,
+          reminderType,
+          subject,
+          body: draftBody,
+          to,
+        });
+        if ("error" in result) {
+          res.status(result.error.status).json({ success: false, error: { code: result.error.code, message: result.error.message } });
+          return;
+        }
+        res.status(201).json({ success: true, data: { reminderDraftId: result.id }, message: "Reminder draft saved." });
+      } catch {
+        res.status(500).json({ success: false, error: { code: "REMINDER_DRAFT_CREATE_FAILED", message: "Could not save reminder draft." } });
       }
     },
 

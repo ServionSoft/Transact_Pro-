@@ -7,6 +7,7 @@ import { useState, useMemo, useLayoutEffect, useEffect } from "react";
 import { useAppStore } from "@/store/appStore";
 import {
   createProjectDeadlineApi,
+  createProjectReminderDraftApi,
   createProjectEmailApi,
   deleteProjectEmailApi,
   createProjectNoteApi,
@@ -42,6 +43,10 @@ const tabs = [
   { id: "notes", label: "Notes", icon: MessageSquare },
   { id: "calendar", label: "Timeline", icon: Calendar },
 ];
+
+function isValidEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
 
 export default function ProjectDetailPage() {
   const { id } = useParams();
@@ -90,10 +95,12 @@ export default function ProjectDetailPage() {
   const [savingAssignments, setSavingAssignments] = useState(false);
 
   // Reminder draft modal
-  const [reminderDraft, setReminderDraft] = useState<{ title: string; date: string } | null>(null);
+  const [reminderDraft, setReminderDraft] = useState<{ deadlineId?: string; title: string; date: string } | null>(null);
   const [reminderSubject, setReminderSubject] = useState("");
   const [reminderBody, setReminderBody] = useState("");
   const [reminderTo, setReminderTo] = useState("");
+  const [sendingReminder, setSendingReminder] = useState(false);
+  const [savingReminderDraft, setSavingReminderDraft] = useState(false);
   const [loadingProject, setLoadingProject] = useState(false);
   const [deletingProject, setDeletingProject] = useState(false);
   const canDeleteProject = hasPermission(user, "projects.delete");
@@ -224,8 +231,8 @@ export default function ProjectDetailPage() {
     setEditingNextStep(false);
   };
 
-  const openReminderDraft = (title: string, date: string) => {
-    setReminderDraft({ title, date });
+  const openReminderDraft = (deadlineId: string, title: string, date: string) => {
+    setReminderDraft({ deadlineId, title, date });
     setReminderTo(client?.email || "");
     setReminderSubject(`Upcoming Deadline — ${title} — ${project.propertyAddress.split(",")[0]}`);
     setReminderBody(
@@ -234,8 +241,75 @@ export default function ProjectDetailPage() {
   };
 
   const sendReminder = () => {
-    toast.success("Reminder sent", { description: `For "${reminderDraft?.title}" → ${reminderTo}` });
+    if (!project) return;
+    const payload = {
+      to: reminderTo.trim(),
+      subject: reminderSubject.trim(),
+      body: reminderBody.trim(),
+    };
+    if (!payload.to || !payload.subject || !payload.body) {
+      toast.error("To, subject, and message are required.");
+      return;
+    }
+    if (!isValidEmail(payload.to)) {
+      toast.error("Recipient email is invalid.");
+      return;
+    }
+    if (apiOn) {
+      setSendingReminder(true);
+      void createProjectEmailApi(project.id, payload)
+        .then(({ project: updated, emailSendFailed, emailSendError }) => {
+          upsertProject(updated);
+          if (emailSendFailed) {
+            toast.warning("Reminder saved; sending failed", {
+              description: emailSendError ?? "Check SMTP settings and the Communications thread.",
+            });
+          } else {
+            toast.success("Reminder sent", { description: `For "${reminderDraft?.title}" → ${payload.to}` });
+          }
+          setReminderDraft(null);
+        })
+        .catch((e) => {
+          toast.error(e instanceof Error ? e.message : "Could not send reminder.");
+        })
+        .finally(() => {
+          setSendingReminder(false);
+        });
+      return;
+    }
+    sendEmailStore({ ...payload, projectId: project.id });
+    toast.success("Reminder sent", { description: `For "${reminderDraft?.title}" → ${payload.to}` });
     setReminderDraft(null);
+  };
+
+  const saveReminderDraft = () => {
+    if (!project || !apiOn || !reminderDraft) return;
+    const payload = {
+      projectDeadlineId: reminderDraft.deadlineId,
+      reminderType: reminderDraft.title,
+      to: reminderTo.trim(),
+      subject: reminderSubject.trim(),
+      body: reminderBody.trim(),
+    };
+    if (!payload.to || !payload.subject || !payload.body) {
+      toast.error("To, subject, and message are required.");
+      return;
+    }
+    if (!isValidEmail(payload.to)) {
+      toast.error("Recipient email is invalid.");
+      return;
+    }
+    setSavingReminderDraft(true);
+    void createProjectReminderDraftApi(project.id, payload)
+      .then(() => {
+        toast.success("Reminder draft saved.");
+      })
+      .catch((e) => {
+        toast.error(e instanceof Error ? e.message : "Could not save reminder draft.");
+      })
+      .finally(() => {
+        setSavingReminderDraft(false);
+      });
   };
 
   const handleDeleteProject = () => {
@@ -814,6 +888,10 @@ export default function ProjectDetailPage() {
                       subject: composeSubject || `Re: ${project.propertyAddress}`,
                       body: composeBody,
                     };
+                    if (!isValidEmail(payload.to)) {
+                      toast.error("Recipient email is invalid.");
+                      return;
+                    }
                     if (apiOn) {
                       void createProjectEmailApi(project.id, payload)
                         .then(({ project: updated, emailSendFailed, emailSendError }) => {
@@ -1045,7 +1123,7 @@ export default function ProjectDetailPage() {
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="text-xs md:text-sm text-accent font-medium">{dl.date}</span>
-                    <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs" onClick={() => openReminderDraft(dl.title, dl.date)}>
+                    <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs" onClick={() => openReminderDraft(dl.id, dl.title, dl.date)}>
                       Draft Reminder
                     </Button>
                   </div>
@@ -1081,7 +1159,12 @@ export default function ProjectDetailPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setReminderDraft(null)}>Cancel</Button>
-            <Button onClick={sendReminder} className="gap-2">
+            {apiOn && (
+              <Button variant="outline" onClick={saveReminderDraft} disabled={savingReminderDraft || sendingReminder} className="gap-2">
+                <Save className="w-4 h-4" /> Save Draft
+              </Button>
+            )}
+            <Button onClick={sendReminder} className="gap-2" disabled={sendingReminder}>
               <Send className="w-4 h-4" /> Send Reminder
             </Button>
           </DialogFooter>

@@ -216,12 +216,16 @@ export interface EmailTemplate {
 
 export interface CalendarEvent {
   id: string;
+  sourceId?: string;
   title: string;
   date: string;
   projectId: string;
   projectName: string;
-  type: "deadline" | "reminder" | "task";
+  type: "deadline" | "reminder" | "task" | "meeting" | "close";
   propertyAddress: string;
+  clientName?: string;
+  source?: "project_tasks" | "project_deadlines" | "reminder_drafts";
+  isOverdue?: boolean;
 }
 
 export interface TeamMember {
