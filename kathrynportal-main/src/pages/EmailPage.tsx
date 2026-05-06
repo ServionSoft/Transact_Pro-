@@ -210,9 +210,7 @@ export default function EmailPage() {
     const selected = transactionOptions.find((p) => p.id === projectId);
     if (!selected) return;
     const linkedClient = clients.find((c) => c.id === selected.clientId);
-    if (linkedClient?.email) {
-      setTo(linkedClient.email);
-    }
+    setTo(linkedClient?.email?.trim() || "");
     const localProject = transactionProjects.find((p) => p.id === projectId);
     setSelectedProjectDocList(buildDocumentList(localProject));
     if (apiOn) {

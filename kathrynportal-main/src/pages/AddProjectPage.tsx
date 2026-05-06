@@ -23,6 +23,7 @@ import { toast } from "sonner";
 type TxType = "Listing" | "Buyer File";
 type LoanType = "Conventional" | "FHA/VA" | "All Cash" | "Other";
 type YesNo = "yes" | "no" | "";
+type WorkflowStep = "core" | "parties" | "timeline" | "listing" | "review";
 
 function normalizeSellerName(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -187,11 +188,13 @@ export default function AddProjectPage() {
 
   // Parties
   const [buyerAgents, setBuyerAgents] = useState<AgentParty[]>([blankAgent()]);
+  const [showBuyerAgent2, setShowBuyerAgent2] = useState(false);
   const [additionalBuyerAgent, setAdditionalBuyerAgent] = useState(false);
   const [buyerAgent3, setBuyerAgent3] = useState<AgentParty>(blankAgent());
   const [buyerAgentTC, setBuyerAgentTC] = useState<SimpleParty>(blankSimple());
   const [buyerAgentAssistant, setBuyerAgentAssistant] = useState<SimpleParty>(blankSimple());
   const [listingAgents, setListingAgents] = useState<AgentParty[]>([blankAgent()]);
+  const [showListingAgent2, setShowListingAgent2] = useState(false);
   const [additionalListingAgent, setAdditionalListingAgent] = useState(false);
   const [listingAgent3, setListingAgent3] = useState<AgentParty>(blankAgent());
   const [listingAgentTC, setListingAgentTC] = useState<SimpleParty>(blankSimple());
@@ -246,6 +249,38 @@ export default function AddProjectPage() {
         : "no"
       : "";
   const sellerNameMatchStatus: YesNo = transaction.sellerMatchOverride || autoSellerNameMatch;
+  const hasListingAgent2Data = Boolean(
+    listingAgents[1]?.name ||
+      listingAgents[1]?.email ||
+      listingAgents[1]?.phone ||
+      listingAgents[1]?.contactId
+  );
+  const [currentStep, setCurrentStep] = useState<WorkflowStep>("core");
+  const stepOrder: WorkflowStep[] = isListing
+    ? ["core", "parties", "timeline", "listing", "review"]
+    : ["core", "parties", "timeline", "review"];
+  const stepTitle: Record<WorkflowStep, string> = {
+    core: "Core Details",
+    parties: "Parties",
+    timeline: "Timeline",
+    listing: "Listing Details",
+    review: "Review + Save",
+  };
+  const requiredItems: Array<{ key: string; label: string; valid: boolean; step: WorkflowStep }> = [
+    { key: "type", label: "Transaction Type", valid: Boolean(type), step: "core" },
+    { key: "contact", label: "Primary Contact", valid: Boolean(clientId), step: "core" },
+    { key: "address", label: "Property Address", valid: Boolean(property.address.trim()), step: "core" },
+    { key: "next-step", label: "Next Step", valid: Boolean(nextStep.trim()), step: "core" },
+    { key: "price", label: "Purchase Price", valid: Boolean(transaction.purchasePrice.trim()), step: "core" },
+  ];
+  const requiredDone = requiredItems.filter((item) => item.valid).length;
+  const requiredTotal = requiredItems.length;
+  const missingRequiredItems = requiredItems.filter((item) => !item.valid);
+  const linkedPrimaryContact = clientOptions.find((c) => c.id === clientId);
+
+  useEffect(() => {
+    if (hasListingAgent2Data) setShowListingAgent2(true);
+  }, [hasListingAgent2Data]);
 
   useEffect(() => {
     if (!apiOn) {
@@ -631,7 +666,7 @@ export default function AddProjectPage() {
   };
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
+    <div className="p-4 md:p-6 xl:p-8 max-w-[1500px] mx-auto">
       <button onClick={() => navigate("/projects")} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6 transition-colors">
         <ArrowLeft className="w-4 h-4" /> Back to Transactions
       </button>
@@ -645,52 +680,195 @@ export default function AddProjectPage() {
         </div>
       ) : null}
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Transaction type + primary contact (always visible at top) */}
-        <div className="bg-card border border-border rounded-lg p-6 space-y-5">
-          <div className="space-y-3">
-            <Label className="text-sm font-semibold">Transaction Type *</Label>
-            <RadioGroup value={type} onValueChange={(v) => setType(v as TxType)} className="grid grid-cols-2 gap-3">
-              {(["Listing", "Buyer File"] as TxType[]).map(t => (
-                <label
-                  key={t}
-                  className={`flex items-center gap-3 p-4 rounded-lg border cursor-pointer transition-colors ${
-                    type === t ? "border-accent bg-accent/5" : "border-border hover:border-accent/50"
-                  }`}
-                >
-                  <RadioGroupItem value={t} id={`type-${t}`} />
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">{t}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {t === "Listing" ? "Seller-side transaction (uses all stages)" : "Buyer-side transaction (skips Listing Prep & Listing Complete)"}
-                    </p>
-                  </div>
-                </label>
-              ))}
-            </RadioGroup>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Primary contact (optional)</Label>
-            <PrimaryContactPicker value={clientId} options={clientOptions} onValueChange={onClientChange} />
-          </div>
+      <div className="mb-4 rounded-lg border border-border bg-card p-2">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2">
+          {stepOrder.map((step, idx) => {
+            const active = currentStep === step;
+            return (
+              <button
+                key={step}
+                type="button"
+                onClick={() => setCurrentStep(step)}
+                className={`rounded-md border px-3 py-2 text-left transition-colors ${
+                  active ? "border-accent bg-accent/10 text-foreground" : "border-border bg-background text-muted-foreground hover:border-accent/50"
+                }`}
+              >
+                <p className="text-[10px] font-semibold uppercase tracking-wide">Step {idx + 1}</p>
+                <p className="text-xs font-medium">{stepTitle[step]}</p>
+              </button>
+            );
+          })}
         </div>
+      </div>
 
-        {/* General */}
-        <Section title="General" open={open.general} onToggle={() => toggle("general")}>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Field label="Next Step">
-              <Input value={nextStep} onChange={e => setNextStep(e.target.value)} placeholder="e.g. Send disclosure packet to seller" />
-            </Field>
-            <Field label="Next Step Date">
-              <Input type="date" value={nextStepDate} onChange={e => setNextStepDate(e.target.value)} />
-            </Field>
-          </div>
-        </Section>
+      <form onSubmit={handleSubmit} className="grid grid-cols-1 xl:grid-cols-12 gap-4 xl:gap-6">
+        <div className="xl:col-span-8 2xl:col-span-9 space-y-4">
+          {/* General */}
+          <Section title="General" tone="core" visible={currentStep === "core"} open={open.general} onToggle={() => toggle("general")}>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <Field label="Next Step">
+                <Input value={nextStep} onChange={e => setNextStep(e.target.value)} placeholder="e.g. Send disclosure packet to seller" />
+              </Field>
+              <Field label="Next Step Date">
+                <Input type="date" value={nextStepDate} onChange={e => setNextStepDate(e.target.value)} />
+              </Field>
+            </div>
+          </Section>
 
-        {/* Timeline */}
-        <Section title="Timeline" open={open.timeline} onToggle={() => toggle("timeline")}>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Transaction Details */}
+          <Section title="Transaction Details" tone="financial" visible={currentStep === "core"} open={open.transaction} onToggle={() => toggle("transaction")}>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <Field label="Purchase Price ($)"><Input value={transaction.purchasePrice} onChange={e => setTransaction(p => ({ ...p, purchasePrice: e.target.value }))} placeholder="$1,250,000" /></Field>
+              <YesNoField label="DocuSign?" value={transaction.docuSign} onChange={(v) => setTransaction(p => ({ ...p, docuSign: v }))} />
+              <Field label="Loan Type">
+                <Select value={transaction.loanType} onValueChange={(v) => setTransaction(p => ({ ...p, loanType: v as LoanType }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {(["Conventional", "FHA/VA", "All Cash", "Other"] as LoanType[]).map(l => (
+                      <SelectItem key={l} value={l}>{l}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="SPBB %"><Input value={transaction.spbbPct} onChange={e => setTransaction(p => ({ ...p, spbbPct: e.target.value }))} placeholder="2.5%" /></Field>
+              <YesNoField label="FTC?" value={transaction.ftc} onChange={(v) => setTransaction(p => ({ ...p, ftc: v }))} />
+              {transaction.ftc === "yes" && (
+                <>
+                  <Field label="FTC Amount ($)"><Input value={transaction.ftcAmount} onChange={e => setTransaction(p => ({ ...p, ftcAmount: e.target.value }))} placeholder="$5,000" /></Field>
+                  <Field label="FTC Paid By">
+                    <Select value={transaction.ftcPaidBy} onValueChange={(v) => setTransaction(p => ({ ...p, ftcPaidBy: v }))}>
+                      <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Buyer">Buyer</SelectItem>
+                        <SelectItem value="Seller">Seller</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </>
+              )}
+              <Field label="RPA Seller" hint="Optional. Seller name/vesting exactly as shown on the RPA.">
+                <Input
+                  value={transaction.rpaSeller}
+                  onChange={e => setTransaction(p => ({ ...p, rpaSeller: e.target.value }))}
+                  placeholder="e.g. John Smith and Jane Smith, Trustees..."
+                />
+              </Field>
+              <Field label="Prelim Seller" hint="Optional. Seller name/vesting exactly as shown on the Preliminary Title Report.">
+                <Input
+                  value={transaction.prelimSeller}
+                  onChange={e => setTransaction(p => ({ ...p, prelimSeller: e.target.value }))}
+                  placeholder="e.g. John A Smith and Jane B Smith, Trustees..."
+                />
+              </Field>
+              <Field
+                label="Seller Name Match?"
+                className="md:col-span-2"
+                hint={autoSellerNameMatch
+                  ? "Auto-calculated from both names. You can override if needed."
+                  : "Pending until both RPA Seller and Prelim Seller are filled."}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <Select
+                    value={transaction.sellerMatchOverride || "__auto__"}
+                    onValueChange={(v) => setTransaction((p) => ({ ...p, sellerMatchOverride: v === "__auto__" ? "" : (v as YesNo) }))}
+                  >
+                    <SelectTrigger className="w-[220px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__auto__">
+                        Auto ({autoSellerNameMatch === "yes" ? "Yes" : autoSellerNameMatch === "no" ? "No" : "Pending"})
+                      </SelectItem>
+                      <SelectItem value="yes">Yes</SelectItem>
+                      <SelectItem value="no">No</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <span className="text-xs text-muted-foreground">
+                    Effective status: {sellerNameMatchStatus === "yes" ? "Yes" : sellerNameMatchStatus === "no" ? "No" : "Pending"}
+                  </span>
+                </div>
+              </Field>
+              {sellerNameMatchStatus === "no" && (
+                <Field
+                  label="Mismatch Notes"
+                  className="md:col-span-2"
+                  hint="Optional. Explain why names differ (trust text, vesting, spelling, etc.)."
+                >
+                  <Textarea
+                    value={transaction.sellerMismatchNotes}
+                    onChange={e => setTransaction(p => ({ ...p, sellerMismatchNotes: e.target.value }))}
+                    rows={2}
+                    placeholder="Reason for mismatch between RPA Seller and Prelim Seller..."
+                  />
+                </Field>
+              )}
+              <Field label="NHD Details (RPA)" className="md:col-span-2"><Input value={transaction.nhdRpa} onChange={e => setTransaction(p => ({ ...p, nhdRpa: e.target.value }))} placeholder="Company, with/without environmental, who pays" /></Field>
+              <Field label="Home Warranty"><Input value={transaction.homeWarranty} onChange={e => setTransaction(p => ({ ...p, homeWarranty: e.target.value }))} /></Field>
+              <Field label="Escrow #"><Input value={transaction.escrowNumber} onChange={e => setTransaction(p => ({ ...p, escrowNumber: e.target.value }))} /></Field>
+              <Field label="Transaction Notes" className="md:col-span-2">
+                <Textarea value={transaction.notes} onChange={e => setTransaction(p => ({ ...p, notes: e.target.value }))} rows={3} />
+              </Field>
+            </div>
+          </Section>
+
+          {/* Property Information */}
+          <Section title="Property Information" tone="property" visible={currentStep === "core"} open={open.property} onToggle={() => toggle("property")}>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+              <Field label="MLS #" className="xl:col-span-1"><Input value={property.mlsNumber} onChange={e => setProperty(p => ({ ...p, mlsNumber: e.target.value }))} /></Field>
+              <Field label="Property Type" className="xl:col-span-1">
+                <Select value={property.propertyType} onValueChange={(v) => setProperty(p => ({ ...p, propertyType: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {["SFR", "Condo", "Vacant Land", "Townhouse", "Multi-Family", "Mobile/Manufactured Home", "Commercial", "Other"].map(o => (
+                      <SelectItem key={o} value={o}>{o}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="Property Address *" className="md:col-span-2 xl:col-span-2"><Input value={property.address} onChange={e => setProperty(p => ({ ...p, address: e.target.value }))} required /></Field>
+              <Field label="City" className="xl:col-span-1"><Input value={property.city} onChange={e => setProperty(p => ({ ...p, city: e.target.value }))} /></Field>
+              <Field label="State" className="xl:col-span-1"><Input value={property.state} onChange={e => setProperty(p => ({ ...p, state: e.target.value }))} /></Field>
+              <Field label="ZIP" className="xl:col-span-1"><Input value={property.zip} onChange={e => setProperty(p => ({ ...p, zip: e.target.value }))} /></Field>
+              <Field label="County" className="xl:col-span-1"><Input value={property.county} onChange={e => setProperty(p => ({ ...p, county: e.target.value }))} /></Field>
+              <Field label="Year Built" className="xl:col-span-1"><Input value={property.yearBuilt} onChange={e => setProperty(p => ({ ...p, yearBuilt: e.target.value }))} /></Field>
+              <Field label="Lot Size" className="xl:col-span-1"><Input value={property.lotSize} onChange={e => setProperty(p => ({ ...p, lotSize: e.target.value }))} /></Field>
+              <Field label="Square Feet (home)" className="xl:col-span-1"><Input value={property.squareFeet} onChange={e => setProperty(p => ({ ...p, squareFeet: e.target.value }))} /></Field>
+              <Field label="Disclosure Link" className="xl:col-span-2"><Input value={property.disclosureLink} onChange={e => setProperty(p => ({ ...p, disclosureLink: e.target.value }))} placeholder="https://..." /></Field>
+
+              <YesNoField label="Exempt Seller?" value={property.exemptSeller} onChange={(v) => setProperty(p => ({ ...p, exemptSeller: v }))} />
+              <YesNoField label="Solar?" value={property.solar} onChange={(v) => setProperty(p => ({ ...p, solar: v }))} />
+              <YesNoField label="Well?" value={property.well} onChange={(v) => setProperty(p => ({ ...p, well: v }))} />
+              <YesNoField label="Septic?" value={property.septic} onChange={(v) => setProperty(p => ({ ...p, septic: v }))} />
+              <YesNoField label="HOA?" value={property.hoa} onChange={(v) => setProperty(p => ({ ...p, hoa: v }))} />
+              <YesNoField label="Tenant Occupied?" value={property.tenantOccupied} onChange={(v) => setProperty(p => ({ ...p, tenantOccupied: v }))} />
+              {isListing && property.hoa === "yes" && (
+                <Field label="HOA Order Details" className="md:col-span-2">
+                  <Input value={property.hoaOrderDetails} onChange={e => setProperty(p => ({ ...p, hoaOrderDetails: e.target.value }))} placeholder="Listing files only — fill in details" />
+                </Field>
+              )}
+            </div>
+          </Section>
+
+          {/* Listing Details (Listing only) */}
+          {isListing && (
+            <Section title="Listing Details" tone="listing" visible={currentStep === "listing"} open={open.listing} onToggle={() => toggle("listing")} subtitle="Listing files only">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Field label="Target OMD"><Input value={listing.targetOMD} onChange={e => setListing(p => ({ ...p, targetOMD: e.target.value }))} placeholder="Fill in the blank" /></Field>
+                <Field label="Disclosure Timing"><Input value={listing.disclosureTiming} onChange={e => setListing(p => ({ ...p, disclosureTiming: e.target.value }))} placeholder="Fill in the blank" /></Field>
+                <YesNoField label="Questionnaires Electronically?" value={listing.questionnairesElectronically} onChange={(v) => setListing(p => ({ ...p, questionnairesElectronically: v }))} />
+                <YesNoField label="DocuSign?" value={listing.docuSign} onChange={(v) => setListing(p => ({ ...p, docuSign: v }))} />
+                <Field label="NHD Company"><Input value={listing.nhdCompany} onChange={e => setListing(p => ({ ...p, nhdCompany: e.target.value }))} /></Field>
+                <div className="flex items-end gap-2">
+                  <Checkbox id="env" checked={listing.nhdEnvironmental} onCheckedChange={(v) => setListing(p => ({ ...p, nhdEnvironmental: !!v }))} />
+                  <Label htmlFor="env" className="cursor-pointer mb-2">With Environmental</Label>
+                </div>
+              </div>
+            </Section>
+          )}
+
+          {/* Timeline */}
+          <Section title="Timeline" tone="timeline" visible={currentStep === "timeline"} open={open.timeline} onToggle={() => toggle("timeline")}>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <DateRow label="Contract Date" value={timeline.contractDate} onChange={v => setTimeline(p => ({ ...p, contractDate: v }))} />
             <DateRow label="Acceptance Date" value={timeline.acceptanceDate} onChange={v => setTimeline(p => ({ ...p, acceptanceDate: v }))} />
             <DateRow
@@ -702,6 +880,7 @@ export default function AddProjectPage() {
             />
             <DateRow label="Verification of Funds" value={timeline.verificationOfFunds} onChange={v => setTimeline(p => ({ ...p, verificationOfFunds: v }))} />
             <DateRow label="EMD to Escrow" value={timeline.emdToEscrow} onChange={v => setTimeline(p => ({ ...p, emdToEscrow: v }))} />
+            <DateRow label="Estimated COE" value={timeline.estimatedCOE} onChange={v => setTimeline(p => ({ ...p, estimatedCOE: v }))} />
             <DateRow label="Seller Disclosures to Buyer" value={timeline.sellerDisclosuresToBuyer} onChange={v => setTimeline(p => ({ ...p, sellerDisclosuresToBuyer: v }))} />
             <DateRow label="Investigation Contingency Removal" value={timeline.investigationContingency} onChange={v => setTimeline(p => ({ ...p, investigationContingency: v }))} />
             <DateRow label="Insurance Contingency Removal" value={timeline.insuranceContingency} onChange={v => setTimeline(p => ({ ...p, insuranceContingency: v }))} />
@@ -725,7 +904,6 @@ export default function AddProjectPage() {
             <Field label="Verification of Property Condition" hint="Default: Within 5 days prior to COE">
               <Input value={timeline.verificationOfPropertyCondition} onChange={e => setTimeline(p => ({ ...p, verificationOfPropertyCondition: e.target.value }))} />
             </Field>
-            <DateRow label="Estimated COE" value={timeline.estimatedCOE} onChange={v => setTimeline(p => ({ ...p, estimatedCOE: v }))} />
             <Field label="Possession" hint="Default: Upon notice of recordation">
               <Input value={timeline.possession} onChange={e => setTimeline(p => ({ ...p, possession: e.target.value }))} />
             </Field>
@@ -757,11 +935,83 @@ export default function AddProjectPage() {
                 <DateRow label="SPRP — COE" value={sprp.coe} onChange={v => setSprp(p => ({ ...p, coe: v }))} />
               </div>
             )}
-          </div>
-        </Section>
+            </div>
+          </Section>
 
-        {/* Parties */}
-        <Section title="Parties" open={open.parties} onToggle={() => toggle("parties")}>
+          {currentStep === "review" && (
+            <div className="rounded-lg border border-border bg-card p-4 space-y-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">Review Summary</h3>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Final check before {isEditMode ? "updating" : "creating"} this transaction.
+                  </p>
+                </div>
+                <div className={`text-xs font-semibold px-2 py-1 rounded ${
+                  missingRequiredItems.length === 0
+                    ? "bg-green-500/10 text-green-700 dark:text-green-400"
+                    : "bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                }`}>
+                  {missingRequiredItems.length === 0
+                    ? "Ready to submit"
+                    : `${missingRequiredItems.length} required field${missingRequiredItems.length > 1 ? "s" : ""} missing`}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
+                <div className="rounded-md border border-border/70 bg-secondary/20 p-3 space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Transaction</p>
+                  <ReviewItem label="Type" value={type} />
+                  <ReviewItem label="Primary Contact" value={linkedPrimaryContact ? labelFromClient(linkedPrimaryContact) : "Not selected"} />
+                  <ReviewItem label="Address" value={property.address || "Not set"} />
+                  <ReviewItem label="Purchase Price" value={transaction.purchasePrice || "Not set"} />
+                  <ReviewItem label="Loan Type" value={transaction.loanType} />
+                </div>
+
+                <div className="rounded-md border border-border/70 bg-secondary/20 p-3 space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Parties</p>
+                  <ReviewItem label="Buyer's Agent" value={buyerAgents[0]?.name || "Not set"} />
+                  <ReviewItem label="Listing Agent" value={listingAgents[0]?.name || "Not set"} />
+                  <ReviewItem label="Escrow Officer" value={escrow.name || "Not set"} />
+                  <ReviewItem label="Lender" value={lender.name || "Not set"} />
+                  <ReviewItem label="Sellers" value={`${sellers.filter((s) => s.name || s.email).length}/${sellers.length}`} />
+                  <ReviewItem label="Buyers" value={`${buyers.filter((b) => b.name || b.email).length}/${buyers.length}`} />
+                </div>
+
+                <div className="rounded-md border border-border/70 bg-secondary/20 p-3 space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Timeline</p>
+                  <ReviewItem label="Contract Date" value={timeline.contractDate || "Not set"} />
+                  <ReviewItem label="Acceptance Date" value={timeline.acceptanceDate || "Not set"} />
+                  <ReviewItem label="EMD to Escrow" value={timeline.emdToEscrow || "Not set"} />
+                  <ReviewItem label="Estimated COE" value={timeline.estimatedCOE || "Not set"} />
+                  <ReviewItem label="Loan Contingency" value={timeline.loanContingency || "Not set"} />
+                </div>
+              </div>
+
+              {missingRequiredItems.length > 0 && (
+                <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3">
+                  <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 mb-2">Missing required fields</p>
+                  <div className="flex flex-wrap gap-2">
+                    {missingRequiredItems.map((item) => (
+                      <Button
+                        key={item.key}
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs"
+                        onClick={() => setCurrentStep(item.step)}
+                      >
+                        {item.label}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Parties */}
+          <Section title="Parties" tone="parties" visible={currentStep === "parties"} open={open.parties} onToggle={() => toggle("parties")}>
           <div className="space-y-6">
             <PartyGroup title="Buyer's Agent">
               <div className="mb-3">
@@ -783,34 +1033,66 @@ export default function AddProjectPage() {
               </div>
               <AgentForm value={buyerAgents[0]} onChange={a => setBuyerAgents([a, ...buyerAgents.slice(1)])} />
             </PartyGroup>
-            <PartyGroup title="Buyer's Agent 2 (optional)">
-              <div className="mb-3">
-                <Label className="text-xs text-muted-foreground">Saved contact</Label>
-                <ContactLinkPicker
-                  variant="party"
-                  defaultCreateRole="Buyer's Agent"
-                  partyPlaceholder="Link buyer's agent 2…"
-                  value={buyerAgents[1]?.contactId ?? ""}
-                  options={clientOptions}
-                  onValueChange={(cid) => {
-                    const opts = mergePartyClientOptions();
-                    setBuyerAgents((prev) => {
-                      const next = [...prev];
-                      const base = next[1] ?? blankAgent();
-                      next[1] = applyAgentContact(base, cid, opts);
-                      return next;
-                    });
-                  }}
-                />
+            {showBuyerAgent2 ? (
+              <PartyGroup
+                title="Buyer's Agent 2 (optional)"
+                action={(
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setShowBuyerAgent2(false);
+                      setBuyerAgents((prev) => {
+                        const next = [...prev];
+                        next[1] = blankAgent();
+                        return next;
+                      });
+                    }}
+                  >
+                    Remove
+                  </Button>
+                )}
+              >
+                <div className="mb-3">
+                  <Label className="text-xs text-muted-foreground">Saved contact</Label>
+                  <ContactLinkPicker
+                    variant="party"
+                    defaultCreateRole="Buyer's Agent"
+                    partyPlaceholder="Link buyer's agent 2…"
+                    value={buyerAgents[1]?.contactId ?? ""}
+                    options={clientOptions}
+                    onValueChange={(cid) => {
+                      const opts = mergePartyClientOptions();
+                      setBuyerAgents((prev) => {
+                        const next = [...prev];
+                        const base = next[1] ?? blankAgent();
+                        next[1] = applyAgentContact(base, cid, opts);
+                        return next;
+                      });
+                    }}
+                  />
+                </div>
+                <AgentForm value={buyerAgents[1] || blankAgent()} onChange={a => {
+                  const next = [...buyerAgents]; next[1] = a; setBuyerAgents(next);
+                }} />
+              </PartyGroup>
+            ) : (
+              <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => setShowBuyerAgent2(true)}>
+                <Plus className="w-3 h-3" /> Add Buyer's Agent 2
+              </Button>
+            )}
+            {!additionalBuyerAgent ? (
+              <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => setAdditionalBuyerAgent(true)}>
+                <Plus className="w-3 h-3" /> Add Additional Buyer's Agent
+              </Button>
+            ) : (
+              <div className="flex justify-end">
+                <Button type="button" size="sm" variant="ghost" onClick={() => setAdditionalBuyerAgent(false)}>
+                  Remove Additional Buyer's Agent
+                </Button>
               </div>
-              <AgentForm value={buyerAgents[1] || blankAgent()} onChange={a => {
-                const next = [...buyerAgents]; next[1] = a; setBuyerAgents(next);
-              }} />
-            </PartyGroup>
-            <div className="flex items-center gap-2">
-              <Checkbox id="add-buyer-agent" checked={additionalBuyerAgent} onCheckedChange={(v) => setAdditionalBuyerAgent(!!v)} />
-              <Label htmlFor="add-buyer-agent" className="cursor-pointer text-sm">Add Additional Buyer's Agent</Label>
-            </div>
+            )}
             {additionalBuyerAgent && (
               <PartyGroup title="Additional Buyer's Agent">
                 <div className="mb-3">
@@ -830,40 +1112,42 @@ export default function AddProjectPage() {
                 <AgentForm value={buyerAgent3} onChange={setBuyerAgent3} />
               </PartyGroup>
             )}
-            <PartyGroup title="Buyer's Agent's TC">
-              <div className="mb-3">
-                <Label className="text-xs text-muted-foreground">Saved contact</Label>
-                <ContactLinkPicker
-                  variant="party"
-                  defaultCreateRole="Buyer's Agent's TC"
-                  partyPlaceholder="Link TC contact…"
-                  value={buyerAgentTC.contactId ?? ""}
-                  options={clientOptions}
-                  onValueChange={(cid) => {
-                    const opts = mergePartyClientOptions();
-                    setBuyerAgentTC((prev) => applySimpleContact(prev, cid, opts));
-                  }}
-                />
-              </div>
-              <SimpleForm value={buyerAgentTC} onChange={setBuyerAgentTC} />
-            </PartyGroup>
-            <PartyGroup title="Buyer's Agent's Assistant">
-              <div className="mb-3">
-                <Label className="text-xs text-muted-foreground">Saved contact</Label>
-                <ContactLinkPicker
-                  variant="party"
-                  defaultCreateRole="Buyer's Agent's Assistant"
-                  partyPlaceholder="Link assistant contact…"
-                  value={buyerAgentAssistant.contactId ?? ""}
-                  options={clientOptions}
-                  onValueChange={(cid) => {
-                    const opts = mergePartyClientOptions();
-                    setBuyerAgentAssistant((prev) => applySimpleContact(prev, cid, opts));
-                  }}
-                />
-              </div>
-              <SimpleForm value={buyerAgentAssistant} onChange={setBuyerAgentAssistant} />
-            </PartyGroup>
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              <PartyGroup title="Buyer's Agent's TC">
+                <div className="mb-3">
+                  <Label className="text-xs text-muted-foreground">Saved contact</Label>
+                  <ContactLinkPicker
+                    variant="party"
+                    defaultCreateRole="Buyer's Agent's TC"
+                    partyPlaceholder="Link TC contact…"
+                    value={buyerAgentTC.contactId ?? ""}
+                    options={clientOptions}
+                    onValueChange={(cid) => {
+                      const opts = mergePartyClientOptions();
+                      setBuyerAgentTC((prev) => applySimpleContact(prev, cid, opts));
+                    }}
+                  />
+                </div>
+                <SimpleForm value={buyerAgentTC} onChange={setBuyerAgentTC} />
+              </PartyGroup>
+              <PartyGroup title="Buyer's Agent's Assistant">
+                <div className="mb-3">
+                  <Label className="text-xs text-muted-foreground">Saved contact</Label>
+                  <ContactLinkPicker
+                    variant="party"
+                    defaultCreateRole="Buyer's Agent's Assistant"
+                    partyPlaceholder="Link assistant contact…"
+                    value={buyerAgentAssistant.contactId ?? ""}
+                    options={clientOptions}
+                    onValueChange={(cid) => {
+                      const opts = mergePartyClientOptions();
+                      setBuyerAgentAssistant((prev) => applySimpleContact(prev, cid, opts));
+                    }}
+                  />
+                </div>
+                <SimpleForm value={buyerAgentAssistant} onChange={setBuyerAgentAssistant} />
+              </PartyGroup>
+            </div>
 
             <PartyGroup title="Listing Agent">
               <div className="mb-3">
@@ -885,34 +1169,54 @@ export default function AddProjectPage() {
               </div>
               <AgentForm value={listingAgents[0]} onChange={a => setListingAgents([a, ...listingAgents.slice(1)])} />
             </PartyGroup>
-            <PartyGroup title="Listing Agent 2 (optional)">
-              <div className="mb-3">
-                <Label className="text-xs text-muted-foreground">Saved contact</Label>
-                <ContactLinkPicker
-                  variant="party"
-                  defaultCreateRole="Listing Agent"
-                  partyPlaceholder="Link listing agent 2…"
-                  value={listingAgents[1]?.contactId ?? ""}
-                  options={clientOptions}
-                  onValueChange={(cid) => {
-                    const opts = mergePartyClientOptions();
-                    setListingAgents((prev) => {
-                      const next = [...prev];
-                      const base = next[1] ?? blankAgent();
-                      next[1] = applyAgentContact(base, cid, opts);
-                      return next;
-                    });
-                  }}
-                />
+            {showListingAgent2 ? (
+              <PartyGroup
+                title="Listing Agent 2 (optional)"
+                action={(
+                  <Button type="button" size="sm" variant="ghost" onClick={() => setShowListingAgent2(false)}>
+                    Remove
+                  </Button>
+                )}
+              >
+                <div className="mb-3">
+                  <Label className="text-xs text-muted-foreground">Saved contact</Label>
+                  <ContactLinkPicker
+                    variant="party"
+                    defaultCreateRole="Listing Agent"
+                    partyPlaceholder="Link listing agent 2…"
+                    value={listingAgents[1]?.contactId ?? ""}
+                    options={clientOptions}
+                    onValueChange={(cid) => {
+                      const opts = mergePartyClientOptions();
+                      setListingAgents((prev) => {
+                        const next = [...prev];
+                        const base = next[1] ?? blankAgent();
+                        next[1] = applyAgentContact(base, cid, opts);
+                        return next;
+                      });
+                    }}
+                  />
+                </div>
+                <AgentForm value={listingAgents[1] || blankAgent()} onChange={a => {
+                  const next = [...listingAgents]; next[1] = a; setListingAgents(next);
+                }} />
+              </PartyGroup>
+            ) : (
+              <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => setShowListingAgent2(true)}>
+                <Plus className="w-3 h-3" /> Add Listing Agent 2
+              </Button>
+            )}
+            {!additionalListingAgent ? (
+              <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => setAdditionalListingAgent(true)}>
+                <Plus className="w-3 h-3" /> Add Additional Listing Agent
+              </Button>
+            ) : (
+              <div className="flex justify-end">
+                <Button type="button" size="sm" variant="ghost" onClick={() => setAdditionalListingAgent(false)}>
+                  Remove Additional Listing Agent
+                </Button>
               </div>
-              <AgentForm value={listingAgents[1] || blankAgent()} onChange={a => {
-                const next = [...listingAgents]; next[1] = a; setListingAgents(next);
-              }} />
-            </PartyGroup>
-            <div className="flex items-center gap-2">
-              <Checkbox id="add-listing-agent" checked={additionalListingAgent} onCheckedChange={(v) => setAdditionalListingAgent(!!v)} />
-              <Label htmlFor="add-listing-agent" className="cursor-pointer text-sm">Add Additional Listing Agent</Label>
-            </div>
+            )}
             {additionalListingAgent && (
               <PartyGroup title="Additional Listing Agent">
                 <div className="mb-3">
@@ -950,6 +1254,7 @@ export default function AddProjectPage() {
               <SimpleForm value={listingAgentTC} onChange={setListingAgentTC} />
             </PartyGroup>
 
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <PartyGroup title="Escrow Officer">
               <div className="mb-3">
                 <Label className="text-xs text-muted-foreground">Saved contact</Label>
@@ -991,6 +1296,7 @@ export default function AddProjectPage() {
               </div>
               <SimpleForm value={escrowAssistant} onChange={setEscrowAssistant} />
             </PartyGroup>
+            </div>
 
             <PartyGroup title="Lender">
               <div className="mb-3">
@@ -1022,7 +1328,7 @@ export default function AddProjectPage() {
                 </Button>
               )}
             >
-              <div className="space-y-4">
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                 {sellers.map((s, i) => (
                   <div key={i} className="bg-secondary/30 rounded-lg p-3 relative">
                     <div className="flex items-center justify-between mb-2">
@@ -1068,7 +1374,7 @@ export default function AddProjectPage() {
                 </Button>
               )}
             >
-              <div className="space-y-4">
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                 {buyers.map((b, i) => (
                   <div key={i} className="bg-secondary/30 rounded-lg p-3 relative">
                     <div className="flex items-center justify-between mb-2">
@@ -1105,164 +1411,98 @@ export default function AddProjectPage() {
               </div>
             </PartyGroup>
           </div>
-        </Section>
-
-        {/* Listing Details (Listing only) */}
-        {isListing && (
-          <Section title="Listing Details" open={open.listing} onToggle={() => toggle("listing")} subtitle="Listing files only">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Field label="Target OMD"><Input value={listing.targetOMD} onChange={e => setListing(p => ({ ...p, targetOMD: e.target.value }))} placeholder="Fill in the blank" /></Field>
-              <Field label="Disclosure Timing"><Input value={listing.disclosureTiming} onChange={e => setListing(p => ({ ...p, disclosureTiming: e.target.value }))} placeholder="Fill in the blank" /></Field>
-              <YesNoField label="Questionnaires Electronically?" value={listing.questionnairesElectronically} onChange={(v) => setListing(p => ({ ...p, questionnairesElectronically: v }))} />
-              <YesNoField label="DocuSign?" value={listing.docuSign} onChange={(v) => setListing(p => ({ ...p, docuSign: v }))} />
-              <Field label="NHD Company"><Input value={listing.nhdCompany} onChange={e => setListing(p => ({ ...p, nhdCompany: e.target.value }))} /></Field>
-              <div className="flex items-end gap-2">
-                <Checkbox id="env" checked={listing.nhdEnvironmental} onCheckedChange={(v) => setListing(p => ({ ...p, nhdEnvironmental: !!v }))} />
-                <Label htmlFor="env" className="cursor-pointer mb-2">With Environmental</Label>
-              </div>
-            </div>
           </Section>
-        )}
+        </div>
 
-        {/* Transaction Details */}
-        <Section title="Transaction Details" open={open.transaction} onToggle={() => toggle("transaction")}>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Field label="Purchase Price ($)"><Input value={transaction.purchasePrice} onChange={e => setTransaction(p => ({ ...p, purchasePrice: e.target.value }))} placeholder="$1,250,000" /></Field>
-            <YesNoField label="DocuSign?" value={transaction.docuSign} onChange={(v) => setTransaction(p => ({ ...p, docuSign: v }))} />
-            <Field label="Loan Type">
-              <Select value={transaction.loanType} onValueChange={(v) => setTransaction(p => ({ ...p, loanType: v as LoanType }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {(["Conventional", "FHA/VA", "All Cash", "Other"] as LoanType[]).map(l => (
-                    <SelectItem key={l} value={l}>{l}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label="SPBB %"><Input value={transaction.spbbPct} onChange={e => setTransaction(p => ({ ...p, spbbPct: e.target.value }))} placeholder="2.5%" /></Field>
-            <YesNoField label="FTC?" value={transaction.ftc} onChange={(v) => setTransaction(p => ({ ...p, ftc: v }))} />
-            {transaction.ftc === "yes" && (
-              <>
-                <Field label="FTC Amount ($)"><Input value={transaction.ftcAmount} onChange={e => setTransaction(p => ({ ...p, ftcAmount: e.target.value }))} placeholder="$5,000" /></Field>
-                <Field label="FTC Paid By">
-                  <Select value={transaction.ftcPaidBy} onValueChange={(v) => setTransaction(p => ({ ...p, ftcPaidBy: v }))}>
-                    <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Buyer">Buyer</SelectItem>
-                      <SelectItem value="Seller">Seller</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </Field>
-              </>
-            )}
-            <Field label="RPA Seller" hint="Optional. Seller name/vesting exactly as shown on the RPA.">
-              <Input
-                value={transaction.rpaSeller}
-                onChange={e => setTransaction(p => ({ ...p, rpaSeller: e.target.value }))}
-                placeholder="e.g. John Smith and Jane Smith, Trustees..."
-              />
-            </Field>
-            <Field label="Prelim Seller" hint="Optional. Seller name/vesting exactly as shown on the Preliminary Title Report.">
-              <Input
-                value={transaction.prelimSeller}
-                onChange={e => setTransaction(p => ({ ...p, prelimSeller: e.target.value }))}
-                placeholder="e.g. John A Smith and Jane B Smith, Trustees..."
-              />
-            </Field>
-            <Field
-              label="Seller Name Match?"
-              className="md:col-span-2"
-              hint={autoSellerNameMatch
-                ? "Auto-calculated from both names. You can override if needed."
-                : "Pending until both RPA Seller and Prelim Seller are filled."}
-            >
-              <div className="flex flex-wrap items-center gap-2">
-                <Select
-                  value={transaction.sellerMatchOverride || "__auto__"}
-                  onValueChange={(v) => setTransaction((p) => ({ ...p, sellerMatchOverride: v === "__auto__" ? "" : (v as YesNo) }))}
-                >
-                  <SelectTrigger className="w-[220px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__auto__">
-                      Auto ({autoSellerNameMatch === "yes" ? "Yes" : autoSellerNameMatch === "no" ? "No" : "Pending"})
-                    </SelectItem>
-                    <SelectItem value="yes">Yes</SelectItem>
-                    <SelectItem value="no">No</SelectItem>
-                  </SelectContent>
-                </Select>
-                <span className="text-xs text-muted-foreground">
-                  Effective status: {sellerNameMatchStatus === "yes" ? "Yes" : sellerNameMatchStatus === "no" ? "No" : "Pending"}
-                </span>
-              </div>
-            </Field>
-            {sellerNameMatchStatus === "no" && (
-              <Field
-                label="Mismatch Notes"
-                className="md:col-span-2"
-                hint="Optional. Explain why names differ (trust text, vesting, spelling, etc.)."
-              >
-                <Textarea
-                  value={transaction.sellerMismatchNotes}
-                  onChange={e => setTransaction(p => ({ ...p, sellerMismatchNotes: e.target.value }))}
-                  rows={2}
-                  placeholder="Reason for mismatch between RPA Seller and Prelim Seller..."
-                />
-              </Field>
-            )}
-            <Field label="NHD Details (RPA)" className="md:col-span-2"><Input value={transaction.nhdRpa} onChange={e => setTransaction(p => ({ ...p, nhdRpa: e.target.value }))} placeholder="Company, with/without environmental, who pays" /></Field>
-            <Field label="Home Warranty"><Input value={transaction.homeWarranty} onChange={e => setTransaction(p => ({ ...p, homeWarranty: e.target.value }))} /></Field>
-            <Field label="Escrow #"><Input value={transaction.escrowNumber} onChange={e => setTransaction(p => ({ ...p, escrowNumber: e.target.value }))} /></Field>
-            <Field label="Transaction Notes" className="md:col-span-2">
-              <Textarea value={transaction.notes} onChange={e => setTransaction(p => ({ ...p, notes: e.target.value }))} rows={3} />
-            </Field>
-          </div>
-        </Section>
-
-        {/* Property Information */}
-        <Section title="Property Information" open={open.property} onToggle={() => toggle("property")}>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Field label="MLS #"><Input value={property.mlsNumber} onChange={e => setProperty(p => ({ ...p, mlsNumber: e.target.value }))} /></Field>
-            <Field label="Property Type">
-              <Select value={property.propertyType} onValueChange={(v) => setProperty(p => ({ ...p, propertyType: v }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {["SFR", "Condo", "Vacant Land", "Townhouse", "Multi-Family", "Mobile/Manufactured Home", "Commercial", "Other"].map(o => (
-                    <SelectItem key={o} value={o}>{o}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label="Property Address *" className="md:col-span-2"><Input value={property.address} onChange={e => setProperty(p => ({ ...p, address: e.target.value }))} required /></Field>
-            <Field label="City"><Input value={property.city} onChange={e => setProperty(p => ({ ...p, city: e.target.value }))} /></Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="State"><Input value={property.state} onChange={e => setProperty(p => ({ ...p, state: e.target.value }))} /></Field>
-              <Field label="ZIP"><Input value={property.zip} onChange={e => setProperty(p => ({ ...p, zip: e.target.value }))} /></Field>
+        <div className="xl:col-span-4 2xl:col-span-3 space-y-4 xl:sticky xl:top-4 self-start">
+          <div className="bg-card border border-border rounded-lg p-4 space-y-4">
+            <div className="space-y-3">
+              <Label className="text-sm font-semibold">Transaction Type *</Label>
+              <RadioGroup value={type} onValueChange={(v) => setType(v as TxType)} className="grid grid-cols-1 gap-2">
+                {(["Listing", "Buyer File"] as TxType[]).map(t => (
+                  <label
+                    key={t}
+                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                      type === t ? "border-accent bg-accent/5" : "border-border hover:border-accent/50"
+                    }`}
+                  >
+                    <RadioGroupItem value={t} id={`type-${t}`} />
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">{t}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {t === "Listing" ? "Seller-side file" : "Buyer-side file"}
+                      </p>
+                    </div>
+                  </label>
+                ))}
+              </RadioGroup>
             </div>
-            <Field label="County"><Input value={property.county} onChange={e => setProperty(p => ({ ...p, county: e.target.value }))} /></Field>
-            <Field label="Year Built"><Input value={property.yearBuilt} onChange={e => setProperty(p => ({ ...p, yearBuilt: e.target.value }))} /></Field>
-            <Field label="Lot Size"><Input value={property.lotSize} onChange={e => setProperty(p => ({ ...p, lotSize: e.target.value }))} /></Field>
-            <Field label="Square Feet (home)"><Input value={property.squareFeet} onChange={e => setProperty(p => ({ ...p, squareFeet: e.target.value }))} /></Field>
-            <Field label="Disclosure Link" className="md:col-span-2"><Input value={property.disclosureLink} onChange={e => setProperty(p => ({ ...p, disclosureLink: e.target.value }))} placeholder="https://..." /></Field>
 
-            <YesNoField label="Exempt Seller?" value={property.exemptSeller} onChange={(v) => setProperty(p => ({ ...p, exemptSeller: v }))} />
-            <YesNoField label="Solar?" value={property.solar} onChange={(v) => setProperty(p => ({ ...p, solar: v }))} />
-            <YesNoField label="Well?" value={property.well} onChange={(v) => setProperty(p => ({ ...p, well: v }))} />
-            <YesNoField label="Septic?" value={property.septic} onChange={(v) => setProperty(p => ({ ...p, septic: v }))} />
-            <YesNoField label="HOA?" value={property.hoa} onChange={(v) => setProperty(p => ({ ...p, hoa: v }))} />
-            <YesNoField label="Tenant Occupied?" value={property.tenantOccupied} onChange={(v) => setProperty(p => ({ ...p, tenantOccupied: v }))} />
-            {isListing && property.hoa === "yes" && (
-              <Field label="HOA Order Details" className="md:col-span-2">
-                <Input value={property.hoaOrderDetails} onChange={e => setProperty(p => ({ ...p, hoaOrderDetails: e.target.value }))} placeholder="Listing files only — fill in details" />
-              </Field>
-            )}
+            <div className="space-y-2">
+              <Label>Primary contact (optional)</Label>
+              <PrimaryContactPicker value={clientId} options={clientOptions} onValueChange={onClientChange} />
+            </div>
+
+            <div className="pt-2 border-t border-border space-y-2">
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Mode</span>
+                <span className="font-medium text-foreground">{isEditMode ? "Update" : "Create"}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Completion</span>
+                <span className="font-medium text-foreground">{requiredDone}/{requiredTotal}</span>
+              </div>
+              <div className="h-2 w-full rounded bg-secondary/60 overflow-hidden">
+                <div
+                  className="h-full bg-accent transition-all"
+                  style={{ width: `${Math.round((requiredDone / requiredTotal) * 100)}%` }}
+                />
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-border space-y-2">
+              <p className="text-xs font-semibold text-foreground">Quick navigation</p>
+              <div className="grid grid-cols-1 gap-1">
+                {stepOrder.map((step) => (
+                  <button
+                    key={`jump-${step}`}
+                    type="button"
+                    onClick={() => setCurrentStep(step)}
+                    className={`text-left rounded px-2 py-1 text-xs transition-colors ${
+                      currentStep === step ? "bg-accent/10 text-foreground" : "text-muted-foreground hover:bg-secondary/50"
+                    }`}
+                  >
+                    {stepTitle[step]}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
-        </Section>
 
-        <div className="flex justify-end gap-3 pt-2">
-          <Button type="button" variant="outline" onClick={() => navigate("/projects")}>Cancel</Button>
-          <Button type="submit">{isEditMode ? "Update Transaction" : "Create Transaction"}</Button>
+          <div className="bg-card border border-border rounded-lg p-4 space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="border-white/80 bg-white/5 hover:bg-white/10"
+                disabled={stepOrder.indexOf(currentStep) === 0}
+                onClick={() => setCurrentStep(stepOrder[Math.max(0, stepOrder.indexOf(currentStep) - 1)])}
+              >
+                Previous
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="border-white/80 bg-white/5 hover:bg-white/10"
+                disabled={stepOrder.indexOf(currentStep) === stepOrder.length - 1}
+                onClick={() => setCurrentStep(stepOrder[Math.min(stepOrder.length - 1, stepOrder.indexOf(currentStep) + 1)])}
+              >
+                Next
+              </Button>
+            </div>
+            <Button type="submit" className="w-full border border-white/80">{isEditMode ? "Update Transaction" : "Create Transaction"}</Button>
+            <Button type="button" variant="outline" className="w-full border-white/80 bg-white/5 hover:bg-white/10" onClick={() => navigate("/projects")}>Cancel</Button>
+          </div>
         </div>
       </form>
     </div>
@@ -1272,14 +1512,41 @@ export default function AddProjectPage() {
 /* ---------- Reusable building blocks ---------- */
 
 function Section({
-  title, subtitle, open, onToggle, children,
-}: { title: string; subtitle?: string; open: boolean; onToggle: () => void; children: React.ReactNode }) {
+  title, subtitle, open, onToggle, children, tone = "default", visible = true,
+}: {
+  title: string;
+  subtitle?: string;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+  tone?: "default" | "core" | "financial" | "property" | "timeline" | "parties" | "listing";
+  visible?: boolean;
+}) {
+  if (!visible) return null;
+  const toneStyles: Record<NonNullable<typeof tone>, string> = {
+    default: "border-border",
+    core: "border-l-4 border-l-sky-500",
+    financial: "border-l-4 border-l-amber-500",
+    property: "border-l-4 border-l-teal-500",
+    timeline: "border-l-4 border-l-violet-500",
+    parties: "border-l-4 border-l-rose-500",
+    listing: "border-l-4 border-l-indigo-500",
+  };
+  const toneHeaderStyles: Record<NonNullable<typeof tone>, string> = {
+    default: "bg-secondary/20",
+    core: "bg-sky-500/10",
+    financial: "bg-amber-500/10",
+    property: "bg-teal-500/10",
+    timeline: "bg-violet-500/10",
+    parties: "bg-rose-500/10",
+    listing: "bg-indigo-500/10",
+  };
   return (
-    <div className="bg-card border border-border rounded-lg overflow-hidden">
+    <div className={`bg-card border rounded-lg overflow-hidden ${toneStyles[tone]}`}>
       <button
         type="button"
         onClick={onToggle}
-        className="w-full flex items-center justify-between px-6 py-4 hover:bg-secondary/30 transition-colors text-left"
+        className={`w-full flex items-center justify-between px-4 py-3 transition-colors text-left ${toneHeaderStyles[tone]} hover:brightness-95`}
       >
         <div>
           <h3 className="font-display font-semibold text-foreground">{title}</h3>
@@ -1287,15 +1554,15 @@ function Section({
         </div>
         {open ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
       </button>
-      {open && <div className="px-6 pb-6 pt-2 border-t border-border">{children}</div>}
+      {open && <div className="px-4 pb-4 pt-2 border-t border-border bg-background/60">{children}</div>}
     </div>
   );
 }
 
 function Field({ label, hint, children, className = "" }: { label: string; hint?: string; children: React.ReactNode; className?: string }) {
   return (
-    <div className={`space-y-1.5 ${className}`}>
-      <Label className="text-xs">{label}</Label>
+    <div className={`space-y-1.5 rounded-md border border-border/70 bg-secondary/20 p-2.5 ${className}`}>
+      <Label className="text-xs font-semibold text-foreground/90">{label}</Label>
       {children}
       {hint && <p className="text-[10px] text-muted-foreground">{hint}</p>}
     </div>
@@ -1306,9 +1573,9 @@ function DateRow({
   label, value, onChange, disabled, disabledHint,
 }: { label: string; value: string; onChange: (v: string) => void; disabled?: boolean; disabledHint?: string }) {
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-1.5 rounded-md border border-border/70 bg-secondary/20 p-2.5">
       <div className="flex items-center justify-between">
-        <Label className="text-xs">{label}</Label>
+        <Label className="text-xs font-semibold text-foreground/90">{label}</Label>
         {disabled && (
           <span className="text-[10px] inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">
             <Info className="w-2.5 h-2.5" /> N/A
@@ -1323,8 +1590,8 @@ function DateRow({
 
 function YesNoField({ label, value, onChange }: { label: string; value: "yes" | "no" | ""; onChange: (v: "yes" | "no") => void }) {
   return (
-    <div className="space-y-1.5">
-      <Label className="text-xs">{label}</Label>
+    <div className="space-y-1.5 rounded-md border border-border/70 bg-secondary/20 p-2.5">
+      <Label className="text-xs font-semibold text-foreground/90">{label}</Label>
       <div className="flex gap-2">
         {(["yes", "no"] as const).map(v => (
           <button
@@ -1347,12 +1614,21 @@ function YesNoField({ label, value, onChange }: { label: string; value: "yes" | 
 
 function PartyGroup({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="border-l-2 border-accent/30 pl-4">
+    <div className="rounded-lg border border-accent/30 bg-accent/5 p-3">
       <div className="flex items-center justify-between mb-2">
         <p className="text-sm font-semibold text-foreground">{title}</p>
         {action}
       </div>
       {children}
+    </div>
+  );
+}
+
+function ReviewItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-2 text-xs">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-medium text-foreground text-right">{value}</span>
     </div>
   );
 }
