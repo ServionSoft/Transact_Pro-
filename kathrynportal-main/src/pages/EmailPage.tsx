@@ -274,6 +274,10 @@ export default function EmailPage() {
       toast.error("Please fill in recipient and subject.");
       return;
     }
+    if (apiOn && !selectedProject) {
+      toast.error("Please link a transaction before sending.");
+      return;
+    }
     if (!isValidEmail(to)) {
       toast.error("Recipient email is invalid.");
       return;

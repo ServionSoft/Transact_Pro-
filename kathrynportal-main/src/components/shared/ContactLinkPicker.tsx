@@ -31,7 +31,9 @@ import { toast } from "sonner";
 
 function displayContactLabel(c: Client): string {
   const primary = (c.preferredName && c.preferredName.trim()) || c.name;
-  return `${primary} — ${c.company || "—"}`;
+  const company = c.company?.trim() || "—";
+  const role = c.role?.trim() || "Other";
+  return `${primary} — ${company} (${role})`;
 }
 
 function emptyCreateForm(defaultRole: string): ClientFormValues {
