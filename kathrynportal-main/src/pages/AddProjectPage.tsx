@@ -29,6 +29,26 @@ function normalizeSellerName(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+function isValidEmail(value: string): boolean {
+  if (!value.trim()) return true;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+function sanitizeDigits(value: string): string {
+  return value.replace(/\D/g, "");
+}
+
+function sanitizeDecimal(value: string): string {
+  const cleaned = value.replace(/[^0-9.]/g, "");
+  const [whole, ...rest] = cleaned.split(".");
+  const decimal = rest.join("");
+  return decimal.length > 0 ? `${whole}.${decimal}` : whole;
+}
+
+function sanitizePercent(value: string): string {
+  return sanitizeDecimal(value).replace(/^(\d+(\.\d{0,2})?).*$/, "$1");
+}
+
 interface AgentParty {
   contactId?: string;
   name: string; email: string; phone: string;
@@ -437,8 +457,56 @@ export default function AddProjectPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const validationErrors: string[] = [];
     if (!property.address) {
-      toast.error("Property address is required.");
+      validationErrors.push("Property address is required.");
+    }
+    if (property.zip && !/^\d+$/.test(property.zip)) validationErrors.push("ZIP must contain numbers only.");
+    if (property.yearBuilt && !/^\d+$/.test(property.yearBuilt)) validationErrors.push("Year Built must contain numbers only.");
+    if (property.squareFeet && !/^\d+$/.test(property.squareFeet)) validationErrors.push("Square Feet must contain numbers only.");
+    if (property.lotSize && !/^\d+(\.\d+)?$/.test(property.lotSize)) validationErrors.push("Lot Size must be a valid number.");
+    if (property.mlsNumber && !/^\d+$/.test(property.mlsNumber)) validationErrors.push("MLS # must contain numbers only.");
+    if (transaction.purchasePrice && !/^\d+(\.\d+)?$/.test(transaction.purchasePrice)) validationErrors.push("Purchase Price must be a valid number.");
+    if (transaction.spbbPct && !/^\d+(\.\d{1,2})?$/.test(transaction.spbbPct)) validationErrors.push("SPBB % must be a valid percentage.");
+    if (transaction.ftcAmount && !/^\d+(\.\d+)?$/.test(transaction.ftcAmount)) validationErrors.push("FTC Amount must be a valid number.");
+    if (escrow.phone && !/^\d+$/.test(escrow.phone)) validationErrors.push("Escrow phone must contain numbers only.");
+
+    const emailsToValidate = [
+      ...buyerAgents.map((a) => a.email),
+      buyerAgent3.email,
+      buyerAgentTC.email,
+      buyerAgentAssistant.email,
+      ...listingAgents.map((a) => a.email),
+      listingAgent3.email,
+      listingAgentTC.email,
+      escrow.email,
+      escrowAssistant.email,
+      ...sellers.map((s) => s.email),
+      ...buyers.map((b) => b.email),
+    ];
+    if (emailsToValidate.some((email) => !isValidEmail(email))) {
+      validationErrors.push("One or more email addresses are invalid.");
+    }
+    const textFields = [
+      ...buyerAgents.map((a) => a.name),
+      buyerAgent3.name,
+      buyerAgentTC.name,
+      buyerAgentAssistant.name,
+      ...listingAgents.map((a) => a.name),
+      listingAgent3.name,
+      listingAgentTC.name,
+      escrow.name,
+      lender.name,
+      ...sellers.map((s) => s.name),
+      ...buyers.map((b) => b.name),
+      property.city,
+      property.county,
+    ];
+    if (textFields.some((text) => text.trim() && /^\d+$/.test(text.trim()))) {
+      validationErrors.push("Text fields cannot be numbers only.");
+    }
+    if (validationErrors.length > 0) {
+      toast.error(validationErrors[0]);
       return;
     }
 
@@ -718,7 +786,7 @@ export default function AddProjectPage() {
           {/* Transaction Details */}
           <Section title="Transaction Details" tone="financial" visible={currentStep === "core"} open={open.transaction} onToggle={() => toggle("transaction")}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <Field label="Purchase Price ($)"><Input value={transaction.purchasePrice} onChange={e => setTransaction(p => ({ ...p, purchasePrice: e.target.value }))} placeholder="$1,250,000" /></Field>
+              <Field label="Purchase Price ($)"><Input value={transaction.purchasePrice} onChange={e => setTransaction(p => ({ ...p, purchasePrice: sanitizeDecimal(e.target.value) }))} placeholder="$1,250,000" /></Field>
               <YesNoField label="DocuSign?" value={transaction.docuSign} onChange={(v) => setTransaction(p => ({ ...p, docuSign: v }))} />
               <Field label="Loan Type">
                 <Select value={transaction.loanType} onValueChange={(v) => setTransaction(p => ({ ...p, loanType: v as LoanType }))}>
@@ -730,11 +798,11 @@ export default function AddProjectPage() {
                   </SelectContent>
                 </Select>
               </Field>
-              <Field label="SPBB %"><Input value={transaction.spbbPct} onChange={e => setTransaction(p => ({ ...p, spbbPct: e.target.value }))} placeholder="2.5%" /></Field>
+              <Field label="SPBB %"><Input value={transaction.spbbPct} onChange={e => setTransaction(p => ({ ...p, spbbPct: sanitizePercent(e.target.value) }))} placeholder="2.5%" /></Field>
               <YesNoField label="FTC?" value={transaction.ftc} onChange={(v) => setTransaction(p => ({ ...p, ftc: v }))} />
               {transaction.ftc === "yes" && (
                 <>
-                  <Field label="FTC Amount ($)"><Input value={transaction.ftcAmount} onChange={e => setTransaction(p => ({ ...p, ftcAmount: e.target.value }))} placeholder="$5,000" /></Field>
+                  <Field label="FTC Amount ($)"><Input value={transaction.ftcAmount} onChange={e => setTransaction(p => ({ ...p, ftcAmount: sanitizeDecimal(e.target.value) }))} placeholder="$5,000" /></Field>
                   <Field label="FTC Paid By">
                     <Select value={transaction.ftcPaidBy} onValueChange={(v) => setTransaction(p => ({ ...p, ftcPaidBy: v }))}>
                       <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
@@ -814,7 +882,7 @@ export default function AddProjectPage() {
           {/* Property Information */}
           <Section title="Property Information" tone="property" visible={currentStep === "core"} open={open.property} onToggle={() => toggle("property")}>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-              <Field label="MLS #" className="xl:col-span-1"><Input value={property.mlsNumber} onChange={e => setProperty(p => ({ ...p, mlsNumber: e.target.value }))} /></Field>
+              <Field label="MLS #" className="xl:col-span-1"><Input value={property.mlsNumber} onChange={e => setProperty(p => ({ ...p, mlsNumber: sanitizeDigits(e.target.value) }))} /></Field>
               <Field label="Property Type" className="xl:col-span-1">
                 <Select value={property.propertyType} onValueChange={(v) => setProperty(p => ({ ...p, propertyType: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
@@ -828,11 +896,11 @@ export default function AddProjectPage() {
               <Field label="Property Address *" className="md:col-span-2 xl:col-span-2"><Input value={property.address} onChange={e => setProperty(p => ({ ...p, address: e.target.value }))} required /></Field>
               <Field label="City" className="xl:col-span-1"><Input value={property.city} onChange={e => setProperty(p => ({ ...p, city: e.target.value }))} /></Field>
               <Field label="State" className="xl:col-span-1"><Input value={property.state} onChange={e => setProperty(p => ({ ...p, state: e.target.value }))} /></Field>
-              <Field label="ZIP" className="xl:col-span-1"><Input value={property.zip} onChange={e => setProperty(p => ({ ...p, zip: e.target.value }))} /></Field>
+              <Field label="ZIP" className="xl:col-span-1"><Input value={property.zip} onChange={e => setProperty(p => ({ ...p, zip: sanitizeDigits(e.target.value) }))} /></Field>
               <Field label="County" className="xl:col-span-1"><Input value={property.county} onChange={e => setProperty(p => ({ ...p, county: e.target.value }))} /></Field>
-              <Field label="Year Built" className="xl:col-span-1"><Input value={property.yearBuilt} onChange={e => setProperty(p => ({ ...p, yearBuilt: e.target.value }))} /></Field>
-              <Field label="Lot Size" className="xl:col-span-1"><Input value={property.lotSize} onChange={e => setProperty(p => ({ ...p, lotSize: e.target.value }))} /></Field>
-              <Field label="Square Feet (home)" className="xl:col-span-1"><Input value={property.squareFeet} onChange={e => setProperty(p => ({ ...p, squareFeet: e.target.value }))} /></Field>
+              <Field label="Year Built" className="xl:col-span-1"><Input value={property.yearBuilt} onChange={e => setProperty(p => ({ ...p, yearBuilt: sanitizeDigits(e.target.value) }))} /></Field>
+              <Field label="Lot Size" className="xl:col-span-1"><Input value={property.lotSize} onChange={e => setProperty(p => ({ ...p, lotSize: sanitizeDecimal(e.target.value) }))} /></Field>
+              <Field label="Square Feet (home)" className="xl:col-span-1"><Input value={property.squareFeet} onChange={e => setProperty(p => ({ ...p, squareFeet: sanitizeDigits(e.target.value) }))} /></Field>
               <Field label="Disclosure Link" className="xl:col-span-2"><Input value={property.disclosureLink} onChange={e => setProperty(p => ({ ...p, disclosureLink: e.target.value }))} placeholder="https://..." /></Field>
 
               <YesNoField label="Exempt Seller?" value={property.exemptSeller} onChange={(v) => setProperty(p => ({ ...p, exemptSeller: v }))} />
@@ -1273,7 +1341,7 @@ export default function AddProjectPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <Field label="Name"><Input value={escrow.name} onChange={e => setEscrow({ ...escrow, name: e.target.value })} /></Field>
                 <Field label="Email"><Input type="email" value={escrow.email} onChange={e => setEscrow({ ...escrow, email: e.target.value })} /></Field>
-                <Field label="Phone"><Input value={escrow.phone} onChange={e => setEscrow({ ...escrow, phone: e.target.value })} /></Field>
+                <Field label="Phone"><Input value={escrow.phone} onChange={e => setEscrow({ ...escrow, phone: sanitizeDigits(e.target.value) })} /></Field>
                 <Field label="Company"><Input value={escrow.company} onChange={e => setEscrow({ ...escrow, company: e.target.value })} /></Field>
                 <Field label="Address" className="md:col-span-2"><Input value={escrow.address} onChange={e => setEscrow({ ...escrow, address: e.target.value })} /></Field>
                 <Field label="City, State, Zip" className="md:col-span-2"><Input value={escrow.cityStateZip} onChange={e => setEscrow({ ...escrow, cityStateZip: e.target.value })} /></Field>
@@ -1646,10 +1714,10 @@ function AgentForm({ value, onChange }: { value: AgentParty; onChange: (v: Agent
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
       <Field label="Name"><Input value={value.name} onChange={e => set("name", e.target.value)} /></Field>
       <Field label="Email"><Input type="email" value={value.email} onChange={e => set("email", e.target.value)} /></Field>
-      <Field label="Phone"><Input value={value.phone} onChange={e => set("phone", e.target.value)} /></Field>
-      <Field label="License Number"><Input value={value.licenseNumber} onChange={e => set("licenseNumber", e.target.value)} /></Field>
+      <Field label="Phone"><Input value={value.phone} onChange={e => set("phone", sanitizeDigits(e.target.value))} /></Field>
+      <Field label="License Number"><Input value={value.licenseNumber} onChange={e => set("licenseNumber", sanitizeDigits(e.target.value))} /></Field>
       <Field label="Brokerage"><Input value={value.brokerage} onChange={e => set("brokerage", e.target.value)} /></Field>
-      <Field label="Brokerage License Number"><Input value={value.brokerageLicense} onChange={e => set("brokerageLicense", e.target.value)} /></Field>
+      <Field label="Brokerage License Number"><Input value={value.brokerageLicense} onChange={e => set("brokerageLicense", sanitizeDigits(e.target.value))} /></Field>
       <Field label="Agent Notes" className="md:col-span-2" hint="Notes specific to this agent (e.g. always add environmental to JCP report)">
         <Textarea value={value.notes} onChange={e => set("notes", e.target.value)} rows={2} />
       </Field>
