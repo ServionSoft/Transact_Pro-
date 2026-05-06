@@ -1484,7 +1484,7 @@ export default function AddProjectPage() {
               <Button
                 type="button"
                 variant="outline"
-                className="border-white/80 bg-white/5 hover:bg-white/10"
+                className="border-sky-300/90 bg-sky-50/40 hover:bg-sky-100/60 hover:border-sky-400 text-sky-900 disabled:opacity-50"
                 disabled={stepOrder.indexOf(currentStep) === 0}
                 onClick={() => setCurrentStep(stepOrder[Math.max(0, stepOrder.indexOf(currentStep) - 1)])}
               >
@@ -1493,15 +1493,22 @@ export default function AddProjectPage() {
               <Button
                 type="button"
                 variant="outline"
-                className="border-white/80 bg-white/5 hover:bg-white/10"
+                className="border-violet-300/90 bg-violet-50/40 hover:bg-violet-100/60 hover:border-violet-400 text-violet-900 disabled:opacity-50"
                 disabled={stepOrder.indexOf(currentStep) === stepOrder.length - 1}
                 onClick={() => setCurrentStep(stepOrder[Math.min(stepOrder.length - 1, stepOrder.indexOf(currentStep) + 1)])}
               >
                 Next
               </Button>
             </div>
-            <Button type="submit" className="w-full border border-white/80">{isEditMode ? "Update Transaction" : "Create Transaction"}</Button>
-            <Button type="button" variant="outline" className="w-full border-white/80 bg-white/5 hover:bg-white/10" onClick={() => navigate("/projects")}>Cancel</Button>
+            <Button type="submit" className="w-full border border-primary/80 shadow-sm shadow-primary/20">{isEditMode ? "Update Transaction" : "Create Transaction"}</Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full border-rose-300/90 bg-rose-50/40 hover:bg-rose-100/60 hover:border-rose-400 text-rose-900"
+              onClick={() => navigate("/projects")}
+            >
+              Cancel
+            </Button>
           </div>
         </div>
       </form>
