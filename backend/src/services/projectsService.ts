@@ -26,6 +26,8 @@ export type ProjectDocumentApi = {
   attachedFileIds: string[];
   sourceRuleId?: string;
   sourceRuleActionId?: string;
+  /** Vault `esign_documents.id` when this checklist row is wired for DocuSign from a library layout. */
+  esignDocumentId?: string;
 };
 
 export type ProjectDocumentNoteApi = {
@@ -167,6 +169,10 @@ export type ProjectCreateInput = {
     required?: boolean;
     sourceRuleId?: string;
     sourceRuleActionId?: string;
+    /** Pool `stored_files.id` values to attach to this checklist row (rule-driven PDFs). */
+    attachedFileIds?: string[];
+    /** Vault `esign_documents.id` for DocuSign send (optional; resolved from vault layout). */
+    esignDocumentId?: string;
   }>;
   metadata?: Record<string, unknown>;
 };
@@ -994,6 +1000,81 @@ async function getProjectAssignees(pool: Pool, projectId: string): Promise<Proje
   }));
 }
 
+function normalizeEsignDocumentId(raw: string | undefined | null): string | null {
+  const t = normalizeText(raw ?? "");
+  return /^\d+$/.test(t) ? t : null;
+}
+
+async function storedFileRowExists(pool: Pool, storedFileId: string): Promise<boolean> {
+  const { rows } = await pool.query<{ ok: string }>(
+    `SELECT 1::text AS ok FROM public.stored_files WHERE id = $1::bigint AND deleted_at IS NULL LIMIT 1`,
+    [storedFileId]
+  );
+  return rows.length > 0;
+}
+
+async function esignDocumentRowExists(pool: Pool, esignDocumentId: string): Promise<boolean> {
+  const { rows } = await pool.query<{ ok: string }>(
+    `SELECT 1::text AS ok FROM public.esign_documents WHERE id = $1::bigint AND deleted_at IS NULL LIMIT 1`,
+    [esignDocumentId]
+  );
+  return rows.length > 0;
+}
+
+/** Inserts `project_documents` plus optional `project_document_files` from create/update payload. */
+async function insertProjectDocumentFromInput(
+  pool: Pool,
+  projectId: string,
+  d: NonNullable<ProjectCreateInput["documents"]>[number],
+  createdByUserId: string | null
+): Promise<void> {
+  const name = normalizeText(d.name);
+  if (!name) return;
+  const statusDb = DOC_STATUS_UI_TO_DB[d.status ?? "Pending"] ?? "pending";
+  let esignId = normalizeEsignDocumentId(d.esignDocumentId ?? undefined);
+  if (esignId && !(await esignDocumentRowExists(pool, esignId))) {
+    esignId = null;
+  }
+  const ins = await pool.query<{ id: string }>(
+    `INSERT INTO public.project_documents (
+       project_id, display_name, status, custom_status_text, required,
+       source_rule_id, source_rule_action_id, esign_document_id,
+       created_by_user_id, created_at, updated_at
+     ) VALUES (
+       $1::bigint, $2, $3::public.document_status, $4, $5, $6::bigint, $7, $8::bigint, $9::bigint, now(), now()
+     )
+     RETURNING id::text`,
+    [
+      projectId,
+      name,
+      statusDb,
+      normalizeText(d.customStatus) || null,
+      Boolean(d.required),
+      /^\d+$/.test(normalizeText(d.sourceRuleId)) ? normalizeText(d.sourceRuleId) : null,
+      normalizeText(d.sourceRuleActionId) || null,
+      esignId,
+      createdByUserId && /^\d+$/.test(createdByUserId) ? createdByUserId : null,
+    ]
+  );
+  const pdId = ins.rows[0]?.id;
+  if (!pdId) return;
+  const attached = Array.isArray(d.attachedFileIds) ? d.attachedFileIds : [];
+  let attachSort = 0;
+  for (let i = 0; i < attached.length; i++) {
+    const fid = normalizeText(String(attached[i] ?? ""));
+    if (!/^\d+$/.test(fid)) continue;
+    if (!(await storedFileRowExists(pool, fid))) continue;
+    await pool.query(
+      `INSERT INTO public.project_document_files (
+         project_document_id, stored_file_id, sort_order, is_primary, created_at, updated_at
+       ) VALUES ($1::bigint, $2::bigint, $3, $4, now(), now())
+       ON CONFLICT ON CONSTRAINT project_document_files_unique_file DO NOTHING`,
+      [pdId, fid, attachSort, attachSort === 0]
+    );
+    attachSort += 1;
+  }
+}
+
 async function getProjectDocuments(pool: Pool, projectId: string): Promise<ProjectDocumentApi[]> {
   const { rows } = await pool.query<{
     id: string;
@@ -1003,6 +1084,7 @@ async function getProjectDocuments(pool: Pool, projectId: string): Promise<Proje
     required: boolean;
     source_rule_id: string | null;
     source_rule_action_id: string | null;
+    esign_document_id: string | null;
     attached_file_ids: string[];
   }>(
     `SELECT
@@ -1013,6 +1095,7 @@ async function getProjectDocuments(pool: Pool, projectId: string): Promise<Proje
        pd.required,
        pd.source_rule_id::text,
        pd.source_rule_action_id,
+       pd.esign_document_id::text AS esign_document_id,
        COALESCE(
          ARRAY_AGG(pdf.stored_file_id::text ORDER BY pdf.sort_order NULLS LAST, pdf.id) FILTER (WHERE pdf.id IS NOT NULL),
          ARRAY[]::text[]
@@ -1021,7 +1104,7 @@ async function getProjectDocuments(pool: Pool, projectId: string): Promise<Proje
      LEFT JOIN public.project_document_files pdf ON pdf.project_document_id = pd.id
      WHERE pd.project_id = $1::bigint
        AND pd.deleted_at IS NULL
-     GROUP BY pd.id
+     GROUP BY pd.id, pd.display_name, pd.status, pd.custom_status_text, pd.required, pd.source_rule_id, pd.source_rule_action_id, pd.esign_document_id
      ORDER BY pd.created_at ASC`,
     [projectId]
   );
@@ -1067,6 +1150,7 @@ async function getProjectDocuments(pool: Pool, projectId: string): Promise<Proje
     attachedFileIds: r.attached_file_ids ?? [],
     ...(r.source_rule_id ? { sourceRuleId: r.source_rule_id } : {}),
     ...(r.source_rule_action_id ? { sourceRuleActionId: r.source_rule_action_id } : {}),
+    ...(r.esign_document_id ? { esignDocumentId: r.esign_document_id } : {}),
   }));
 }
 
@@ -1211,26 +1295,7 @@ export async function createProject(
   }
   const docs = input.documents ?? [];
   for (const d of docs) {
-    const name = normalizeText(d.name);
-    if (!name) continue;
-    const statusDb = DOC_STATUS_UI_TO_DB[d.status ?? "Pending"] ?? "pending";
-    await pool.query(
-      `INSERT INTO public.project_documents (
-         project_id, display_name, status, custom_status_text, required, source_rule_id, source_rule_action_id, created_by_user_id, created_at, updated_at
-       ) VALUES (
-         $1::bigint, $2, $3::public.document_status, $4, $5, $6::bigint, $7, $8::bigint, now(), now()
-       )`,
-      [
-        projectId,
-        name,
-        statusDb,
-        normalizeText(d.customStatus) || null,
-        Boolean(d.required),
-        /^\d+$/.test(normalizeText(d.sourceRuleId)) ? normalizeText(d.sourceRuleId) : null,
-        normalizeText(d.sourceRuleActionId) || null,
-        createdByUserId && /^\d+$/.test(createdByUserId) ? createdByUserId : null,
-      ]
-    );
+    await insertProjectDocumentFromInput(pool, projectId, d, createdByUserId && /^\d+$/.test(createdByUserId) ? createdByUserId : null);
   }
   await syncProjectDeadlinesFromFormMetadata(pool, projectId, input.metadata ?? null);
   const created = await getProjectById(pool, projectId);
@@ -1318,25 +1383,7 @@ export async function updateProject(
       [projectId]
     );
     for (const d of input.documents) {
-      const name = normalizeText(d.name);
-      if (!name) continue;
-      const statusDb = DOC_STATUS_UI_TO_DB[d.status ?? "Pending"] ?? "pending";
-      await pool.query(
-        `INSERT INTO public.project_documents (
-           project_id, display_name, status, custom_status_text, required, source_rule_id, source_rule_action_id, created_at, updated_at
-         ) VALUES (
-           $1::bigint, $2, $3::public.document_status, $4, $5, $6::bigint, $7, now(), now()
-         )`,
-        [
-          projectId,
-          name,
-          statusDb,
-          normalizeText(d.customStatus) || null,
-          Boolean(d.required),
-          /^\d+$/.test(normalizeText(d.sourceRuleId)) ? normalizeText(d.sourceRuleId) : null,
-          normalizeText(d.sourceRuleActionId) || null,
-        ]
-      );
+      await insertProjectDocumentFromInput(pool, projectId, d, null);
     }
   }
   if (input.metadata !== undefined) {

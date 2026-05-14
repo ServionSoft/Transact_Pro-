@@ -37,6 +37,9 @@ type ProjectDetailApiRow = Omit<ProjectListItem, "documentsCompleteCount" | "doc
     required: boolean;
     notes: Array<{ id?: string; body?: string; createdAt?: string; author?: string; date?: string; text?: string }>;
     attachedFileIds: string[];
+    sourceRuleId?: string;
+    sourceRuleActionId?: string;
+    esignDocumentId?: string;
   }>;
   tasks: Array<{
     id: string;
@@ -97,6 +100,8 @@ export type ProjectCreateBody = {
     required?: boolean;
     sourceRuleId?: string;
     sourceRuleActionId?: string;
+    attachedFileIds?: string[];
+    esignDocumentId?: string;
   }>;
   metadata?: Record<string, unknown>;
 };

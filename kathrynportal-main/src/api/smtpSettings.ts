@@ -11,6 +11,7 @@ export type SmtpSettingsDto = {
   hasPassword: boolean;
   fromEmail: string;
   fromName: string;
+  vendorSignatureFileId?: string | null;
 };
 
 function requireBase(): string {

@@ -235,15 +235,34 @@ export function createStoredFilesController(deps: StoredFilesControllerDeps) {
         });
         return;
       }
-      const ok = await softDeleteFile(pool, projectId, fileId, uploadDirAbs);
-      if (!ok) {
-        res.status(404).json({
+      try {
+        const ok = await softDeleteFile(pool, projectId, fileId, uploadDirAbs);
+        if (!ok) {
+          res.status(404).json({
+            success: false,
+            error: { code: "NOT_FOUND", message: "File not found." },
+          });
+          return;
+        }
+        res.status(204).send();
+      } catch (error) {
+        const pgCode = (error as { code?: string }).code;
+        if (pgCode === "23001") {
+          res.status(409).json({
+            success: false,
+            error: {
+              code: "FILE_IN_USE",
+              message: "This file is used by an e-sign draft. Remove the draft first, then delete the file.",
+            },
+          });
+          return;
+        }
+        const message = error instanceof Error ? error.message : "Could not delete file.";
+        res.status(500).json({
           success: false,
-          error: { code: "NOT_FOUND", message: "File not found." },
+          error: { code: "DELETE_FAILED", message },
         });
-        return;
       }
-      res.status(204).send();
     },
 
     async downloadStoredFile(req: Request, res: Response): Promise<void> {

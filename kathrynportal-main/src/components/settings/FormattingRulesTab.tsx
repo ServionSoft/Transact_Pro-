@@ -41,7 +41,7 @@ const triggerFieldOptions: { value: RuleTriggerField; label: string; values: str
   { value: "tenantOccupied", label: "Tenant Occupied", values: ["Yes", "No"] },
   { value: "county", label: "County", values: ["Marin", "Sonoma", "Napa", "San Francisco", "Other"] },
   { value: "dualAgency", label: "Dual Agency", values: ["Yes", "No"] },
-  { value: "financing", label: "Financing", values: ["All Cash", "Conventional", "FHA", "VA", "Other"] },
+  { value: "financing", label: "Financing", values: ["All Cash", "Conventional", "FHA", "VA", "FHA/VA", "Other"] },
 ];
 
 const actionLabels: Record<RuleAction, string> = {
@@ -624,14 +624,14 @@ export default function FormattingRulesTab() {
       </div>
 
       <Dialog open={showCreate} onOpenChange={(open) => { if (!open) { setShowCreate(false); setEditingRule(null); } }}>
-        <DialogContent className="max-w-2xl max-h-[88vh] overflow-y-auto">
+        <DialogContent className="max-h-[88vh] min-w-0 w-[calc(100vw-1.5rem)] max-w-2xl overflow-y-auto overflow-x-hidden sm:w-full">
           <DialogHeader>
             <DialogTitle>
               {editingRule ? "Edit" : "Create"} {form.kind === "standard" ? "Standard" : "Conditional"} Rule
             </DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-5 py-2">
+          <div className="space-y-5 py-2 min-w-0 overflow-x-hidden">
             <div className="space-y-2">
               <label className="text-sm font-medium">Rule Name *</label>
               <Input
@@ -689,22 +689,22 @@ export default function FormattingRulesTab() {
                 {form.triggers.map((t, idx) => {
                   const opts = triggerFieldOptions.find(o => o.value === t.field)?.values ?? [];
                   return (
-                    <div key={idx} className="flex items-center gap-2">
+                    <div key={idx} className="flex flex-wrap items-center gap-2 w-full min-w-0">
                       <Select value={t.field} onValueChange={v => updateTrigger(idx, { field: v as RuleTriggerField, value: triggerFieldOptions.find(o => o.value === v)?.values[0] ?? "" })}>
-                        <SelectTrigger className="flex-1"><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="min-w-0 flex-1 basis-[min(100%,10rem)]"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           {triggerFieldOptions.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
                         </SelectContent>
                       </Select>
-                      <span className="text-muted-foreground text-sm">=</span>
+                      <span className="text-muted-foreground text-sm shrink-0">=</span>
                       <Select value={t.value} onValueChange={v => updateTrigger(idx, { value: v })}>
-                        <SelectTrigger className="flex-1"><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="min-w-0 flex-1 basis-[min(100%,8rem)]"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           {opts.map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
                         </SelectContent>
                       </Select>
                       {form.triggers.length > 1 && (
-                        <button onClick={() => removeTrigger(idx)} className="text-destructive p-1.5 hover:bg-destructive/10 rounded-md">
+                        <button type="button" onClick={() => removeTrigger(idx)} className="text-destructive p-1.5 hover:bg-destructive/10 rounded-md shrink-0">
                           <X className="w-3.5 h-3.5" />
                         </button>
                       )}
@@ -721,11 +721,11 @@ export default function FormattingRulesTab() {
                   Each row is one checklist line: open the field, search CRM uploads (Documents page pool), or type and
                   choose &quot;Use … as document name&quot;. Add another row for the next document.
                 </p>
-                <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
+                <div className="space-y-2 max-h-[320px] overflow-y-auto overflow-x-hidden pr-1 min-w-0">
                   {form.documents.map((doc) => (
-                    <div key={doc.id} className="flex items-center gap-2 bg-secondary/50 rounded-md px-2 py-2 flex-wrap sm:flex-nowrap">
+                    <div key={doc.id} className="flex flex-wrap items-center gap-2 bg-secondary/50 rounded-md px-2 py-2 w-full min-w-0">
                       <GripVertical className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0 hidden sm:block" />
-                      <div className="flex-1 min-w-[200px]">
+                      <div className="min-w-0 flex-1 basis-full sm:basis-[12rem] sm:min-w-[8rem]">
                         <DocumentNameSlotCombobox
                           files={vaultFiles}
                           value={doc.name}
@@ -779,11 +779,11 @@ export default function FormattingRulesTab() {
                   When triggers match, each row applies to one document. Search the CRM library or set a custom name,
                   then choose the action type for that row.
                 </p>
-                <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
+                <div className="space-y-2 max-h-[320px] overflow-y-auto overflow-x-hidden pr-1 min-w-0">
                   {form.actions.map((a) => (
-                    <div key={a.id} className="flex items-center gap-2 bg-secondary/50 rounded-md px-2 py-2 flex-wrap sm:flex-nowrap">
+                    <div key={a.id} className="flex flex-wrap items-center gap-2 bg-secondary/50 rounded-md px-2 py-2 w-full min-w-0">
                       <GripVertical className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0 hidden sm:block" />
-                      <div className="flex-1 min-w-[200px]">
+                      <div className="min-w-0 flex-1 basis-full sm:basis-[12rem] sm:min-w-[8rem]">
                         <DocumentNameSlotCombobox
                           files={vaultFiles}
                           value={a.documentName}
@@ -808,7 +808,7 @@ export default function FormattingRulesTab() {
                         value={a.action}
                         onValueChange={(v) => updateAction(a.id, { action: v as RuleAction })}
                       >
-                        <SelectTrigger className="w-full sm:w-[148px] shrink-0 h-9">
+                        <SelectTrigger className="w-full min-w-0 sm:w-[min(148px,100%)] sm:max-w-[148px] shrink-0 h-9">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>

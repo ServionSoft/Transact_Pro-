@@ -273,40 +273,80 @@ export async function updateClient(
   const validation = validateClientInput(input);
   if (validation) return { error: validation };
 
+  const emailNorm = normalizeText(input.email).toLowerCase();
+  if (emailNorm) {
+    const dup = await pool.query<{ id: string }>(
+      `SELECT id::text
+       FROM public.contacts
+       WHERE deleted_at IS NULL
+         AND email IS NOT NULL
+         AND btrim(email::text) <> ''
+         AND lower(btrim(email::text)) = $1
+         AND id <> $2::bigint
+       LIMIT 1`,
+      [emailNorm, id]
+    );
+    if (dup.rows[0]?.id) {
+      return {
+        error: {
+          status: 409,
+          code: "CLIENT_EMAIL_DUPLICATE",
+          message: "Another active contact already uses this email address.",
+        },
+      };
+    }
+  }
+
   const status = statusToDb(input.status) ?? "active";
-  const { rowCount } = await pool.query(
-    `UPDATE public.contacts
-     SET name = $1,
-         preferred_name = $2,
-         email = $3,
-         phone = $4,
-         company = $5,
-         agent_role_text = $6,
-         status = $7::public.client_status,
-         notes = $8,
-         primary_address = $9,
-         city = $10,
-         state = $11,
-         zip = $12,
-         updated_at = now()
-     WHERE id = $13::bigint
-       AND deleted_at IS NULL`,
-    [
-      normalizeText(input.name),
-      normalizeText(input.preferredName) || null,
-      normalizeText(input.email),
-      normalizeText(input.phone),
-      normalizeText(input.company),
-      normalizeText(input.role),
-      status,
-      normalizeText(input.notes),
-      normalizeText(input.propertyAddress),
-      normalizeText(input.city),
-      normalizeText(input.state),
-      normalizeText(input.zip),
-      id,
-    ]
-  );
+  let rowCount: number | null;
+  try {
+    const res = await pool.query(
+      `UPDATE public.contacts
+       SET name = $1,
+           preferred_name = $2,
+           email = $3,
+           phone = $4,
+           company = $5,
+           agent_role_text = $6,
+           status = $7::public.client_status,
+           notes = $8,
+           primary_address = $9,
+           city = $10,
+           state = $11,
+           zip = $12,
+           updated_at = now()
+       WHERE id = $13::bigint
+         AND deleted_at IS NULL`,
+      [
+        normalizeText(input.name),
+        normalizeText(input.preferredName) || null,
+        normalizeText(input.email),
+        normalizeText(input.phone),
+        normalizeText(input.company),
+        normalizeText(input.role),
+        status,
+        normalizeText(input.notes),
+        normalizeText(input.propertyAddress),
+        normalizeText(input.city),
+        normalizeText(input.state),
+        normalizeText(input.zip),
+        id,
+      ]
+    );
+    rowCount = res.rowCount;
+  } catch (e) {
+    const code = typeof e === "object" && e !== null && "code" in e ? String((e as { code: unknown }).code) : "";
+    if (code === "23505") {
+      return {
+        error: {
+          status: 409,
+          code: "CLIENT_EMAIL_DUPLICATE",
+          message: "Another active contact already uses this email address.",
+        },
+      };
+    }
+    throw e;
+  }
   if (!rowCount) {
     return { error: { status: 404, code: "CLIENT_NOT_FOUND", message: "Client not found." } };
   }

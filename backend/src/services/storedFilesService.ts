@@ -160,6 +160,8 @@ export async function insertStoredFile(
     sizeBytes: number;
     mimeType: string;
     uploadedByUserId: number | null;
+    /** Defaults to manual_upload */
+    source?: "manual_upload" | "docusign_signed_return" | "google_drive_sync" | "email_inbound";
   }
 ): Promise<FileRowOut> {
   const { rows } = await client.query<{
@@ -177,7 +179,7 @@ export async function insertStoredFile(
        created_at, updated_at
      ) VALUES (
        'transaction', $1, $2, NULL,
-       $3, $4, $5, $6, $7, 'manual_upload',
+       $3, $4, $5, $6, $7, $8::public.file_source,
        now(), now()
      )
      RETURNING id::text, name, size_bytes::text, mime_type, folder_id::text, created_at, uploaded_by_user_id::text`,
@@ -189,6 +191,7 @@ export async function insertStoredFile(
       params.sizeBytes,
       params.mimeType,
       params.uploadedByUserId,
+      params.source ?? "manual_upload",
     ]
   );
   const inserted = rows[0];
@@ -409,9 +412,22 @@ export async function getFileForDownload(
     name: string;
     mime_type: string;
   }>(
-    `SELECT storage_key, name, mime_type
-     FROM stored_files
-     WHERE id = $1 AND project_id = $2 AND deleted_at IS NULL`,
+    `SELECT sf.storage_key, sf.name, sf.mime_type
+     FROM stored_files sf
+     WHERE sf.id = $1::bigint
+       AND sf.deleted_at IS NULL
+       AND (
+         sf.project_id = $2::bigint
+         OR EXISTS (
+           SELECT 1
+           FROM project_document_files pdf
+           JOIN project_documents pd ON pd.id = pdf.project_document_id
+           WHERE pdf.stored_file_id = sf.id
+             AND pd.project_id = $2::bigint
+             AND pd.deleted_at IS NULL
+         )
+       )
+     LIMIT 1`,
     [fileId, projectId]
   );
   return rows[0] ?? null;

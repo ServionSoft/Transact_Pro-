@@ -10,10 +10,22 @@ const backendRoot = path.resolve(
 dotenv.config({ path: path.join(backendRoot, ".env") });
 import cors from "cors";
 import { loadConfig } from "./config/env.js";
+import { getPool } from "./db/pool.js";
 import { registerRoutes } from "./routes/index.js";
+import { handleDocuSignConnect } from "./controllers/docusignConnectController.js";
 
 const config = loadConfig();
 const app = express();
+const pool = getPool(config.databaseUrl);
+const uploadDirAbs = path.resolve(config.uploadDir);
+
+app.post(
+  "/api/docusign/connect",
+  express.raw({ type: "*/*", limit: "25mb" }),
+  (req, res) => {
+    void handleDocuSignConnect(req, res, config, pool, uploadDirAbs);
+  }
+);
 
 app.use(express.json({ limit: "10mb" }));
 app.use(

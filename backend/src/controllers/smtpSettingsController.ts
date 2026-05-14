@@ -3,6 +3,11 @@ import type { Pool } from "pg";
 import type { AppConfig } from "../config/env.js";
 import { currentUser } from "../middleware/auth.js";
 import { deriveSmtpPasswordKeyHex } from "../utils/smtpSecretCrypto.js";
+import fs from "node:fs";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
+import { insertStoredFile, mapFileToApiPayload, absolutePathForStorageKey } from "../services/storedFilesService.js";
+import { storageKeyFor } from "../utils/storedFilesLayout.js";
 import {
   getSmtpSettings,
   testSmtpConnection,
@@ -11,6 +16,8 @@ import {
   type SmtpTestInput,
   type SmtpUpsertInput,
 } from "../services/smtpSettingsService.js";
+
+// Extend controller type to include uploadVendorSignature at runtime.
 
 function parseBool(v: unknown, defaultVal: boolean): boolean {
   if (typeof v === "boolean") return v;
@@ -147,6 +154,79 @@ export function createSmtpSettingsController(pool: Pool, config: AppConfig) {
           success: false,
           error: { code: "SMTP_TEST_FAILED", message: msg },
         });
+      }
+    },
+
+    async uploadVendorSignature(req: Request, res: Response): Promise<void> {
+      const file = req.file as Express.Multer.File | undefined;
+      if (!file) {
+        res.status(400).json({ success: false, error: { code: "NO_FILE", message: 'Expected multipart field "file".' } });
+        return;
+      }
+      const mime = (file.mimetype || "").toLowerCase();
+      const name = (file.originalname || "").toLowerCase();
+      const isPng = mime.includes("png") || name.endsWith(".png");
+      if (!isPng) {
+        try {
+          if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+        } catch {
+          /* ignore */
+        }
+        res.status(422).json({ success: false, error: { code: "PNG_REQUIRED", message: "Signature must be a PNG image." } });
+        return;
+      }
+
+      const projectId = config.crmVaultProjectId;
+      const diskName = `${randomUUID()}.png`;
+      const storageKey = storageKeyFor(projectId, null, diskName);
+      const finalAbs = absolutePathForStorageKey(path.resolve(config.uploadDir), storageKey);
+      try {
+        fs.mkdirSync(path.dirname(finalAbs), { recursive: true });
+        fs.renameSync(file.path, finalAbs);
+      } catch (e) {
+        try {
+          if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+        } catch {
+          /* ignore */
+        }
+        res.status(500).json({ success: false, error: { code: "UPLOAD_MOVE_FAILED", message: "Could not place signature file on disk." } });
+        return;
+      }
+
+      const stat = fs.statSync(finalAbs);
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const stored = await insertStoredFile(client, {
+          projectId,
+          folderId: null,
+          displayName: file.originalname.slice(0, 512) || "vendor-signature.png",
+          storageKey,
+          sizeBytes: stat.size,
+          mimeType: "image/png",
+          uploadedByUserId: Number(currentUser(req)?.id ?? config.defaultUploadUserId ?? null) || null,
+        });
+        await client.query(
+          `UPDATE public.smtp_settings
+           SET vendor_signature_file_id = $1::bigint, updated_at = now()
+           WHERE id = 1`,
+          [Number(stored.id)]
+        );
+        await client.query("COMMIT");
+        res.status(201).json({ success: true, data: { file: mapFileToApiPayload(stored) }, message: "" });
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        try {
+          if (fs.existsSync(finalAbs)) fs.unlinkSync(finalAbs);
+        } catch {
+          /* ignore */
+        }
+        res.status(500).json({
+          success: false,
+          error: { code: "SIGNATURE_SAVE_FAILED", message: err instanceof Error ? err.message : "Could not save signature." },
+        });
+      } finally {
+        client.release();
       }
     },
   };

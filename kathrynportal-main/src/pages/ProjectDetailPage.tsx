@@ -152,7 +152,13 @@ export default function ProjectDetailPage() {
   const sigCounts = useMemo(() => {
     const list = project?.documents ?? [];
     const out = list.filter((d) => d.status === "Out for Signature").length;
-    const signed = list.filter((d) => d.status === "Signed — Needs Upload" || d.status === "Signed").length;
+    const signed = list.filter(
+      (d) =>
+        d.status === "Signed — Needs Upload" ||
+        d.status === "Signed" ||
+        d.status === "Complete" ||
+        d.status === "Completed"
+    ).length;
     const awaiting = list.filter(
       (d) =>
         d.status === "Needs Buyer Signature" ||

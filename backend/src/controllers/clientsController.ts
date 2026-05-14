@@ -84,10 +84,12 @@ export function createClientsController(pool: Pool, config: AppConfig) {
           return;
         }
         res.status(201).json({ success: true, data: { client: result.client }, message: "" });
-      } catch {
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Could not create client.";
+        console.error("[clients] create failed:", err);
         res.status(500).json({
           success: false,
-          error: { code: "CLIENT_CREATE_FAILED", message: "Could not create client." },
+          error: { code: "CLIENT_CREATE_FAILED", message },
         });
       }
     },
@@ -111,10 +113,12 @@ export function createClientsController(pool: Pool, config: AppConfig) {
           return;
         }
         res.json({ success: true, data: { client: result.client }, message: "" });
-      } catch {
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Could not update client.";
+        console.error("[clients] update failed:", err);
         res.status(500).json({
           success: false,
-          error: { code: "CLIENT_UPDATE_FAILED", message: "Could not update client." },
+          error: { code: "CLIENT_UPDATE_FAILED", message },
         });
       }
     },

@@ -19,6 +19,7 @@ export type SmtpSettingsRow = {
   hasPassword: boolean;
   fromEmail: string;
   fromName: string;
+  vendorSignatureFileId: string | null;
 };
 
 export type SmtpUpsertInput = {
@@ -57,6 +58,7 @@ function rowToPublic(r: {
   from_email: string;
   from_name: string;
   has_password: boolean;
+  vendor_signature_file_id: string | null;
 }): SmtpSettingsRow {
   return {
     id: r.id,
@@ -67,6 +69,7 @@ function rowToPublic(r: {
     hasPassword: Boolean(r.has_password),
     fromEmail: r.from_email ?? "",
     fromName: r.from_name ?? "",
+    vendorSignatureFileId: r.vendor_signature_file_id,
   };
 }
 
@@ -79,9 +82,11 @@ export async function getSmtpSettings(pool: Pool): Promise<SmtpSettingsRow> {
     auth_user: string;
     from_email: string;
     from_name: string;
+    vendor_signature_file_id: string | null;
     has_password: boolean;
   }>(
     `SELECT id::text, host, port, secure, auth_user, from_email, from_name,
+            vendor_signature_file_id::text AS vendor_signature_file_id,
             (
               (smtp_password IS NOT NULL AND length(btrim(smtp_password)) > 0)
               OR (password_encrypted IS NOT NULL AND length(btrim(password_encrypted::text)) > 0)
@@ -99,6 +104,7 @@ export async function getSmtpSettings(pool: Pool): Promise<SmtpSettingsRow> {
       hasPassword: false,
       fromEmail: "",
       fromName: "",
+      vendorSignatureFileId: null,
     };
   }
   return rowToPublic(r);
@@ -143,6 +149,7 @@ export async function upsertSmtpSettings(pool: Pool, input: SmtpUpsertInput, key
       updated_at = now()
       WHERE id = 1
       RETURNING id::text, host, port, secure, auth_user, from_email, from_name,
+        vendor_signature_file_id::text AS vendor_signature_file_id,
         (
           (smtp_password IS NOT NULL AND length(btrim(smtp_password)) > 0)
           OR (password_encrypted IS NOT NULL AND length(btrim(password_encrypted::text)) > 0)
@@ -154,6 +161,7 @@ export async function upsertSmtpSettings(pool: Pool, input: SmtpUpsertInput, key
       from_email = $5, from_name = $6, updated_at = now()
       WHERE id = 1
       RETURNING id::text, host, port, secure, auth_user, from_email, from_name,
+        vendor_signature_file_id::text AS vendor_signature_file_id,
         (
           (smtp_password IS NOT NULL AND length(btrim(smtp_password)) > 0)
           OR (password_encrypted IS NOT NULL AND length(btrim(password_encrypted::text)) > 0)
@@ -168,6 +176,7 @@ export async function upsertSmtpSettings(pool: Pool, input: SmtpUpsertInput, key
     auth_user: string;
     from_email: string;
     from_name: string;
+    vendor_signature_file_id: string | null;
     has_password: boolean;
   }>(query, values);
   const out = rows[0];

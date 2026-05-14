@@ -25,6 +25,20 @@ export type AppConfig = {
   publicAppUrl: string;
   /** Hours until invite token expires */
   inviteTtlHours: number;
+  /** DocuSign JWT / Connect (optional until configured) */
+  docusignIntegrationKey: string | undefined;
+  docusignUserId: string | undefined;
+  docusignAccountId: string | undefined;
+  docusignRsaPrivateKey: string | undefined;
+  docusignRsaPrivateKeyPath: string | undefined;
+  /** REST API base, e.g. https://www.docusign.net/restapi (production) */
+  docusignBasePath: string;
+  /** OAuth hostname, e.g. account.docusign.com (production) */
+  docusignOAuthHost: string;
+  /** HMAC key for Connect signature verification (optional in development) */
+  docusignConnectHmacKey: string | undefined;
+  /** When true, logs envelope recipient summary before create and calls listRecipients after (server logs only). */
+  docusignDebugEnvelope: boolean;
 };
 
 export function loadConfig(): AppConfig {
@@ -58,6 +72,17 @@ export function loadConfig(): AppConfig {
     "http://localhost:8080";
   const inviteTtlHours = Math.max(1, Number(process.env.INVITE_TTL_HOURS) || 168);
 
+  const docusignIntegrationKey = process.env.DOCUSIGN_INTEGRATION_KEY?.trim() || undefined;
+  const docusignUserId = process.env.DOCUSIGN_USER_ID?.trim() || undefined;
+  const docusignAccountId = process.env.DOCUSIGN_ACCOUNT_ID?.trim() || undefined;
+  const docusignRsaPrivateKey = process.env.DOCUSIGN_RSA_PRIVATE_KEY?.replace(/\\n/g, "\n").trim() || undefined;
+  const docusignRsaPrivateKeyPath = process.env.DOCUSIGN_RSA_PRIVATE_KEY_PATH?.trim() || undefined;
+  const docusignBasePath =
+    process.env.DOCUSIGN_BASE_PATH?.trim() || "https://www.docusign.net/restapi";
+  const docusignOAuthHost = process.env.DOCUSIGN_OAUTH_HOST?.trim() || "account.docusign.com";
+  const docusignConnectHmacKey = process.env.DOCUSIGN_CONNECT_HMAC_KEY?.trim() || undefined;
+  const docusignDebugEnvelope = process.env.DOCUSIGN_DEBUG_ENVELOPE === "true" || process.env.DOCUSIGN_DEBUG_ENVELOPE === "1";
+
   return {
     port,
     nodeEnv,
@@ -73,5 +98,14 @@ export function loadConfig(): AppConfig {
     refreshTokenTtl,
     publicAppUrl,
     inviteTtlHours,
+    docusignIntegrationKey,
+    docusignUserId,
+    docusignAccountId,
+    docusignRsaPrivateKey,
+    docusignRsaPrivateKeyPath,
+    docusignBasePath,
+    docusignOAuthHost,
+    docusignConnectHmacKey,
+    docusignDebugEnvelope,
   };
 }

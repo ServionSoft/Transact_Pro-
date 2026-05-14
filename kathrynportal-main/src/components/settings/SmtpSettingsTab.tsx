@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { Loader2, Send } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Loader2, Send, Upload } from "lucide-react";
 import { getApiBaseUrl } from "@/lib/apiConfig";
 import { useAuthStore } from "@/store/authStore";
 import {
@@ -8,6 +8,7 @@ import {
   testSmtpConnectionFromApi,
   type SmtpSettingsDto,
 } from "@/api/smtpSettings";
+import { uploadVendorSignaturePng } from "@/api/smtpSignature";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -30,6 +31,9 @@ export default function SmtpSettingsTab() {
   const [fromEmail, setFromEmail] = useState("");
   const [fromName, setFromName] = useState("");
   const [testRecipient, setTestRecipient] = useState("");
+  const [signatureFileId, setSignatureFileId] = useState<string | null>(null);
+  const [uploadingSig, setUploadingSig] = useState(false);
+  const signatureInputRef = useRef<HTMLInputElement | null>(null);
 
   const load = useCallback(async () => {
     if (!api) return;
@@ -44,6 +48,7 @@ export default function SmtpSettingsTab() {
       setPassword("");
       setFromEmail(s.fromEmail);
       setFromName(s.fromName);
+      setSignatureFileId((s as any).vendorSignatureFileId ?? null);
       setTestRecipient((prev) => (prev.trim() ? prev : sessionEmail));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not load SMTP settings.");
@@ -199,6 +204,49 @@ export default function SmtpSettingsTab() {
           <div className="space-y-2">
             <label className="text-sm font-medium text-foreground">From name</label>
             <Input value={fromName} onChange={(e) => setFromName(e.target.value)} placeholder="TransactPro" autoComplete="off" />
+          </div>
+          <div className="space-y-2 md:col-span-2">
+            <label className="text-sm font-medium text-foreground">Vendor signature (PNG) for eSign</label>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                ref={signatureInputRef}
+                type="file"
+                accept="image/png"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0] ?? null;
+                  e.target.value = "";
+                  if (!f) return;
+                  void (async () => {
+                    setUploadingSig(true);
+                    try {
+                      const { file } = await uploadVendorSignaturePng(f);
+                      setSignatureFileId(file.id);
+                      toast.success("Signature uploaded.");
+                    } catch (err) {
+                      toast.error(err instanceof Error ? err.message : "Signature upload failed.");
+                    } finally {
+                      setUploadingSig(false);
+                    }
+                  })();
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                disabled={uploadingSig}
+                onClick={() => signatureInputRef.current?.click()}
+              >
+                {uploadingSig ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Upload className="w-4 h-4 mr-1" />}
+                Upload PNG
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                {signatureFileId ? `Uploaded (file id: ${signatureFileId})` : "No signature uploaded yet."}
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Vendor signer identity is your From email + From name above. Client recipients are selected at transaction send time.
+            </p>
           </div>
           <div className="space-y-2 md:col-span-2">
             <label className="text-sm font-medium text-foreground">Send test email to</label>

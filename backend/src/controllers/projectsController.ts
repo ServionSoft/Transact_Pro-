@@ -47,6 +47,10 @@ function parseCreateBody(body: unknown): ProjectCreateInput | null {
         required: typeof x.required === "boolean" ? x.required : undefined,
         sourceRuleId: typeof x.sourceRuleId === "string" ? x.sourceRuleId : undefined,
         sourceRuleActionId: typeof x.sourceRuleActionId === "string" ? x.sourceRuleActionId : undefined,
+        esignDocumentId: typeof x.esignDocumentId === "string" ? x.esignDocumentId : undefined,
+        attachedFileIds: Array.isArray(x.attachedFileIds)
+          ? x.attachedFileIds.filter((id): id is string => typeof id === "string")
+          : undefined,
       };
     });
   return {
@@ -227,10 +231,12 @@ export function createProjectsController(pool: Pool, config: AppConfig) {
           return;
         }
         res.status(201).json({ success: true, data: { project: result.project }, message: "" });
-      } catch {
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Could not create project.";
+        console.error("[projects] create failed:", err);
         res.status(500).json({
           success: false,
-          error: { code: "PROJECT_CREATE_FAILED", message: "Could not create project." },
+          error: { code: "PROJECT_CREATE_FAILED", message },
         });
       }
     },
@@ -254,10 +260,12 @@ export function createProjectsController(pool: Pool, config: AppConfig) {
           return;
         }
         res.json({ success: true, data: { project: result.project }, message: "" });
-      } catch {
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Could not update project.";
+        console.error("[projects] update failed:", err);
         res.status(500).json({
           success: false,
-          error: { code: "PROJECT_UPDATE_FAILED", message: "Could not update project." },
+          error: { code: "PROJECT_UPDATE_FAILED", message },
         });
       }
     },

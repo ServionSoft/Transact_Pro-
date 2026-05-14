@@ -121,6 +121,11 @@ export interface ProjectDocument {
   /** Pool file ids (`attachments`) linked to this checklist row (M:N with `project_document_files`) */
   attachedFileIds: string[];
   notes: { date: string; text: string; author: string }[];
+  customStatus?: string;
+  sourceRuleId?: string;
+  sourceRuleActionId?: string;
+  /** Vault `esign_documents.id` when linked for DocuSign from library layout */
+  esignDocumentId?: string;
 }
 
 export interface ProjectTask {

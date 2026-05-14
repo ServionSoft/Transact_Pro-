@@ -85,6 +85,7 @@ export default function SettingsPage() {
   const [templatesError, setTemplatesError] = useState<string | null>(null);
   const [templatesReload, setTemplatesReload] = useState(0);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [expandedTemplateId, setExpandedTemplateId] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [newTemplate, setNewTemplate] = useState({ name: "", category: "Agent Email", subject: "", body: "" });
   const [editValues, setEditValues] = useState<Partial<EmailTemplate>>({});
@@ -307,14 +308,15 @@ export default function SettingsPage() {
             </motion.div>
           )}
 
-          <div className="space-y-4">
+          <div className="max-h-[68vh] overflow-y-auto pr-1">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
             {templates.map((template, i) => (
               <motion.div
                 key={template.id}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: i * 0.03 }}
-                className="bg-card border border-border rounded-lg p-5"
+                className="bg-card border border-border rounded-lg p-3"
               >
                 {editingId === template.id ? (
                   <div className="space-y-4">
@@ -334,22 +336,32 @@ export default function SettingsPage() {
                   </div>
                 ) : (
                   <>
-                    <div className="flex items-start justify-between mb-2">
+                    <div className="flex items-start justify-between gap-2 mb-1">
                       <div>
                         <p className="text-sm font-medium text-foreground">{template.name}</p>
                         <p className="text-xs text-muted-foreground">{template.category}</p>
                       </div>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setExpandedTemplateId((prev) => (prev === template.id ? null : template.id))}
+                        >
+                          {expandedTemplateId === template.id ? "Hide" : "View"}
+                        </Button>
                         <Button variant="ghost" size="sm" onClick={() => startEdit(template)}><Edit className="w-3.5 h-3.5" /></Button>
                         <Button variant="ghost" size="sm" onClick={() => deleteTemplate(template.id)} className="text-destructive hover:text-destructive"><Trash2 className="w-3.5 h-3.5" /></Button>
                       </div>
                     </div>
-                    <p className="text-xs text-muted-foreground mb-1"><strong>Subject:</strong> {template.subject}</p>
-                    <p className="text-xs text-muted-foreground whitespace-pre-line line-clamp-3">{template.body}</p>
+                    <p className="text-xs text-muted-foreground truncate"><strong>Subject:</strong> {template.subject}</p>
+                    {expandedTemplateId === template.id && (
+                      <p className="text-xs text-muted-foreground whitespace-pre-line mt-2 border-t border-border pt-2">{template.body}</p>
+                    )}
                   </>
                 )}
               </motion.div>
             ))}
+            </div>
           </div>
         </motion.div>
       )}
@@ -485,6 +497,7 @@ export default function SettingsPage() {
       {activeTab === "roles" && canManageRoles && <RoleProfilesTabComponent />}
 
       {activeTab === "smtp" && canManageSmtp && <SmtpSettingsTab />}
+
 
       {/* Account Tab */}
       {activeTab === "account" && (

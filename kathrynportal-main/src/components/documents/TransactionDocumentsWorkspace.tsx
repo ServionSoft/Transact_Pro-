@@ -11,14 +11,16 @@ import {
   X,
   MessageSquare,
   Pencil,
+  CloudDownload,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { DOC_STATUS_PRESETS } from "@/data/mockData";
-import type { DocumentStatus, FileAttachment } from "@/data/mockData";
+import { DOC_STATUS_PRESETS, CRM_DOCUMENT_VAULT_PROJECT_ID, type DocumentStatus, type FileAttachment } from "@/data/mockData";
 import { useAppStore } from "@/store/appStore";
 import { useAuthStore } from "@/store/authStore";
 import { getApiBaseUrl } from "@/lib/apiConfig";
+import { authFetch } from "@/lib/authFetch";
+import { parseSignerEmailsFromInput, validateSignerEmailListForDocuSign } from "@/lib/parseClientSignerEmails";
 import {
   listProjectStoredFiles,
   uploadProjectStoredFile,
@@ -33,6 +35,7 @@ import {
   createProjectDocumentNoteApi,
   createProjectDocumentApi,
   deleteProjectDocumentApi,
+  getProjectFromApi,
   patchProjectDocumentStatusApi,
 } from "@/api/projects";
 import { Button } from "@/components/ui/button";
@@ -43,6 +46,16 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { hasPermission } from "@/lib/permissions";
+import EsignDraftSheet from "@/components/documents/EsignDraftSheet";
+import {
+  deleteEsignDocumentApi,
+  deleteEsignDraftsByFileApi,
+  listEsignDocumentsApi,
+  sendEsignDocusignApi,
+  syncDocusignCompletionApi,
+  type EsignDocumentDto,
+  type SendEsignDocusignResult,
+} from "@/api/esign";
 
 export type TransactionDocumentsView = "checklist-only" | "pool-only" | "full";
 
@@ -57,6 +70,8 @@ interface DocRow {
   required: boolean;
   sourceRuleId?: string;
   sourceRuleActionId?: string;
+  /** Vault `esign_documents.id` when checklist row is linked to a library layout */
+  esignDocumentId?: string;
   notesCount: number;
   notes: { date: string; text: string; author: string }[];
   attachedFileIds: string[];
@@ -109,8 +124,13 @@ export default function TransactionDocumentsWorkspace({
   const checklistUploadDocIdRef = useRef<string | null>(null);
 
   const [docuSignOpen, setDocuSignOpen] = useState(false);
+  const [esignOpen, setEsignOpen] = useState(false);
+  const [esignPrefill, setEsignPrefill] = useState<{ fileId: string; title: string; key: number } | null>(null);
+  const [openDraftId, setOpenDraftId] = useState<string | null>(null);
+  const [esignDrafts, setEsignDrafts] = useState<EsignDocumentDto[]>([]);
   const [docuSignDocs, setDocuSignDocs] = useState<DocRow[]>([]);
   const [docuSignRecipient, setDocuSignRecipient] = useState("");
+  const [pullingEsignForDocId, setPullingEsignForDocId] = useState<string | null>(null);
   const [docNoteDrafts, setDocNoteDrafts] = useState<Record<string, string>>({});
   const [savingDocNoteId, setSavingDocNoteId] = useState<string | null>(null);
   const [poolAccessDenied, setPoolAccessDenied] = useState(false);
@@ -134,6 +154,7 @@ export default function TransactionDocumentsWorkspace({
         required: d.required,
         sourceRuleId: (d as { sourceRuleId?: string }).sourceRuleId,
         sourceRuleActionId: (d as { sourceRuleActionId?: string }).sourceRuleActionId,
+        esignDocumentId: (d as { esignDocumentId?: string }).esignDocumentId,
         notesCount: (d.notes ?? []).length,
         notes: d.notes ?? [],
         attachedFileIds: d.attachedFileIds ?? [],
@@ -155,7 +176,27 @@ export default function TransactionDocumentsWorkspace({
 
   const attachTargetDoc = useMemo(() => docs.find((d) => d.id === attachDocId), [docs, attachDocId]);
 
-  const downloadPoolFile = useCallback((file: FileAttachment) => {
+  const loadMergedEsignDrafts = useCallback(async (): Promise<EsignDocumentDto[]> => {
+    if (!getApiBaseUrl()) return [];
+    let local: EsignDocumentDto[];
+    try {
+      local = await listEsignDocumentsApi(projectId);
+    } catch {
+      return [];
+    }
+    if (projectId === CRM_DOCUMENT_VAULT_PROJECT_ID) return local;
+    try {
+      const vault = await listEsignDocumentsApi(CRM_DOCUMENT_VAULT_PROJECT_ID);
+      const byId = new Map<string, EsignDocumentDto>();
+      for (const d of vault) byId.set(d.id, d);
+      for (const d of local) byId.set(d.id, d);
+      return Array.from(byId.values());
+    } catch {
+      return local;
+    }
+  }, [projectId]);
+
+  const downloadPoolFile = useCallback(async (file: FileAttachment) => {
     if (!canDownloadDocs) {
       toast.error("You do not have permission to download files.");
       return;
@@ -168,8 +209,46 @@ export default function TransactionDocumentsWorkspace({
       return;
     }
     if (file.downloadUrl) {
+      const url = file.downloadUrl;
+      let path = "";
+      try {
+        path = new URL(url).pathname;
+      } catch {
+        path = "";
+      }
+      const isProtectedStoredDownload =
+        Boolean(getApiBaseUrl()) &&
+        /\/api\/projects\/[^/]+\/stored-files\/[^/]+\/download$/.test(path);
+
+      if (isProtectedStoredDownload) {
+        try {
+          const res = await authFetch(url);
+          if (!res.ok) {
+            let msg = `Download failed (${res.status}).`;
+            try {
+              const j = (await res.json()) as { error?: { message?: string } };
+              if (j?.error?.message) msg = j.error.message;
+            } catch {
+              /* ignore non-JSON body */
+            }
+            toast.error(msg);
+            return;
+          }
+          const blob = await res.blob();
+          const objectUrl = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = objectUrl;
+          a.download = file.name;
+          a.click();
+          URL.revokeObjectURL(objectUrl);
+        } catch (e) {
+          toast.error(e instanceof Error ? e.message : "Download failed.");
+        }
+        return;
+      }
+
       const a = document.createElement("a");
-      a.href = file.downloadUrl;
+      a.href = url;
       a.target = "_blank";
       a.rel = "noopener noreferrer";
       a.download = file.name;
@@ -184,8 +263,11 @@ export default function TransactionDocumentsWorkspace({
   const showChecklist = view !== "pool-only";
   const showPool = view !== "checklist-only";
 
+  /* Load stored-file metadata whenever this workspace is shown (checklist-only, pool-only, or full).
+   * Checklist-only used to skip this because showPool was false — then attachments stayed empty and
+   * checklist download looked up IDs against an empty pool ("No linked file to download"). */
   useEffect(() => {
-    if (!showPool) return;
+    if (!showChecklist && !showPool) return;
     if (!getApiBaseUrl()) return;
     let cancelled = false;
     (async () => {
@@ -212,7 +294,42 @@ export default function TransactionDocumentsWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [projectId, showPool, hydrateProjectFilePoolStore]);
+  }, [projectId, showChecklist, showPool, hydrateProjectFilePoolStore]);
+
+  useEffect(() => {
+    if (!getApiBaseUrl()) return;
+    let cancelled = false;
+    void loadMergedEsignDrafts().then((merged) => {
+      if (!cancelled) setEsignDrafts(merged);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, esignOpen, loadMergedEsignDrafts]);
+
+  const shouldPollEsign = useMemo(() => esignDrafts.some((d) => d.status === "sent"), [esignDrafts]);
+
+  useEffect(() => {
+    if (!getApiBaseUrl() || !shouldPollEsign) return;
+    const id = window.setInterval(() => {
+      void loadMergedEsignDrafts().then((merged) => setEsignDrafts(merged));
+    }, 12_000);
+    return () => window.clearInterval(id);
+  }, [projectId, shouldPollEsign, loadMergedEsignDrafts]);
+
+  const esignStatusRef = useRef<Record<string, string>>({});
+  useEffect(() => {
+    if (!getApiBaseUrl()) return;
+    for (const d of esignDrafts) {
+      const prev = esignStatusRef.current[d.id];
+      if (prev === "sent" && (d.status === "ready_for_send" || d.status === "completed")) {
+        void getProjectFromApi(projectId)
+          .then((p) => upsertProject(p))
+          .catch(() => {});
+      }
+      esignStatusRef.current[d.id] = d.status;
+    }
+  }, [esignDrafts, projectId, upsertProject]);
 
   if (!project) {
     return (
@@ -408,10 +525,10 @@ export default function TransactionDocumentsWorkspace({
     poolFileInputRef.current?.click();
   };
 
-  const runPoolUpload = async (file: File) => {
+  const runPoolUpload = async (file: File): Promise<FileAttachment | null> => {
     if (!canUploadDocs) {
       toast.error("You do not have permission to upload files.");
-      return;
+      return null;
     }
     const targetFolder =
       storageScope === "all" || storageScope === "inbox" ? null : storageScope;
@@ -420,26 +537,39 @@ export default function TransactionDocumentsWorkspace({
         const uploaded = await uploadProjectStoredFile(project.id, file, targetFolder);
         appendProjectAttachmentsStore(project.id, [uploaded]);
         toast.success(`Uploaded “${uploaded.name}” to the pool`);
+        return uploaded;
       } catch (err) {
         toast.warning("Server upload failed; saving locally for this session.", {
           description: err instanceof Error ? err.message : undefined,
         });
         addStoredFileToPoolStore(project.id, file, targetFolder, "Kathryn");
         toast.success(`Uploaded “${file.name}” to the pool (local)`);
+        return null;
       }
     } else {
       addStoredFileToPoolStore(project.id, file, targetFolder, "Kathryn");
       toast.success(`Uploaded “${file.name}” to the pool`);
+      return null;
     }
   };
+
 
   const onPoolFilesPicked = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const input = e.target;
-    void runPoolUpload(file).finally(() => {
-      input.value = "";
-    });
+    void runPoolUpload(file)
+      .then((uploaded) => {
+        if (uploaded?.id) {
+          setEsignPrefill({ fileId: uploaded.id, title: uploaded.name, key: Date.now() });
+          setEsignOpen(true);
+        } else {
+          toast.message("Open eSign Template Builder to prepare this file.");
+        }
+      })
+      .finally(() => {
+        input.value = "";
+      });
   };
 
   const onPoolDrop = (ev: React.DragEvent) => {
@@ -451,7 +581,14 @@ export default function TransactionDocumentsWorkspace({
         description: "Only the first dropped file was added. Upload others separately for DocuSign naming and tabs.",
       });
     }
-    void runPoolUpload(fl[0]);
+    void runPoolUpload(fl[0]).then((uploaded) => {
+      if (uploaded?.id) {
+        setEsignPrefill({ fileId: uploaded.id, title: uploaded.name, key: Date.now() });
+        setEsignOpen(true);
+      } else {
+        toast.message("Open eSign Template Builder to prepare this file.");
+      }
+    });
   };
 
   const movePoolFileToFolder = async (file: FileAttachment, folderId: string | null) => {
@@ -531,6 +668,39 @@ export default function TransactionDocumentsWorkspace({
         toast.success("Removed from pool");
         return;
       } catch (err) {
+        if (err instanceof ApiRequestError && err.status === 409) {
+          const shouldDeleteDrafts = window.confirm(
+            "This file is linked to an eSign template. Delete linked template(s) and then delete this file?"
+          );
+          if (shouldDeleteDrafts) {
+            try {
+              const deletedCount = await deleteEsignDraftsByFileApi(project.id, file.id);
+              await deleteProjectStoredFile(project.id, file.id);
+              const { attachments, fileFolders } = await listProjectStoredFiles(project.id);
+              hydrateProjectFilePoolStore(project.id, { attachments, fileFolders });
+              try {
+                const refreshedDrafts = await loadMergedEsignDrafts();
+                setEsignDrafts(refreshedDrafts);
+                if (openDraftId && !refreshedDrafts.some((draft) => draft.id === openDraftId)) {
+                  setOpenDraftId(null);
+                }
+              } catch {
+                // Keep file deletion success even if draft refresh fails.
+              }
+              toast.success(
+                deletedCount > 0
+                  ? `Deleted ${deletedCount} linked template(s) and removed file.`
+                  : "Removed file."
+              );
+              return;
+            } catch (innerErr) {
+              toast.error("Could not remove linked template + file", {
+                description: innerErr instanceof Error ? innerErr.message : undefined,
+              });
+              return;
+            }
+          }
+        }
         toast.error("Server delete failed", {
           description: err instanceof Error ? err.message : undefined,
         });
@@ -585,13 +755,58 @@ export default function TransactionDocumentsWorkspace({
   };
 
   const downloadDocFirst = (doc: DocRow) => {
-    const firstId = doc.attachedFileIds[0];
-    const file = project.attachments.find((a) => a.id === firstId);
-    if (!file) {
+    const ids = doc.attachedFileIds ?? [];
+    if (ids.length === 0) {
       toast.error("No linked file to download");
       return;
     }
-    downloadPoolFile(file);
+    const firstId = ids[0];
+    const file = project.attachments.find((a) => a.id === firstId);
+    if (file) {
+      void downloadPoolFile(file);
+      return;
+    }
+    const base = getApiBaseUrl();
+    if (!base || !canDownloadDocs) {
+      toast.error("No linked file to download");
+      return;
+    }
+    void (async () => {
+      const url = `${base}/api/projects/${encodeURIComponent(project.id)}/stored-files/${encodeURIComponent(firstId)}/download`;
+      try {
+        const res = await authFetch(url);
+        if (!res.ok) {
+          let msg = `Download failed (${res.status}).`;
+          try {
+            const j = (await res.json()) as { error?: { message?: string } };
+            if (j?.error?.message) msg = j.error.message;
+          } catch {
+            /* ignore */
+          }
+          toast.error(msg);
+          return;
+        }
+        const blob = await res.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = objectUrl;
+        let fname = doc.name.replace(/[\\/:*?"<>|]+/g, "_");
+        const cd = res.headers.get("Content-Disposition");
+        const m = cd?.match(/filename\*?=(?:UTF-8'')?["']?([^"';]+)/i);
+        if (m?.[1]) {
+          try {
+            fname = decodeURIComponent(m[1].trim());
+          } catch {
+            fname = m[1].trim();
+          }
+        }
+        a.download = fname.includes(".") ? fname : `${fname}.pdf`;
+        a.click();
+        URL.revokeObjectURL(objectUrl);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Download failed.");
+      }
+    })();
   };
 
   const openDocuSignSingle = (doc: DocRow) => {
@@ -607,24 +822,191 @@ export default function TransactionDocumentsWorkspace({
     setDocuSignOpen(true);
   };
 
-  const sendDocuSign = () => {
-    const ids = docuSignDocs.map((d) => d.id);
-    bulkSetDocStatusStore(project.id, ids, "Out for Signature");
-    toast.success(
-      `${docuSignDocs.length} document${docuSignDocs.length > 1 ? "s" : ""} marked for DocuSign`,
-      {
-        description: `Recipient ${docuSignRecipient}. Status set to Out for Signature (demo — connect DocuSign API for live envelopes).`,
+  const pullDocuSignImportForRow = async (doc: DocRow) => {
+    if (!getApiBaseUrl()) {
+      toast.error("API is not configured.");
+      return;
+    }
+    const esignId = doc.esignDocumentId?.trim();
+    if (!esignId) {
+      toast.error("This checklist row is not linked to an eSign template. Link a vault layout in Documents first.");
+      return;
+    }
+    const tmpl = esignDrafts.find((e) => e.id === esignId);
+    const vaultProjectId = tmpl?.projectId ?? CRM_DOCUMENT_VAULT_PROJECT_ID;
+    setPullingEsignForDocId(doc.id);
+    try {
+      const result = await syncDocusignCompletionApi(vaultProjectId, esignId);
+      const merged = await loadMergedEsignDrafts();
+      setEsignDrafts(merged);
+      const p = await getProjectFromApi(project.id);
+      upsertProject(p);
+      try {
+        const { attachments, fileFolders } = await listProjectStoredFiles(project.id);
+        hydrateProjectFilePoolStore(project.id, { attachments, fileFolders });
+      } catch {
+        /* pool refresh optional */
       }
-    );
-    setDocuSignOpen(false);
-    setDocuSignDocs([]);
-    setSelected(new Set());
+      if (result.imported) {
+        toast.success("Signed PDF imported from DocuSign", { description: "Checklist status and download should update." });
+      } else if (result.signedStoredFileId) {
+        toast.message("Signed PDF already on file.", { description: `DocuSign status: ${result.docusignStatus}` });
+      } else {
+        toast.message(`DocuSign status: ${result.docusignStatus}`, {
+          description:
+            "Envelope not completed yet, or DocuSign could not be reached. After the client signs, try again—or use a public API URL with Connect.",
+        });
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not import from DocuSign.");
+    } finally {
+      setPullingEsignForDocId(null);
+    }
+  };
+
+  const sendDocuSign = () => {
+    if (!getApiBaseUrl()) {
+      const ids = docuSignDocs.map((d) => d.id);
+      bulkSetDocStatusStore(project.id, ids, "Out for Signature");
+      toast.success(`${docuSignDocs.length} document(s) marked (offline demo).`);
+      setDocuSignOpen(false);
+      setDocuSignDocs([]);
+      setSelected(new Set());
+      return;
+    }
+    if (docuSignDocs.length !== 1) {
+      toast.error("Send one checklist document at a time with live DocuSign.");
+      return;
+    }
+    const doc = docuSignDocs[0];
+    const tmpl =
+      doc.esignDocumentId?.trim()
+        ? esignDrafts.find((e) => e.id === doc.esignDocumentId.trim())
+        : esignDrafts.find((draft) => doc.attachedFileIds.includes(draft.originalFileId));
+    if (!tmpl) {
+      toast.error("Link a file and create an eSign layout in the library first (Documents → open builder on the file).");
+      return;
+    }
+    if (tmpl.status === "sent") {
+      toast.message("Envelope already sent for this template. Status will update when signing completes.");
+      setDocuSignOpen(false);
+      setDocuSignDocs([]);
+      return;
+    }
+    if (tmpl.status !== "ready_for_send" && tmpl.status !== "completed") {
+      toast.error("Open the template in the builder and click Mark Ready before sending.");
+      return;
+    }
+    const parsed = parseSignerEmailsFromInput(docuSignRecipient);
+    if (parsed.length === 0) {
+      toast.error(
+        "Enter at least one valid email. Use comma or newline for extra addresses; only the first signs (others are carbon copies)."
+      );
+      return;
+    }
+    const strict = validateSignerEmailListForDocuSign(parsed);
+    if (strict.ok === false) {
+      toast.error(strict.message);
+      return;
+    }
+    void sendEsignDocusignApi(tmpl.projectId, tmpl.id, {
+      clientEmail: docuSignRecipient.trim(),
+      clientName: client?.name,
+      checklistProjectId: project.id,
+      checklistProjectDocumentId: doc.id,
+    })
+      .then(async (result: SendEsignDocusignResult) => {
+        const ccList = result.carbonCopyEmails ?? [];
+        const ccPart =
+          ccList.length > 0 ? `Carbon copies (notify only): ${ccList.join(", ")}.` : "No carbon copies.";
+        const signer = (result.signerEmail ?? parsed[0] ?? "").trim() || "signer";
+        const tabCount = result.clientSignatureTabCount ?? 0;
+        toast.success("DocuSign envelope sent", {
+          description: `Signer: ${signer} • ${ccPart} Signature tabs: ${tabCount}. DocuSign id: ${result.docusignEnvelopeId}.`,
+        });
+        setDocuSignOpen(false);
+        setDocuSignDocs([]);
+        setSelected(new Set());
+        try {
+          const documents = await loadMergedEsignDrafts();
+          setEsignDrafts(documents);
+          const p = await getProjectFromApi(project.id);
+          upsertProject(p);
+        } catch {
+          /* ignore refresh errors */
+        }
+      })
+      .catch((e) => {
+        toast.error(e instanceof Error ? e.message : "Could not send DocuSign envelope.");
+      });
   };
 
   const attachEmptyHint =
     view === "full"
       ? "All pool files are already linked, or the pool is empty. Upload files in the File pool section above."
       : "All pool files are already linked, or the pool is empty. Upload on the Stored Documents tab first.";
+
+  const draftsSection = (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-card border border-border rounded-lg p-3">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-sm font-semibold text-foreground">Saved eSign Templates</h3>
+        <span className="text-xs text-muted-foreground">{esignDrafts.length} template(s)</span>
+      </div>
+      {esignDrafts.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No saved templates yet.</p>
+      ) : (
+        <div className="space-y-2">
+          {esignDrafts.map((draft) => (
+            <div key={draft.id} className="flex items-center justify-between gap-2 rounded border border-border px-2 py-1.5">
+              <div className="min-w-0">
+                <p className="text-sm truncate">{draft.title}</p>
+                <p className="text-[11px] text-muted-foreground">{draft.status}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setOpenDraftId(draft.id);
+                    setEsignOpen(true);
+                  }}
+                >
+                  Open
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-destructive hover:text-destructive"
+                  onClick={async () => {
+                    if (!window.confirm(`Delete template "${draft.title}"?`)) return;
+                    try {
+                      await deleteEsignDocumentApi(project.id, draft.id);
+                      setEsignDrafts((prev) => prev.filter((x) => x.id !== draft.id));
+                      if (openDraftId === draft.id) setOpenDraftId(null);
+                      toast.success("Template deleted.");
+                    } catch (error) {
+                      if (
+                        error instanceof Error &&
+                        (error.message.toLowerCase().includes("not found") || error.message.toLowerCase().includes("404"))
+                      ) {
+                        setEsignDrafts((prev) => prev.filter((x) => x.id !== draft.id));
+                        if (openDraftId === draft.id) setOpenDraftId(null);
+                        toast.success("Template already removed.");
+                        return;
+                      }
+                      toast.error(error instanceof Error ? error.message : "Could not delete template.");
+                    }
+                  }}
+                >
+                  Delete
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </motion.div>
+  );
 
   const poolSection = (
     poolAccessDenied || !canViewDocs ? (
@@ -909,7 +1291,7 @@ export default function TransactionDocumentsWorkspace({
                     disabled={!canDownloadDocs || renamingFileId === file.id}
                     className="h-7 w-7 p-0"
                     type="button"
-                    onClick={() => downloadPoolFile(file)}
+                    onClick={() => void downloadPoolFile(file)}
                     title="Download"
                   >
                     <Download className="w-3.5 h-3.5" />
@@ -1106,15 +1488,31 @@ export default function TransactionDocumentsWorkspace({
                     </div>
                   </td>
                   <td className="px-3 py-1.5 text-center">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 px-2 text-xs gap-1 text-primary hover:bg-primary/10"
-                      type="button"
-                      onClick={() => openDocuSignSingle(doc)}
-                    >
-                      <ExternalLink className="w-3 h-3" /> Send
-                    </Button>
+                    <div className="flex flex-col items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs gap-1 text-primary hover:bg-primary/10"
+                        type="button"
+                        onClick={() => openDocuSignSingle(doc)}
+                      >
+                        <ExternalLink className="w-3 h-3" /> Send
+                      </Button>
+                      {getApiBaseUrl() && doc.esignDocumentId?.trim() ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-1.5 text-[10px] gap-0.5 text-muted-foreground hover:text-foreground"
+                          type="button"
+                          disabled={pullingEsignForDocId === doc.id}
+                          title="Import signed PDF from DocuSign (use when Connect cannot reach your API, e.g. localhost)"
+                          onClick={() => void pullDocuSignImportForRow(doc)}
+                        >
+                          <CloudDownload className="w-3 h-3 shrink-0" />
+                          {pullingEsignForDocId === doc.id ? "…" : "Pull"}
+                        </Button>
+                      ) : null}
+                    </div>
                   </td>
                   <td className="px-3 py-1.5 text-center">
                     <Button
@@ -1207,6 +1605,15 @@ export default function TransactionDocumentsWorkspace({
             Apply
           </Button>
           <div className="h-6 w-px bg-background/20" />
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => setEsignOpen(true)}
+            className="h-8 text-xs gap-1 bg-background/10 border border-background/20"
+          >
+            <Pencil className="w-3 h-3" /> Prepare eSign Template
+          </Button>
+          <div className="h-6 w-px bg-background/20" />
           <Button size="sm" onClick={openDocuSignBulk} className="h-8 text-xs gap-1 bg-accent text-accent-foreground hover:bg-accent/90">
             <ExternalLink className="w-3 h-3" /> Send to DocuSign
           </Button>
@@ -1230,6 +1637,7 @@ export default function TransactionDocumentsWorkspace({
           <section>
             <h2 className="font-display text-lg font-semibold text-foreground mb-3">File pool</h2>
             {poolSection}
+            <div className="mt-3">{draftsSection}</div>
           </section>
           <section>
             <h2 className="font-display text-lg font-semibold text-foreground mb-3">Checklist &amp; DocuSign</h2>
@@ -1241,9 +1649,15 @@ export default function TransactionDocumentsWorkspace({
         <section className="space-y-3" aria-label="Upload and stored files">
           <h2 className="font-display text-lg font-semibold text-foreground">Your files</h2>
           {poolSection}
+          {draftsSection}
         </section>
       )}
       {view === "checklist-only" && checklistSection}
+      <div className="mt-3">
+        <Button type="button" variant="outline" size="sm" onClick={() => setEsignOpen(true)} className="gap-1">
+          <Pencil className="w-3.5 h-3.5" /> Open eSign Template Builder
+        </Button>
+      </div>
 
       <input
         ref={checklistFileInputRef}
@@ -1342,14 +1756,18 @@ export default function TransactionDocumentsWorkspace({
               <Input
                 value={docuSignRecipient}
                 onChange={(e) => setDocuSignRecipient(e.target.value)}
-                placeholder="recipient@email.com"
+                placeholder="signer@email.com (comma / newline for CC)"
               />
-              <p className="text-[11px] text-muted-foreground">Pre-filled from contact: {client?.name ?? "—"}</p>
-            </div>
-            <div className="bg-accent/10 border border-accent/20 rounded-lg p-3">
               <p className="text-[11px] text-muted-foreground">
-                Demo: statuses update to <strong>Out for Signature</strong>. Connect the DocuSign API to create real
-                envelopes.
+                Pre-filled from contact: {client?.name ?? "—"}. First address signs; extras are carbon copies only.
+              </p>
+            </div>
+            <div className="bg-secondary/40 border border-border rounded-lg p-3">
+              <p className="text-[11px] text-muted-foreground">
+                Requires an eSign template marked <strong>ready_for_send</strong> for the linked file. The first recipient is the only
+                DocuSign signer; vendor signature is merged from SMTP settings into the PDF before send. After signing completes,
+                Connect downloads the combined PDF when <code className="text-[10px]">/api/docusign/connect</code> is reachable on
+                a public URL.
               </p>
             </div>
           </div>
@@ -1363,6 +1781,24 @@ export default function TransactionDocumentsWorkspace({
           </SheetFooter>
         </SheetContent>
       </Sheet>
+      <EsignDraftSheet
+        open={esignOpen}
+        onOpenChange={(open) => {
+          setEsignOpen(open);
+          if (!open) setOpenDraftId(null);
+        }}
+        projectId={project.id}
+        docs={project.documents}
+        attachments={project.attachments}
+        prefillFromUpload={esignPrefill}
+        initialDraftId={openDraftId}
+        defaultClientEmail={client?.email ?? ""}
+        onEnvelopeSent={() => {
+          void getProjectFromApi(project.id)
+            .then((p) => upsertProject(p))
+            .catch(() => {});
+        }}
+      />
     </>
   );
 }

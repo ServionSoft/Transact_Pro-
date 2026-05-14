@@ -5,8 +5,9 @@ import { useAppStore } from "@/store/appStore";
 import { createProjectApi, getProjectFromApi, updateProjectApi } from "@/api/projects";
 import { listClientsFromApi } from "@/api/clients";
 import { listDocumentRulesFromApi } from "@/api/documentRules";
+import { listEsignDocumentsApi, type EsignDocumentDto } from "@/api/esign";
 import { getApiBaseUrl } from "@/lib/apiConfig";
-import { conditionalFormattingRules, type ProjectStage, type ProjectType } from "@/data/mockData";
+import { conditionalFormattingRules, CRM_DOCUMENT_VAULT_PROJECT_ID, type ProjectStage, type ProjectType } from "@/data/mockData";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -47,6 +48,71 @@ function sanitizeDecimal(value: string): string {
 
 function sanitizePercent(value: string): string {
   return sanitizeDecimal(value).replace(/^(\d+(\.\d{0,2})?).*$/, "$1");
+}
+
+/** Rules use "Yes" / "No"; unset must not be treated as "No" or conditional rules misfire. */
+function yesNoToRuleTrigger(v: YesNo): string {
+  if (v === "yes") return "Yes";
+  if (v === "no") return "No";
+  return "";
+}
+
+function ruleTriggerMatches(field: string, actual: string, expect: string): boolean {
+  if (expect === "Any" || expect === "*") return true;
+  const a = actual.trim().toLowerCase();
+  const e = expect.trim().toLowerCase();
+  if (a === e) return true;
+  /* New transaction form uses a single "FHA/VA" loan type; rules may still use FHA or VA. */
+  if (field === "financing" && actual === "FHA/VA" && (e === "fha" || e === "va")) return true;
+  return false;
+}
+
+/** Prefer send-ready layouts when several vault drafts share the same `originalFileId`. */
+function esignTemplatePickScore(d: EsignDocumentDto): number {
+  switch (d.status) {
+    case "ready_for_send":
+      return 5;
+    case "editing":
+      return 4;
+    case "draft_uploaded":
+      return 3;
+    case "sent":
+      return 2;
+    case "completed":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function compareVaultDraftsSameOriginalFile(a: EsignDocumentDto, b: EsignDocumentDto): number {
+  const s = esignTemplatePickScore(b) - esignTemplatePickScore(a);
+  if (s !== 0) return s;
+  return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+}
+
+/** Map vault `stored_files.id` → best `esign_documents.id` for checklist linking (DocuSign). */
+async function loadVaultEsignByOriginalFileIdMap(): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  if (!getApiBaseUrl()) return map;
+  try {
+    const vaultDrafts = await listEsignDocumentsApi(CRM_DOCUMENT_VAULT_PROJECT_ID);
+    const byOriginal = new Map<string, EsignDocumentDto[]>();
+    for (const ed of vaultDrafts) {
+      if (!ed.originalFileId) continue;
+      const list = byOriginal.get(ed.originalFileId) ?? [];
+      list.push(ed);
+      byOriginal.set(ed.originalFileId, list);
+    }
+    for (const [originalId, list] of byOriginal) {
+      if (list.length === 0) continue;
+      list.sort(compareVaultDraftsSameOriginalFile);
+      map.set(originalId, list[0]!.id);
+    }
+  } catch {
+    /* vault e-sign list optional */
+  }
+  return map;
 }
 
 interface AgentParty {
@@ -515,17 +581,16 @@ export default function AddProjectPage() {
     const triggerCtx: Record<string, string> = {
       transactionType: txTypeForRules,
       propertyType: property.propertyType,
-      exemptSeller: property.exemptSeller === "yes" ? "Yes" : "No",
-      hoa: property.hoa === "yes" ? "Yes" : "No",
-      tenantOccupied: property.tenantOccupied === "yes" ? "Yes" : "No",
+      exemptSeller: yesNoToRuleTrigger(property.exemptSeller),
+      hoa: yesNoToRuleTrigger(property.hoa),
+      tenantOccupied: yesNoToRuleTrigger(property.tenantOccupied),
       county: property.county,
       dualAgency: "No",
       financing: transaction.loanType,
     };
-    const matches = (val: string, expect: string) =>
-      expect === "Any" || expect === "*" || val === expect;
+    const matches = (field: string, val: string, expect: string) => ruleTriggerMatches(field, val, expect);
     const ruleMatches = (rule: typeof ruleCatalog[number]) =>
-      rule.isActive && rule.triggers.every((t) => matches(triggerCtx[t.field] ?? "", t.value));
+      rule.isActive && rule.triggers.every((t) => matches(t.field, triggerCtx[t.field] ?? "", t.value));
 
     // 1) standard baseline docs + source rule metadata
     // 2) conditional overlays
@@ -536,6 +601,8 @@ export default function AddProjectPage() {
       section?: string;
       sourceRuleId?: string;
       sourceRuleActionId?: string;
+      /** Vault `stored_files.id` from document rule (PDF). */
+      storedFileId?: string;
     }>();
     ruleCatalog
       .filter((r) => r.kind === "standard" && ruleMatches(r))
@@ -548,6 +615,7 @@ export default function AddProjectPage() {
             section: d.section,
             sourceRuleId: r.id,
             sourceRuleActionId: d.id,
+            storedFileId: d.storedFileId,
           })
         );
       });
@@ -563,6 +631,7 @@ export default function AddProjectPage() {
               required: true,
               sourceRuleId: r.id,
               sourceRuleActionId: a.id,
+              storedFileId: a.storedFileId,
             });
           } else if (a.action === "add-optional") {
             docsByName.set(a.documentName, {
@@ -571,6 +640,7 @@ export default function AddProjectPage() {
               required: false,
               sourceRuleId: r.id,
               sourceRuleActionId: a.id,
+              storedFileId: a.storedFileId,
             });
           } else if (a.action === "mark-na") {
             naSet.add(a.documentName);
@@ -578,17 +648,21 @@ export default function AddProjectPage() {
         })
       );
 
-    const documents = Array.from(docsByName.values()).map((d) => ({
-      id: d.id,
-      name: d.name,
-      required: d.required,
-      sourceRuleId: d.sourceRuleId,
-      sourceRuleActionId: d.sourceRuleActionId,
-      status: (naSet.has(d.name) ? "Other" : "Pending") as "Pending" | "Other",
-      notes: [],
-      attachedFileIds: [] as string[],
-      ...(naSet.has(d.name) ? { customStatus: "N/A" as string } : {}),
-    }));
+    const documents = Array.from(docsByName.values()).map((d) => {
+      const fid = d.storedFileId?.trim();
+      const attachedFileIds = fid && /^\d+$/.test(fid) ? [fid] : ([] as string[]);
+      return {
+        id: d.id,
+        name: d.name,
+        required: d.required,
+        sourceRuleId: d.sourceRuleId,
+        sourceRuleActionId: d.sourceRuleActionId,
+        status: (naSet.has(d.name) ? "Other" : "Pending") as "Pending" | "Other",
+        notes: [] as { date: string; text: string; author: string }[],
+        attachedFileIds,
+        ...(naSet.has(d.name) ? { customStatus: "N/A" as string } : {}),
+      };
+    });
 
     // ---- Compose project record ----
     const linkedClient = clientOptions.find((c) => c.id === clientId);
@@ -623,6 +697,8 @@ export default function AddProjectPage() {
 
     if (apiOn) {
       try {
+        const esignByOriginalFile = await loadVaultEsignByOriginalFileIdMap();
+
         const payload = {
           name: `${property.address} — ${linkedClient?.name?.split(" ").slice(-1)[0] || "New"} ${type === "Listing" ? "Listing" : "Buyer"}`,
           clientId: clientId || (linkedClient?.id ?? ""),
@@ -640,14 +716,20 @@ export default function AddProjectPage() {
           city: property.city,
           state: property.state,
           zip: property.zip,
-          documents: documents.map((d) => ({
-            name: d.name,
-            status: d.status,
-            customStatus: d.customStatus,
-            required: d.required,
-            sourceRuleId: d.sourceRuleId,
-            sourceRuleActionId: d.sourceRuleActionId,
-          })),
+          documents: documents.map((d) => {
+            const fileId = d.attachedFileIds[0];
+            const esignDocumentId = fileId ? esignByOriginalFile.get(fileId) : undefined;
+            return {
+              name: d.name,
+              status: d.status,
+              customStatus: d.customStatus,
+              required: d.required,
+              sourceRuleId: d.sourceRuleId,
+              sourceRuleActionId: d.sourceRuleActionId,
+              attachedFileIds: d.attachedFileIds.length ? d.attachedFileIds : undefined,
+              ...(esignDocumentId ? { esignDocumentId } : {}),
+            };
+          }),
           metadata,
         };
         const saved = isEditMode && id
@@ -1050,9 +1132,16 @@ export default function AddProjectPage() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Timeline</p>
                   <ReviewItem label="Contract Date" value={timeline.contractDate || "Not set"} />
                   <ReviewItem label="Acceptance Date" value={timeline.acceptanceDate || "Not set"} />
+                  <ReviewItem
+                    label="Preapproval"
+                    value={isAllCash ? "N/A — All Cash" : timeline.preapproval || "Not set"}
+                  />
                   <ReviewItem label="EMD to Escrow" value={timeline.emdToEscrow || "Not set"} />
                   <ReviewItem label="Estimated COE" value={timeline.estimatedCOE || "Not set"} />
-                  <ReviewItem label="Loan Contingency" value={timeline.loanContingency || "Not set"} />
+                  <ReviewItem
+                    label="Loan Contingency"
+                    value={isAllCash ? "N/A — All Cash" : timeline.loanContingency || "Not set"}
+                  />
                 </div>
               </div>
 
