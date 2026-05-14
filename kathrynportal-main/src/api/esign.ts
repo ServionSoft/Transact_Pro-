@@ -74,8 +74,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await authFetch(`${base}${path}`, init);
   const payload = await parseJson<T>(response);
   if (!response.ok) {
+    const code = payload?.error?.code;
     const message = payload?.error?.message ?? `Request failed (${response.status})`;
-    throw new Error(message);
+    throw new Error(code ? `${code}: ${message}` : message);
   }
   if (!payload?.data) throw new Error("Invalid API response.");
   return payload.data;

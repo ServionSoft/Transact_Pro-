@@ -2,6 +2,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+/** Backend package root (`backend/`), whether running from `src/` or `dist/`. */
+const backendPackageRoot = path.resolve(__dirname, "..", "..");
 
 export type AppConfig = {
   port: number;
@@ -35,6 +37,8 @@ export type AppConfig = {
   docusignBasePath: string;
   /** OAuth hostname, e.g. account.docusign.com (production) */
   docusignOAuthHost: string;
+  /** Redirect URI for JWT consent URL; must match a URI on the Integration Key (default https://www.docusign.com). */
+  docusignConsentRedirectUri: string;
   /** HMAC key for Connect signature verification (optional in development) */
   docusignConnectHmacKey: string | undefined;
   /** When true, logs envelope recipient summary before create and calls listRecipients after (server logs only). */
@@ -76,10 +80,16 @@ export function loadConfig(): AppConfig {
   const docusignUserId = process.env.DOCUSIGN_USER_ID?.trim() || undefined;
   const docusignAccountId = process.env.DOCUSIGN_ACCOUNT_ID?.trim() || undefined;
   const docusignRsaPrivateKey = process.env.DOCUSIGN_RSA_PRIVATE_KEY?.replace(/\\n/g, "\n").trim() || undefined;
-  const docusignRsaPrivateKeyPath = process.env.DOCUSIGN_RSA_PRIVATE_KEY_PATH?.trim() || undefined;
+  const docusignRsaPrivateKeyPathRaw = process.env.DOCUSIGN_RSA_PRIVATE_KEY_PATH?.trim() || undefined;
+  const docusignRsaPrivateKeyPath =
+    docusignRsaPrivateKeyPathRaw && !path.isAbsolute(docusignRsaPrivateKeyPathRaw)
+      ? path.resolve(backendPackageRoot, docusignRsaPrivateKeyPathRaw)
+      : docusignRsaPrivateKeyPathRaw;
   const docusignBasePath =
     process.env.DOCUSIGN_BASE_PATH?.trim() || "https://www.docusign.net/restapi";
   const docusignOAuthHost = process.env.DOCUSIGN_OAUTH_HOST?.trim() || "account.docusign.com";
+  const docusignConsentRedirectUri =
+    process.env.DOCUSIGN_CONSENT_REDIRECT_URI?.trim() || "https://www.docusign.com";
   const docusignConnectHmacKey = process.env.DOCUSIGN_CONNECT_HMAC_KEY?.trim() || undefined;
   const docusignDebugEnvelope = process.env.DOCUSIGN_DEBUG_ENVELOPE === "true" || process.env.DOCUSIGN_DEBUG_ENVELOPE === "1";
 
@@ -105,6 +115,7 @@ export function loadConfig(): AppConfig {
     docusignRsaPrivateKeyPath,
     docusignBasePath,
     docusignOAuthHost,
+    docusignConsentRedirectUri,
     docusignConnectHmacKey,
     docusignDebugEnvelope,
   };

@@ -40,4 +40,10 @@ registerRoutes(app, config);
 app.listen(config.port, () => {
   // eslint-disable-next-line no-console
   console.log(`API listening on http://localhost:${config.port}`);
+  if (config.docusignAccountId && config.docusignIntegrationKey) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `DocuSign: account_id=${config.docusignAccountId} base=${config.docusignBasePath} — if .env changed, restart this process (watch mode often skips .env reloads).`
+    );
+  }
 });

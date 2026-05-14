@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import docusignPkg from "docusign-esign";
+import { PDFDocument } from "pdf-lib";
 
 type EnvelopesApiCtor = new (apiClient: object) => {
   createEnvelope(
@@ -47,7 +48,29 @@ type DocusignRestErrorShape = {
   errorCode?: string;
   message?: string;
   errors?: Array<{ errorCode?: string; message?: string }>;
+  errorDetails?: Array<{ errorCode?: string; message?: string }>;
 };
+
+/** Axios / docusign-esign may leave `response.data` as Buffer, UTF-8 JSON string, or parsed object. */
+function normalizeAxiosResponseBody(raw: unknown): unknown {
+  if (raw == null) return raw;
+  if (Buffer.isBuffer(raw)) {
+    const t = raw.toString("utf8").trim();
+    if (!t) return null;
+    try {
+      return JSON.parse(t) as unknown;
+    } catch {
+      return t;
+    }
+  }
+  if (raw instanceof ArrayBuffer) {
+    return normalizeAxiosResponseBody(Buffer.from(raw));
+  }
+  if (ArrayBuffer.isView(raw)) {
+    return normalizeAxiosResponseBody(Buffer.from(raw.buffer, raw.byteOffset, raw.byteLength));
+  }
+  return raw;
+}
 
 /** Format DocuSign REST error JSON (or JSON string). */
 function formatDocusignRestPayload(raw: unknown): string | null {
@@ -62,20 +85,53 @@ function formatDocusignRestPayload(raw: unknown): string | null {
     }
   }
   if (typeof raw !== "object") return null;
-  const o = raw as DocusignRestErrorShape;
+  const o = raw as DocusignRestErrorShape & Record<string, unknown>;
+  if (o.error && typeof o.error === "object") {
+    const inner = formatDocusignRestPayload(o.error);
+    if (inner) return inner;
+  }
+  if (Array.isArray(o.errorDetails) && o.errorDetails.length) {
+    const s = o.errorDetails
+      .map((row) => {
+        const r = row as { errorCode?: string; message?: string };
+        const c = r.errorCode ? `${r.errorCode}: ` : "";
+        return `${c}${r.message ?? ""}`.trim();
+      })
+      .filter(Boolean)
+      .join("; ");
+    if (s) return s;
+  }
   if (Array.isArray(o.errors) && o.errors.length) {
     const s = o.errors
       .map((row) => {
-        const c = row.errorCode ? `${row.errorCode}: ` : "";
-        return `${c}${row.message ?? ""}`.trim();
+        const r = row as Record<string, unknown>;
+        const code = (r.errorCode ?? r.ErrorCode ?? "") as string;
+        const msg = (r.message ?? r.Message ?? r.longMessage ?? "") as string;
+        const c = code ? `${String(code)}: ` : "";
+        return `${c}${String(msg)}`.trim();
       })
       .filter(Boolean)
       .join("; ");
     return s || null;
   }
+  const title = (o as { title?: unknown }).title;
+  if (typeof title === "string" && title.trim()) {
+    const c = typeof o.errorCode === "string" ? `${o.errorCode}: ` : "";
+    return `${c}${title.trim()}`.trim();
+  }
   if (typeof o.message === "string") {
     const c = typeof o.errorCode === "string" ? `${o.errorCode}: ` : "";
     return `${c}${o.message}`.trim();
+  }
+  if (typeof o.message === "number" || typeof o.message === "boolean") {
+    const c = typeof o.errorCode === "string" ? `${o.errorCode}: ` : "";
+    return `${c}${String(o.message)}`.trim();
+  }
+  try {
+    const s = JSON.stringify(o);
+    if (s.length > 2 && s !== "{}" && s !== "[]") return s.slice(0, 2000);
+  } catch {
+    /* ignore */
   }
   return null;
 }
@@ -86,14 +142,41 @@ function formatDocusignRestPayload(raw: unknown): string | null {
 function extractDocusignSdkErrorMessage(err: unknown): string {
   if (!(err instanceof Error)) return String(err);
   const e = err as Error & {
-    response?: { data?: unknown; body?: unknown; text?: string };
+    response?: { status?: number; data?: unknown; body?: unknown; text?: string };
   };
-  const fromPayload = formatDocusignRestPayload(e.response?.data ?? e.response?.body);
-  if (fromPayload) return fromPayload;
-  const text = e.response?.text;
-  if (typeof text === "string" && text.trim()) {
-    const parsed = formatDocusignRestPayload(text);
-    if (parsed) return parsed;
+  const status = e.response?.status;
+  const candidates = [e.response?.data, e.response?.body, e.response?.text];
+  let lastNonEmpty: string | null = null;
+  for (const c of candidates) {
+    const normalized = normalizeAxiosResponseBody(c);
+    const fromPayload = formatDocusignRestPayload(normalized);
+    if (fromPayload) return fromPayload;
+    if (normalized != null) {
+      if (typeof normalized === "string" && normalized.trim()) lastNonEmpty = normalized.trim().slice(0, 1500);
+      else if (typeof normalized === "object" && !Buffer.isBuffer(normalized)) {
+        try {
+          const s = JSON.stringify(normalized);
+          if (s.length > 2) lastNonEmpty = s.slice(0, 2000);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  }
+  if (lastNonEmpty) {
+    if (typeof status === "number") return `${lastNonEmpty} (HTTP ${status})`;
+    return lastNonEmpty;
+  }
+  if (typeof status === "number") {
+    if (process.env.NODE_ENV !== "production") {
+      // eslint-disable-next-line no-console
+      console.warn(
+        "[docusign] createEnvelope failed with no parseable body; status=%s dataType=%s",
+        String(status),
+        e.response?.data === undefined ? "undefined" : typeof e.response.data
+      );
+    }
+    return `${err.message} (DocuSign HTTP ${status})`;
   }
   return err.message;
 }
@@ -1058,6 +1141,30 @@ export async function sendEsignTemplateEnvelope(
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Could not merge vendor signature into PDF.";
       return { error: { status: 500, code: "PDF_STAMP_FAILED", message: msg } };
+    }
+  }
+
+  let pdfPageCount = 0;
+  try {
+    const pdfDoc = await PDFDocument.load(pdfBuffer, { ignoreEncryption: true });
+    pdfPageCount = pdfDoc.getPageCount();
+  } catch {
+    /* invalid PDF — DocuSign will reject; no local page check */
+  }
+  if (pdfPageCount > 0) {
+    const tabFieldsForPages = [...clientTabFields, ...vendorStampFields];
+    const bad = tabFieldsForPages
+      .map((f) => ({ field: f, page: tabInt(f.pageNumber, 1) }))
+      .filter(({ page }) => page < 1 || page > pdfPageCount);
+    if (bad.length) {
+      const p = bad[0].page;
+      return {
+        error: {
+          status: 422,
+          code: "TAB_PAGE_OUT_OF_RANGE",
+          message: `This PDF has ${pdfPageCount} page(s), but a signature field targets page ${p}. Open the eSign template builder, switch to that page in the preview, and move the field onto a page that exists (1–${pdfPageCount}).`,
+        },
+      };
     }
   }
 

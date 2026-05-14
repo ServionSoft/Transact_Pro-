@@ -107,7 +107,7 @@ export function createEsignController(pool: Pool, deps: { uploadDirAbs: string; 
     async get(req: Request, res: Response): Promise<void> {
       const projectId = res.locals.numericProjectId as number;
       const documentId = Number(req.params.documentId);
-      if (!Number.isFinite(documentId)) {
+      if (!Number.isFinite(documentId) || documentId <= 0) {
         res.status(400).json({ success: false, error: { code: "BAD_ID", message: "Invalid document id." } });
         return;
       }
@@ -122,7 +122,7 @@ export function createEsignController(pool: Pool, deps: { uploadDirAbs: string; 
     async save(req: Request, res: Response): Promise<void> {
       const projectId = res.locals.numericProjectId as number;
       const documentId = Number(req.params.documentId);
-      if (!Number.isFinite(documentId)) {
+      if (!Number.isFinite(documentId) || documentId <= 0) {
         res.status(400).json({ success: false, error: { code: "BAD_ID", message: "Invalid document id." } });
         return;
       }
@@ -161,7 +161,7 @@ export function createEsignController(pool: Pool, deps: { uploadDirAbs: string; 
     async markReady(req: Request, res: Response): Promise<void> {
       const projectId = res.locals.numericProjectId as number;
       const documentId = Number(req.params.documentId);
-      if (!Number.isFinite(documentId)) {
+      if (!Number.isFinite(documentId) || documentId <= 0) {
         res.status(400).json({ success: false, error: { code: "BAD_ID", message: "Invalid document id." } });
         return;
       }
@@ -179,7 +179,7 @@ export function createEsignController(pool: Pool, deps: { uploadDirAbs: string; 
     async delete(req: Request, res: Response): Promise<void> {
       const projectId = res.locals.numericProjectId as number;
       const documentId = Number(req.params.documentId);
-      if (!Number.isFinite(documentId)) {
+      if (!Number.isFinite(documentId) || documentId <= 0) {
         res.status(400).json({ success: false, error: { code: "BAD_ID", message: "Invalid document id." } });
         return;
       }
@@ -208,7 +208,7 @@ export function createEsignController(pool: Pool, deps: { uploadDirAbs: string; 
     async sendDocusign(req: Request, res: Response): Promise<void> {
       const projectId = res.locals.numericProjectId as number;
       const documentId = Number(req.params.documentId);
-      if (!Number.isFinite(documentId)) {
+      if (!Number.isFinite(documentId) || documentId <= 0) {
         res.status(400).json({ success: false, error: { code: "BAD_ID", message: "Invalid document id." } });
         return;
       }
@@ -251,7 +251,7 @@ export function createEsignController(pool: Pool, deps: { uploadDirAbs: string; 
     async syncDocusignCompletion(req: Request, res: Response): Promise<void> {
       const projectId = res.locals.numericProjectId as number;
       const documentId = Number(req.params.documentId);
-      if (!Number.isFinite(documentId)) {
+      if (!Number.isFinite(documentId) || documentId <= 0) {
         res.status(400).json({ success: false, error: { code: "BAD_ID", message: "Invalid document id." } });
         return;
       }
