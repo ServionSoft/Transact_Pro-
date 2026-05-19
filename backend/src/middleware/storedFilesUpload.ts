@@ -14,7 +14,7 @@ export function createStoredFileMulter(uploadDirAbs: string, config: AppConfig) 
     storage: multer.diskStorage({
       destination(req, _file, cb) {
         if (
-          resolveNumericProjectId(req.params.projectId ?? "", config) === null
+          resolveNumericProjectId((req.params.projectId ?? "") as string, config) === null
         ) {
           cb(new Error("INVALID_PROJECT"), "");
           return;
