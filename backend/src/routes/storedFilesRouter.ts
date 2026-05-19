@@ -50,7 +50,7 @@ export function registerStoredFilesRoutes(
     resolveProject,
     projectAccess,
     (req, res, next) => {
-      upload(req, res, (err) => {
+      upload(req as any, res as any, (err) => {
         if (err) {
           sendMulterError(res, err instanceof Error ? err : new Error(String(err)));
           return;

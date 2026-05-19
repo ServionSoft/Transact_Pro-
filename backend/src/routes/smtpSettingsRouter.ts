@@ -33,7 +33,7 @@ export function registerSmtpSettingsRoutes(app: Express, config: AppConfig, pool
     void ctrl.test(req, res);
   });
   router.post("/smtp-settings/vendor-signature", requirePool(pool), auth, manage, (req, res, next) => {
-    upload(req, res, (err) => {
+    upload(req as any, res as any, (err) => {
       if (err) {
         res.status(400).json({ success: false, error: { code: "UPLOAD_FAILED", message: err instanceof Error ? err.message : String(err) } });
         return;
