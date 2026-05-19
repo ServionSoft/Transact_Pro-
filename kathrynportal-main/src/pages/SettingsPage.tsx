@@ -25,6 +25,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
+import { cn } from "@/lib/utils";
 
 export default function SettingsPage() {
   const location = useLocation();
@@ -233,26 +234,43 @@ export default function SettingsPage() {
       : "No profile assigned";
 
   return (
-    <div className="p-8 max-w-5xl mx-auto">
-      <PageHeader title="Settings" subtitle="Manage templates, team members, and account preferences." />
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="mx-auto flex min-h-0 flex-1 w-full max-w-5xl flex-col overflow-hidden p-6 sm:p-8"
+    >
+      <div className="shrink-0 space-y-4">
+        <PageHeader title="Settings" subtitle="Manage templates, team members, and account preferences." />
 
-      {/* Settings Tabs */}
-      <div className="flex gap-1 border-b border-border mb-6">
-        {settingsTabs.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === tab.id
-                ? "border-accent text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <tab.icon className="w-4 h-4" /> {tab.label}
-          </button>
-        ))}
+        <div className="-mx-1 flex gap-1 overflow-x-auto border-b border-border pb-px">
+          {settingsTabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                "flex shrink-0 items-center gap-2 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors sm:px-4",
+                activeTab === tab.id
+                  ? "border-accent text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <tab.icon className="h-4 w-4 shrink-0" />
+              {tab.label}
+            </button>
+          ))}
+        </div>
       </div>
 
+      <div className="mt-4 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <div
+          className={cn(
+            "min-h-0 flex-1 p-4 sm:p-5",
+            activeTab === "formatting"
+              ? "flex flex-col overflow-hidden"
+              : "overflow-y-auto overscroll-contain",
+          )}
+        >
       {/* Email Templates Tab */}
       {activeTab === "templates" && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
@@ -308,8 +326,7 @@ export default function SettingsPage() {
             </motion.div>
           )}
 
-          <div className="max-h-[68vh] overflow-y-auto pr-1">
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
             {templates.map((template, i) => (
               <motion.div
                 key={template.id}
@@ -361,7 +378,6 @@ export default function SettingsPage() {
                 )}
               </motion.div>
             ))}
-            </div>
           </div>
         </motion.div>
       )}
@@ -397,63 +413,88 @@ export default function SettingsPage() {
             </p>
           )}
 
-          <div className="bg-card border border-border rounded-lg overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full">
+          <div className="min-w-0 overflow-hidden rounded-lg border border-border bg-background">
+              <table className="w-full table-fixed">
                 <thead>
-                  <tr className="text-left text-xs text-muted-foreground uppercase tracking-wider border-b border-border">
-                    <th className="px-6 py-3 font-medium">Name</th>
-                    <th className="px-6 py-3 font-medium">Email</th>
-                    <th className="px-6 py-3 font-medium">Role</th>
-                    <th className="px-6 py-3 font-medium">Profile</th>
-                    <th className="px-6 py-3 font-medium">Status</th>
-                    <th className="px-6 py-3 font-medium">Last Active</th>
-                    <th className="px-6 py-3 font-medium"></th>
+                  <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
+                    <th className="px-3 py-3 font-medium sm:px-4">Name</th>
+                    <th className="hidden px-3 py-3 font-medium sm:table-cell sm:px-4">Email</th>
+                    <th className="px-3 py-3 font-medium sm:px-4">Role</th>
+                    <th className="hidden px-3 py-3 font-medium lg:table-cell lg:px-4">Profile</th>
+                    <th className="px-3 py-3 font-medium sm:px-4">Status</th>
+                    <th className="hidden px-3 py-3 font-medium xl:table-cell xl:px-4">Last active</th>
+                    <th className="w-11 px-2 py-3 sm:w-12" aria-label="Actions" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {team.map((member) => (
                     <tr
                       key={member.id}
-                      className={`hover:bg-secondary/30 transition-colors ${getApiBaseUrl() ? "cursor-pointer" : ""}`}
+                      className={cn(
+                        "transition-colors hover:bg-secondary/30",
+                        getApiBaseUrl() && "cursor-pointer",
+                      )}
                       onClick={() => {
                         if (getApiBaseUrl()) openTeamMemberEditor(member.id);
                       }}
                     >
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
-                            {member.name.split(" ").map(n => n[0]).join("")}
+                      <td className="px-3 py-3 sm:px-4 sm:py-4">
+                        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+                            {member.name.split(" ").map((n) => n[0]).join("")}
                           </div>
-                          <span className="text-sm font-medium text-foreground">{member.name}</span>
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-foreground" title={member.name}>
+                              {member.name}
+                            </p>
+                            <p className="truncate text-xs text-muted-foreground sm:hidden" title={member.email}>
+                              {member.email}
+                            </p>
+                          </div>
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-sm text-muted-foreground">{member.email}</td>
-                      <td className="px-6 py-4">
-                        <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-                          member.role === "Admin" || member.role === "Super Admin"
-                            ? "bg-primary/10 text-primary"
-                            : "bg-secondary text-foreground"
-                        }`}>
+                      <td className="hidden px-3 py-4 text-sm text-muted-foreground sm:table-cell sm:px-4">
+                        <span className="block truncate" title={member.email}>
+                          {member.email}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3 sm:px-4 sm:py-4">
+                        <span
+                          className={cn(
+                            "inline-block max-w-full truncate rounded-full px-2 py-1 text-xs font-medium",
+                            member.role === "Admin" || member.role === "Super Admin"
+                              ? "bg-primary/10 text-primary"
+                              : "bg-secondary text-foreground",
+                          )}
+                          title={member.role}
+                        >
                           {member.role}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-sm text-muted-foreground max-w-[140px] truncate" title={member.permissionProfile ?? ""}>
-                        {member.permissionProfile ?? "—"}
+                      <td
+                        className="hidden px-3 py-4 text-sm text-muted-foreground lg:table-cell lg:px-4"
+                        title={member.permissionProfile ?? ""}
+                      >
+                        <span className="block truncate">{member.permissionProfile ?? "—"}</span>
                       </td>
-                      <td className="px-6 py-4">
-                        <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-                          member.status === "Active" ? "bg-success/15 text-success" :
-                          member.status === "Invited" ? "bg-accent/15 text-accent" :
-                          "bg-muted text-muted-foreground"
-                        }`}>
+                      <td className="px-3 py-3 sm:px-4 sm:py-4">
+                        <span
+                          className={cn(
+                            "inline-block rounded-full px-2 py-1 text-xs font-medium",
+                            member.status === "Active"
+                              ? "bg-success/15 text-success"
+                              : member.status === "Invited"
+                                ? "bg-accent/15 text-accent"
+                                : "bg-muted text-muted-foreground",
+                          )}
+                        >
                           {member.status}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-sm text-muted-foreground">
+                      <td className="hidden px-3 py-4 text-sm text-muted-foreground xl:table-cell xl:px-4">
                         {member.lastActive || "—"}
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-1 py-3 sm:px-2 sm:py-4">
                         {getApiBaseUrl() ? (
                           <Button
                             variant="ghost"
@@ -485,7 +526,6 @@ export default function SettingsPage() {
                   ))}
                 </tbody>
               </table>
-            </div>
           </div>
 
         </motion.div>
@@ -568,6 +608,8 @@ export default function SettingsPage() {
           </div>
         </motion.div>
       )}
-    </div>
+        </div>
+      </div>
+    </motion.div>
   );
 }

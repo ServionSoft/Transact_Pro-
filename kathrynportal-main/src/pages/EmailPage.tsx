@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
+import { getTransactionRecipientSuggestions } from "@/lib/transactionRecipientSuggestions";
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -81,6 +82,26 @@ export default function EmailPage() {
   const [selectedTemplate, setSelectedTemplate] = useState("");
   const [selectedProject, setSelectedProject] = useState("");
   const [selectedProjectDocList, setSelectedProjectDocList] = useState<string>("• [Documents listed here]");
+
+  const linkedProjectForRecipients = useMemo(
+    () => (selectedProject ? projects.find((p) => p.id === selectedProject) : undefined),
+    [projects, selectedProject],
+  );
+  const linkedClientForRecipients = useMemo(() => {
+    const cid = linkedProjectForRecipients?.clientId;
+    if (!cid) return undefined;
+    return clients.find((c) => c.id === cid);
+  }, [clients, linkedProjectForRecipients?.clientId]);
+  const toRecipientSuggestions = useMemo(
+    () => getTransactionRecipientSuggestions(linkedProjectForRecipients, linkedClientForRecipients),
+    [linkedProjectForRecipients, linkedClientForRecipients],
+  );
+
+  const toMatchesSuggestion = useMemo(() => {
+    const t = to.trim().toLowerCase();
+    if (!t) return false;
+    return toRecipientSuggestions.some((s) => s.email.toLowerCase() === t);
+  }, [to, toRecipientSuggestions]);
 
   useEffect(() => {
     if (!apiOn) {
@@ -366,7 +387,35 @@ export default function EmailPage() {
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">To</label>
-              <Input value={to} onChange={e => setTo(e.target.value)} placeholder="recipient@email.com" />
+              {toRecipientSuggestions.length > 0 ? (
+                <Select
+                  value={toMatchesSuggestion ? to.trim() : undefined}
+                  onValueChange={(v) => setTo(v)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Choose recipient from this transaction…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {toRecipientSuggestions.map((row) => (
+                      <SelectItem key={row.email} value={row.email}>
+                        <span className="font-medium">{row.label}</span>
+                        <span className="text-muted-foreground"> · {row.email}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : null}
+              <Input
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                placeholder="recipient@email.com"
+                autoComplete="off"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                {selectedProject
+                  ? "Use the list for contact, parties on the file (buyers, sellers, agents, escrow, TCs), and assigned team—or type any address above."
+                  : "Choose a transaction to enable the recipient list (saved parties and assignees on that file)."}
+              </p>
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Subject</label>

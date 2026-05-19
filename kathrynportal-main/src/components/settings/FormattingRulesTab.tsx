@@ -427,7 +427,11 @@ export default function FormattingRulesTab() {
   };
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="flex min-h-0 flex-1 flex-col overflow-hidden"
+    >
       {rulesLoadState === "loading" && (
         <p className="text-sm text-muted-foreground mb-4">Loading document rules from server…</p>
       )}
@@ -471,8 +475,8 @@ export default function FormattingRulesTab() {
           </Button>
         </div>
       )}
-      <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
-        <div className="max-w-xl">
+      <div className="mb-6 flex shrink-0 items-center justify-between gap-4">
+        <div className="min-w-0 max-w-xl">
           <p className="text-sm text-muted-foreground">
             Define which documents auto-populate for each transaction. <strong>Standard</strong> rules set the baseline checklist; <strong>conditional</strong> rules add or remove documents when specific field values match (HOA, Tenant Occupied, Vacant Land, etc.).
             {" "}
@@ -484,7 +488,7 @@ export default function FormattingRulesTab() {
             )}
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex shrink-0 items-center gap-2">
           <Button variant="outline" onClick={() => openCreate("standard")} className="gap-2" disabled={!canManageRules}>
             <Layers className="w-4 h-4" /> New Standard
           </Button>
@@ -494,10 +498,12 @@ export default function FormattingRulesTab() {
         </div>
       </div>
       {!canManageRules && (
-        <p className="text-xs text-muted-foreground mb-3">You can view rules, but only admins can create, edit, delete, or toggle status.</p>
+        <p className="mb-3 shrink-0 text-xs text-muted-foreground">
+          You can view rules, but only admins can create, edit, delete, or toggle status.
+        </p>
       )}
 
-      <Tabs value={filter} onValueChange={(v) => setFilter(v as typeof filter)} className="mb-4">
+      <Tabs value={filter} onValueChange={(v) => setFilter(v as typeof filter)} className="mb-4 shrink-0">
         <TabsList>
           <TabsTrigger value="all">All ({rules.length})</TabsTrigger>
           <TabsTrigger value="standard">Standard ({rules.filter(r => r.kind === "standard").length})</TabsTrigger>
@@ -505,7 +511,8 @@ export default function FormattingRulesTab() {
         </TabsList>
       </Tabs>
 
-      <div className="space-y-4">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
+        <div className="space-y-4">
         {filtered.map((rule, i) => (
           <motion.div
             key={rule.id}
@@ -617,10 +624,11 @@ export default function FormattingRulesTab() {
         ))}
 
         {filtered.length === 0 && (
-          <div className="text-center py-12 text-muted-foreground text-sm">
+          <div className="py-12 text-center text-sm text-muted-foreground">
             No rules in this view yet.
           </div>
         )}
+        </div>
       </div>
 
       <Dialog open={showCreate} onOpenChange={(open) => { if (!open) { setShowCreate(false); setEditingRule(null); } }}>

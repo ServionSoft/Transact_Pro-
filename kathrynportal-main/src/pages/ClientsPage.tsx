@@ -1,25 +1,98 @@
 import { Link, useNavigate } from "react-router-dom";
-import { Plus, Search } from "lucide-react";
+import {
+  Plus,
+  Search,
+  MoreHorizontal,
+  Mail,
+  Pencil,
+  FolderOpen,
+  Archive,
+  RotateCcw,
+  Users,
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { listClientsFromApi, unarchiveClientApi } from "@/api/clients";
+import { archiveClientApi, listClientsFromApi, unarchiveClientApi } from "@/api/clients";
 import { useAppStore } from "@/store/appStore";
 import { getApiBaseUrl } from "@/lib/apiConfig";
 import { hasPermission } from "@/lib/permissions";
 import { useAuthStore } from "@/store/authStore";
+import type { Client } from "@/data/mockData";
 import PageHeader from "@/components/shared/PageHeader";
 import StatusBadge from "@/components/shared/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { motion } from "framer-motion";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+
+const STATUS_TABS = ["All", "Active", "Inactive", "Prospect"] as const;
+
+function initialsFromName(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+  return (parts[0]![0] + parts[parts.length - 1]![0]).toUpperCase();
+}
+
+function TableSkeletonRows() {
+  return (
+    <>
+      {Array.from({ length: 6 }).map((_, i) => (
+        <TableRow key={i}>
+          <TableCell>
+            <div className="flex items-center gap-3">
+              <Skeleton className="h-9 w-9 rounded-full" />
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-36" />
+                <Skeleton className="h-3 w-48" />
+              </div>
+            </div>
+          </TableCell>
+          <TableCell>
+            <Skeleton className="h-4 w-28" />
+          </TableCell>
+          <TableCell>
+            <Skeleton className="h-5 w-24 rounded-md" />
+          </TableCell>
+          <TableCell>
+            <Skeleton className="h-4 w-28" />
+          </TableCell>
+          <TableCell>
+            <Skeleton className="h-5 w-16 rounded-full" />
+          </TableCell>
+          <TableCell>
+            <Skeleton className="h-4 w-8" />
+          </TableCell>
+          <TableCell className="w-12">
+            <Skeleton className="h-8 w-8 rounded-md" />
+          </TableCell>
+        </TableRow>
+      ))}
+    </>
+  );
+}
 
 export default function ClientsPage() {
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("All");
   const [showArchived, setShowArchived] = useState(false);
-  /** When API is on, start loading so we never flash an empty count before the first fetch. */
   const [loading, setLoading] = useState(() => Boolean(getApiBaseUrl()));
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [rowBusyId, setRowBusyId] = useState<string | null>(null);
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const clients = useAppStore((s) => s.clients);
@@ -48,8 +121,9 @@ export default function ClientsPage() {
   const apiOn = Boolean(getApiBaseUrl());
   const canCreate = !apiOn || hasPermission(user, "clients.create");
   const canArchive = !apiOn || hasPermission(user, "clients.archive");
+  const canEdit = !apiOn || hasPermission(user, "clients.edit");
 
-  const filtered = clients.filter(c => {
+  const filtered = clients.filter((c) => {
     const q = search.toLowerCase();
     const pref = (c.preferredName ?? "").toLowerCase();
     const matchSearch =
@@ -62,145 +136,359 @@ export default function ClientsPage() {
     return matchSearch && matchStatus;
   });
 
-  return (
-    <div className="p-8 max-w-7xl mx-auto">
-      <PageHeader
-        title="Contacts"
-        subtitle={loading ? "Loading..." : `${clients.length} ${showArchived ? "archived" : "total"} contacts`}
-        actions={
-          canCreate ? (
-            <Button onClick={() => navigate("/clients/new")} className="gap-2" disabled={showArchived}>
-              <Plus className="w-4 h-4" /> Add contact
-            </Button>
-          ) : undefined
-        }
-      />
+  const handleArchive = async (client: Client) => {
+    if (!apiOn || !canArchive) {
+      toast.error("You do not have permission to archive contacts.");
+      return;
+    }
+    if (!confirm(`Archive ${client.name}? They will be hidden from the active list; transaction history stays.`)) return;
+    setRowBusyId(client.id);
+    try {
+      await archiveClientApi(client.id);
+      toast.success("Contact archived.");
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not archive contact.");
+    } finally {
+      setRowBusyId(null);
+    }
+  };
 
-      <div className="flex items-center gap-3 mb-6">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Search contacts..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
-        </div>
-        <div className="flex gap-1">
-          {["All", "Active", "Inactive", "Prospect"].map(s => (
-            <button
-              key={s}
-              disabled={showArchived}
-              onClick={() => setFilterStatus(s)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                filterStatus === s
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-secondary text-secondary-foreground hover:bg-muted"
-              } ${showArchived ? "opacity-50 cursor-not-allowed" : ""}`}
+  const handleRestore = async (client: Client) => {
+    if (!canArchive) {
+      toast.error("You do not have permission to restore contacts.");
+      return;
+    }
+    setRowBusyId(client.id);
+    try {
+      await unarchiveClientApi(client.id);
+      toast.success("Contact restored.");
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not restore client.");
+    } finally {
+      setRowBusyId(null);
+    }
+  };
+
+  const renderRowActions = (client: Client) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-muted-foreground"
+          disabled={rowBusyId === client.id}
+          aria-label={`Actions for ${client.name}`}
+        >
+          <MoreHorizontal className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-48">
+        <DropdownMenuItem asChild>
+          <Link to={`/clients/${client.id}`} className="flex cursor-pointer items-center gap-2">
+            <FolderOpen className="h-4 w-4" /> Open
+          </Link>
+        </DropdownMenuItem>
+        {canEdit && !showArchived ? (
+          <DropdownMenuItem asChild>
+            <Link to={`/clients/${client.id}/edit`} className="flex cursor-pointer items-center gap-2">
+              <Pencil className="h-4 w-4" /> Edit
+            </Link>
+          </DropdownMenuItem>
+        ) : null}
+        <DropdownMenuItem asChild>
+          <Link to={`/email?to=${encodeURIComponent(client.email)}`} className="flex cursor-pointer items-center gap-2">
+            <Mail className="h-4 w-4" /> Email
+          </Link>
+        </DropdownMenuItem>
+        {showArchived ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="gap-2"
+              disabled={!canArchive}
+              onClick={() => void handleRestore(client)}
             >
-              {s}
-            </button>
-          ))}
-          <button
-            onClick={() => {
-              setShowArchived((prev) => !prev);
-              setFilterStatus("All");
-            }}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-              showArchived
-                ? "bg-destructive text-destructive-foreground border border-destructive/80"
-                : "bg-destructive/10 text-destructive border border-destructive/30 hover:bg-destructive/15"
-            }`}
-          >
-            Archived
-          </button>
+              <RotateCcw className="h-4 w-4" /> Restore
+            </DropdownMenuItem>
+          </>
+        ) : apiOn && canArchive ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className="gap-2 text-destructive focus:text-destructive" onClick={() => void handleArchive(client)}>
+              <Archive className="h-4 w-4" /> Archive
+            </DropdownMenuItem>
+          </>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
+  const contactCard = (client: Client) => (
+    <div
+      key={client.id}
+      className="rounded-xl border border-border bg-card p-4 shadow-sm"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex min-w-0 flex-1 gap-3">
+          <Avatar className="h-10 w-10 shrink-0 border border-border">
+            <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">{initialsFromName(client.name)}</AvatarFallback>
+          </Avatar>
+          <div className="min-w-0 flex-1">
+            <Link to={`/clients/${client.id}`} className="font-medium text-foreground hover:text-primary">
+              {client.name}
+            </Link>
+            <p className="truncate text-xs text-muted-foreground">{client.email}</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <StatusBadge status={client.status} type="client" />
+              <Badge variant="secondary" className="max-w-[200px] truncate font-normal">
+                {client.role}
+              </Badge>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">{client.company || "—"}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{client.phone || "—"}</p>
+            <div className="mt-2 flex items-center gap-2 text-sm">
+              <span className="text-muted-foreground">Linked</span>
+              <span className="font-semibold tabular-nums text-foreground">{client.projectCount}</span>
+            </div>
+          </div>
         </div>
+        {renderRowActions(client)}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="mx-auto flex min-h-0 flex-1 w-full max-w-7xl flex-col gap-6 overflow-hidden p-6 sm:p-8">
+      <div className="shrink-0">
+        <PageHeader
+          title="Contacts"
+          subtitle={loading ? "Loading…" : `${clients.length} ${showArchived ? "archived" : "total"} contacts`}
+          actions={
+            canCreate ? (
+              <Button onClick={() => navigate("/clients/new")} className="gap-2" disabled={showArchived}>
+                <Plus className="h-4 w-4" /> Add contact
+              </Button>
+            ) : undefined
+          }
+        />
       </div>
 
-      {showArchived && (
-        <p className="text-xs text-muted-foreground mb-3">
-          Archived contacts are hidden from active workflows. Use restore to move them back.
-        </p>
-      )}
-
-      {loadError && (
-        <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
-          <p className="font-medium">Could not load contacts from API.</p>
-          <p className="text-xs mt-1 text-muted-foreground">{loadError}</p>
-          <Button variant="outline" size="sm" className="mt-2" onClick={() => void refresh()}>
-            Retry
-          </Button>
-        </div>
-      )}
-
-      <div className="bg-card border border-border rounded-lg overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="text-left text-xs text-muted-foreground uppercase tracking-wider border-b border-border">
-              <th className="px-6 py-3 font-medium">Name</th>
-              <th className="px-6 py-3 font-medium">Company</th>
-              <th className="px-6 py-3 font-medium">Role</th>
-              <th className="px-6 py-3 font-medium">Phone</th>
-              <th className="px-6 py-3 font-medium">Status</th>
-              <th className="px-6 py-3 font-medium">Transactions</th>
-              <th className="px-6 py-3 font-medium"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {filtered.map((client, i) => (
-              <motion.tr
-                key={client.id}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: i * 0.03 }}
-                className="hover:bg-secondary/30 transition-colors"
-              >
-                <td className="px-6 py-3.5">
-                  <Link to={`/clients/${client.id}`} className="text-sm font-medium text-foreground hover:text-accent">
-                    {client.name}
-                  </Link>
-                  <p className="text-xs text-muted-foreground">{client.email}</p>
-                </td>
-                <td className="px-6 py-3.5 text-sm text-muted-foreground">{client.company}</td>
-                <td className="px-6 py-3.5 text-sm text-muted-foreground">{client.role}</td>
-                <td className="px-6 py-3.5 text-sm text-muted-foreground">{client.phone}</td>
-                <td className="px-6 py-3.5"><StatusBadge status={client.status} type="client" /></td>
-                <td className="px-6 py-3.5 text-sm text-foreground font-medium">{client.projectCount}</td>
-                <td className="px-6 py-3.5">
-                  {showArchived ? (
-                    <button
-                      type="button"
-                      className={`text-sm ${canArchive ? "text-accent hover:underline" : "text-muted-foreground cursor-not-allowed"}`}
-                      disabled={!canArchive}
-                      onClick={async () => {
-                        if (!canArchive) {
-                          toast.error("You do not have permission to restore contacts.");
-                          return;
-                        }
-                        try {
-                          await unarchiveClientApi(client.id);
-                          toast.success("Contact restored.");
-                          void refresh();
-                        } catch (e) {
-                          toast.error(e instanceof Error ? e.message : "Could not restore client.");
-                        }
-                      }}
-                    >
-                      Restore
-                    </button>
-                  ) : (
-                    <Link to={`/clients/${client.id}`} className="text-accent hover:underline text-sm">View</Link>
-                  )}
-                </td>
-              </motion.tr>
-            ))}
-          </tbody>
-        </table>
-        {filtered.length === 0 && (
-          <div className="px-6 py-12 text-center text-muted-foreground text-sm">
-            {showArchived ? "No archived contacts found." : "No contacts found."}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <div className="shrink-0 border-b border-border">
+          <div className="flex flex-col gap-4 p-4 sm:p-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="relative w-full lg:max-w-md">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search by name, email, company, property…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-9"
+                  aria-label="Search contacts"
+                />
+              </div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end sm:gap-4">
+                <Tabs
+                  value={filterStatus}
+                  onValueChange={(v) => setFilterStatus(v)}
+                  className={cn("w-full sm:w-auto", showArchived && "pointer-events-none opacity-50")}
+                >
+                  <TabsList className="grid w-full grid-cols-2 sm:inline-flex sm:w-auto">
+                    {STATUS_TABS.map((s) => (
+                      <TabsTrigger key={s} value={s} className="text-xs sm:text-sm">
+                        {s}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </Tabs>
+                <div className="flex items-center gap-2 sm:shrink-0">
+                  <Switch
+                    id="contacts-archived"
+                    checked={showArchived}
+                    onCheckedChange={(checked) => {
+                      setShowArchived(Boolean(checked));
+                      setFilterStatus("All");
+                    }}
+                  />
+                  <Label htmlFor="contacts-archived" className="cursor-pointer text-sm font-normal text-muted-foreground">
+                    Show archived
+                  </Label>
+                </div>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Linked files counts listings and buyer files tied to each contact. Open a contact for the full list.
+            </p>
           </div>
+
+          {showArchived && (
+            <div className="border-t border-border bg-muted/30 px-4 py-2.5 sm:px-5">
+              <p className="text-xs text-muted-foreground">
+                Archived contacts are hidden from active workflows. Use <strong className="text-foreground">Restore</strong> from the row
+                menu to move them back.
+              </p>
+            </div>
+          )}
+
+          {loadError && (
+            <div className="border-t border-destructive/30 bg-destructive/5 px-4 py-4 sm:px-5">
+              <p className="text-sm font-medium text-destructive">Could not load contacts from API.</p>
+              <p className="mt-1 text-xs text-muted-foreground">{loadError}</p>
+              <Button variant="outline" size="sm" className="mt-3" onClick={() => void refresh()}>
+                Retry
+              </Button>
+            </div>
+          )}
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        {loading ? (
+          <>
+            <div className="hidden md:block">
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="min-w-[200px]">Name</TableHead>
+                    <TableHead className="hidden lg:table-cell">Company</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead className="hidden xl:table-cell">Phone</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="whitespace-nowrap">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="cursor-help border-b border-dotted border-muted-foreground/60">Linked files</span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-xs">
+                          Number of listings and buyer files in Transactions that use this contact.
+                        </TooltipContent>
+                      </Tooltip>
+                    </TableHead>
+                    <TableHead className="w-12 text-right">
+                      <span className="sr-only">Actions</span>
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  <TableSkeletonRows />
+                </TableBody>
+              </Table>
+            </div>
+            <div className="space-y-3 p-4 md:hidden">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="rounded-xl border border-border p-4">
+                  <div className="flex gap-3">
+                    <Skeleton className="h-10 w-10 rounded-full" />
+                    <div className="flex-1 space-y-2">
+                      <Skeleton className="h-4 w-40" />
+                      <Skeleton className="h-3 w-full" />
+                      <Skeleton className="h-5 w-24" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
+            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-muted">
+              <Users className="h-7 w-7 text-muted-foreground" />
+            </div>
+            <p className="font-medium text-foreground">{showArchived ? "No archived contacts" : "No contacts match"}</p>
+            <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+              {showArchived
+                ? "Switch off “Show archived” to return to your active list."
+                : "Try adjusting search or status filters, or add a new contact."}
+            </p>
+            {canCreate && !showArchived ? (
+              <Button className="mt-6 gap-2" onClick={() => navigate("/clients/new")}>
+                <Plus className="h-4 w-4" /> Add contact
+              </Button>
+            ) : null}
+          </div>
+        ) : (
+          <>
+            <div className="hidden md:block">
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="min-w-[200px]">Name</TableHead>
+                    <TableHead className="hidden lg:table-cell">Company</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead className="hidden xl:table-cell">Phone</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="whitespace-nowrap">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="cursor-help border-b border-dotted border-muted-foreground/60">Linked files</span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-xs">
+                          Number of listings and buyer files in Transactions that use this contact.
+                        </TooltipContent>
+                      </Tooltip>
+                    </TableHead>
+                    <TableHead className="w-12 text-right">
+                      <span className="sr-only">Actions</span>
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filtered.map((client) => (
+                    <TableRow key={client.id}>
+                      <TableCell>
+                        <div className="flex items-center gap-3">
+                          <Avatar className="h-9 w-9 shrink-0 border border-border">
+                            <AvatarFallback className="bg-primary/10 text-[10px] font-semibold text-primary">
+                              {initialsFromName(client.name)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0">
+                            <Link
+                              to={`/clients/${client.id}`}
+                              className="block truncate font-medium text-foreground hover:text-primary"
+                              title={client.name}
+                            >
+                              {client.name}
+                            </Link>
+                            <p className="truncate text-xs text-muted-foreground" title={client.email}>
+                              {client.email}
+                            </p>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="hidden lg:table-cell">
+                        <span className="line-clamp-2 text-muted-foreground">{client.company || "—"}</span>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="secondary" className="max-w-[160px] truncate font-normal xl:max-w-[200px]" title={client.role}>
+                          {client.role}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="hidden text-muted-foreground xl:table-cell">{client.phone || "—"}</TableCell>
+                      <TableCell>
+                        <StatusBadge status={client.status} type="client" />
+                      </TableCell>
+                      <TableCell
+                        className="tabular-nums font-medium"
+                        title={
+                          client.projectCount === 1
+                            ? "1 listing or buyer file linked to this contact."
+                            : `${client.projectCount} listings and buyer files linked to this contact.`
+                        }
+                      >
+                        {client.projectCount}
+                      </TableCell>
+                      <TableCell className="text-right">{renderRowActions(client)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <div className="space-y-3 p-4 md:hidden">{filtered.map((client) => contactCard(client))}</div>
+          </>
         )}
+        </div>
       </div>
     </div>
   );

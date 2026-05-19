@@ -7,6 +7,7 @@ import {
   Calendar as CalendarIcon,
   ListTodo,
   RefreshCw,
+  Inbox,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { addDays, endOfWeek, isWithinInterval, parseISO, startOfDay, startOfWeek } from "date-fns";
@@ -34,6 +35,8 @@ import { cn } from "@/lib/utils";
 import PageHeader from "@/components/shared/PageHeader";
 import StatusBadge from "@/components/shared/StatusBadge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 
 const STAGE_CHART_ORDER: ProjectStage[] = ["Listing Prep", "Listing Complete", "In Escrow", "Ready to Close", "Closed"];
@@ -128,6 +131,130 @@ function listItemToLite(row: ProjectListItem): TxLite {
     nextStepDate: row.nextStepDate ?? "",
     openTasks: open,
   };
+}
+
+function greetingForHour(): string {
+  const h = new Date().getHours();
+  if (h < 12) return "Good morning";
+  if (h < 17) return "Good afternoon";
+  return "Good evening";
+}
+
+type StatIcon = typeof FolderKanban;
+
+type DeadlineBarRow = { day: string; n: number; lines: string[] };
+
+function DeadlineBarTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: ReadonlyArray<{ payload?: DeadlineBarRow }>;
+}) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0]?.payload;
+  if (!row || row.n <= 0) return null;
+  const lines = row.lines ?? [];
+
+  return (
+    <div className="rounded-md border border-border bg-popover px-2.5 py-2 text-xs shadow-md max-w-[min(22rem,calc(100vw-2rem))] z-50">
+      <p className="font-semibold text-foreground mb-1">{row.day}</p>
+      <p className="text-[11px] text-muted-foreground mb-1.5">
+        {row.n} deadline{row.n === 1 ? "" : "s"}
+      </p>
+      <ul className="space-y-0.5 text-[11px] text-foreground leading-snug max-h-[min(50vh,280px)] overflow-y-auto pr-0.5">
+        {lines.map((line, i) => (
+          <li key={i} className="line-clamp-2 border-l-2 border-primary/40 pl-1.5">
+            {line}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** Compact metric tile (pattern inspired by 21st.dev / shadcn dashboard cards). */
+function DashboardStatCard({
+  label,
+  value,
+  icon: Icon,
+  delay = 0,
+  to,
+}: {
+  label: string;
+  value: number;
+  icon: StatIcon;
+  delay?: number;
+  /** When set, entire card navigates (must align with user permissions). */
+  to?: string;
+}) {
+  const card = (
+    <Card
+      className={cn(
+        "h-full border-border/70 bg-gradient-to-br from-card via-card to-muted/15",
+        "shadow-sm transition-shadow duration-200 hover:shadow-md hover:border-border",
+        to && "cursor-pointer",
+      )}
+    >
+      <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0 p-3 pb-1">
+        <CardTitle className="text-[11px] font-medium leading-snug text-muted-foreground">{label}</CardTitle>
+        <span
+          className="flex shrink-0 rounded-md bg-primary/8 p-1.5 text-primary ring-1 ring-border/70"
+          aria-hidden
+        >
+          <Icon className="h-3.5 w-3.5" />
+        </span>
+      </CardHeader>
+      <CardContent className="p-3 pt-0">
+        <p className="text-2xl font-semibold tabular-nums tracking-tight text-foreground">{value}</p>
+      </CardContent>
+    </Card>
+  );
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay, type: "spring", stiffness: 420, damping: 32 }}
+      whileHover={{ y: -2 }}
+      className="h-full"
+    >
+      {to ? (
+        <Link
+          to={to}
+          className="block h-full rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
+          aria-label={`Open ${label}`}
+        >
+          {card}
+        </Link>
+      ) : (
+        card
+      )}
+    </motion.div>
+  );
+}
+
+function DashboardEmptyState({
+  title,
+  description,
+  compact,
+}: {
+  title: string;
+  description: string;
+  compact?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-border/80 bg-muted/20 px-4 text-center",
+        compact ? "py-4" : "py-8",
+      )}
+    >
+      <Inbox className={cn("text-muted-foreground/60", compact ? "h-6 w-6" : "h-8 w-8")} aria-hidden />
+      <p className="text-xs font-medium text-foreground">{title}</p>
+      <p className="text-[11px] text-muted-foreground max-w-[220px]">{description}</p>
+    </div>
+  );
 }
 
 export default function DashboardPage() {
@@ -250,19 +377,28 @@ export default function DashboardPage() {
     return STAGE_CHART_ORDER.filter((s) => counts[s] > 0).map((name) => ({ name, value: counts[name] }));
   }, [txLites]);
 
-  const deadlineBarData = useMemo(() => {
+  const deadlineBarData = useMemo((): DeadlineBarRow[] => {
     const today = startOfDay(new Date());
-    const days: { day: string; n: number }[] = [];
+    const days: DeadlineBarRow[] = [];
     for (let i = 0; i < 14; i++) {
       const d = addDays(today, i);
-      days.push({ day: d.toLocaleDateString(undefined, { month: "short", day: "numeric" }), n: 0 });
+      days.push({
+        day: d.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+        n: 0,
+        lines: [],
+      });
     }
     for (const e of events) {
       if (e.type !== "deadline") continue;
       const d = safeParseDay(e.date);
       if (!d) continue;
       const diff = Math.floor((d.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
-      if (diff >= 0 && diff < 14) days[diff].n += 1;
+      if (diff < 0 || diff >= 14) continue;
+      days[diff].n += 1;
+      const title = e.title?.trim() || "Deadline";
+      const addr = e.propertyAddress?.trim();
+      const addrShort = addr ? addr.split(",")[0]?.trim() || addr : "";
+      days[diff].lines.push(addrShort ? `${title} · ${addrShort}` : title);
     }
     return days;
   }, [events]);
@@ -303,14 +439,44 @@ export default function DashboardPage() {
       });
     }
     out.sort((a, b) => (a.urgent === b.urgent ? 0 : a.urgent ? -1 : 1));
-    return out.slice(0, 6);
+    return out.slice(0, 25);
   }, [txLites, events, canViewProjects]);
 
   const upcomingDeadlineSlice = useMemo(() => {
-    return events
-      .filter((e) => e.type === "deadline")
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .slice(0, 5);
+    const dl = events.filter((e) => e.type === "deadline");
+    if (!dl.length) return [];
+
+    const today0 = startOfDay(new Date());
+    let anchor: Date | null = null;
+
+    for (const e of dl) {
+      const d = safeParseDay(e.date);
+      if (!d) continue;
+      const sd = startOfDay(d);
+      if (sd < today0) continue;
+      if (!anchor || sd < anchor) anchor = sd;
+    }
+
+    if (!anchor) {
+      for (const e of dl) {
+        const d = safeParseDay(e.date);
+        if (!d) continue;
+        const sd = startOfDay(d);
+        if (!anchor || sd < anchor) anchor = sd;
+      }
+    }
+
+    if (!anchor) {
+      return [...dl].sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title)).slice(0, 15);
+    }
+
+    const t0 = anchor.getTime();
+    return dl
+      .filter((e) => {
+        const d = safeParseDay(e.date);
+        return d && startOfDay(d).getTime() === t0;
+      })
+      .sort((a, b) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id));
   }, [events]);
 
   const tableRows = useMemo(() => {
@@ -327,28 +493,51 @@ export default function DashboardPage() {
   const firstName = displayName.split(/\s+/)[0] || displayName;
 
   const statCards = useMemo(() => {
-    const out: { label: string; value: number; icon: typeof FolderKanban }[] = [];
+    const out: { label: string; value: number; icon: typeof FolderKanban; to?: string }[] = [];
     if (canViewProjects) {
-      out.push({ label: "Active transactions", value: stats.activeTx, icon: FolderKanban });
+      out.push({
+        label: "Active transactions",
+        value: stats.activeTx,
+        icon: FolderKanban,
+        to: "/projects",
+      });
     }
     out.push(
-      { label: "Active contacts", value: stats.activeClientsCount, icon: Users },
-      { label: "Calendar deadlines", value: stats.upcomingDeadlines, icon: CalendarIcon },
+      {
+        label: "Active contacts",
+        value: stats.activeClientsCount,
+        icon: Users,
+        to: canViewClients ? "/clients" : undefined,
+      },
+      { label: "Calendar deadlines", value: stats.upcomingDeadlines, icon: CalendarIcon, to: "/calendar" },
     );
     if (canViewProjects) {
       out.push(
-        { label: "Next steps this week", value: stats.dueThisWeek, icon: AlertTriangle },
-        { label: "Open tasks", value: stats.openTasksTotal, icon: ListTodo },
+        {
+          label: "Next steps this week",
+          value: stats.dueThisWeek,
+          icon: AlertTriangle,
+          to: "/projects",
+        },
+        { label: "Open tasks", value: stats.openTasksTotal, icon: ListTodo, to: "/tasks" },
       );
     }
     return out;
-  }, [canViewProjects, stats.activeTx, stats.activeClientsCount, stats.dueThisWeek, stats.openTasksTotal, stats.upcomingDeadlines]);
+  }, [
+    canViewClients,
+    canViewProjects,
+    stats.activeTx,
+    stats.activeClientsCount,
+    stats.dueThisWeek,
+    stats.openTasksTotal,
+    stats.upcomingDeadlines,
+  ]);
 
   return (
-    <div className="flex flex-col gap-3 p-4 md:p-6 max-w-[1600px] mx-auto h-[calc(100dvh-4.5rem)] min-h-[520px] max-h-[920px]">
+    <div className="mx-auto flex min-h-0 flex-1 w-full max-w-[1600px] flex-col gap-3 overflow-hidden bg-gradient-to-b from-muted/25 via-background to-background p-4 md:p-6">
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 shrink-0">
         <PageHeader
-          title={`Good morning, ${firstName}`}
+          title={`${greetingForHour()}, ${firstName}`}
           subtitle="Live snapshot — refresh or revisit this page to update."
           className="mb-0"
         />
@@ -372,31 +561,33 @@ export default function DashboardPage() {
         )}
       >
         {statCards.map((card, i) => (
-          <motion.div
+          <DashboardStatCard
             key={card.label}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.04 }}
-            className="rounded-lg border border-border/80 bg-card/80 backdrop-blur-sm px-3 py-2.5 shadow-sm"
-          >
-            <div className="flex items-center justify-between gap-2 mb-1">
-              <span className="text-[11px] font-medium text-muted-foreground leading-tight">{card.label}</span>
-              <card.icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-            </div>
-            <p className="text-xl font-semibold tabular-nums tracking-tight">{card.value}</p>
-          </motion.div>
+            label={card.label}
+            value={card.value}
+            icon={card.icon}
+            delay={i * 0.04}
+            to={card.to}
+          />
         ))}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 flex-1 min-h-0">
         <div className="lg:col-span-5 flex flex-col gap-2 min-h-0">
-          <div className="rounded-lg border border-border/80 bg-card/60 p-2 flex-1 min-h-[140px] flex flex-col">
-            <p className="text-[11px] font-semibold text-muted-foreground px-1 mb-1">Pipeline by stage</p>
-            <div className="flex-1 min-h-[120px]">
+          <Card className="flex-1 min-h-[140px] flex flex-col border-border/80 bg-card/90 shadow-sm overflow-hidden backdrop-blur-sm">
+            <CardHeader className="px-3 py-2 pb-0 space-y-0">
+              <CardTitle className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Pipeline by stage
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-2 pt-1 flex-1 flex flex-col min-h-[120px]">
               {!canViewProjects ? (
-                <p className="text-xs text-muted-foreground p-2">Transaction pipeline is not available for your role.</p>
+                <DashboardEmptyState
+                  title="Not available"
+                  description="Transaction pipeline is not available for your role."
+                />
               ) : stageChartData.length === 0 ? (
-                <p className="text-xs text-muted-foreground p-2">No transactions to chart.</p>
+                <DashboardEmptyState title="No pipeline data" description="No transactions to chart yet." />
               ) : (
                 <ResponsiveContainer width="100%" height="100%" minHeight={140}>
                   <PieChart>
@@ -418,44 +609,59 @@ export default function DashboardPage() {
                   </PieChart>
                 </ResponsiveContainer>
               )}
-            </div>
-          </div>
-          <div className="rounded-lg border border-border/80 bg-card/60 p-2 flex-1 min-h-[120px] flex flex-col">
-            <p className="text-[11px] font-semibold text-muted-foreground px-1 mb-1">Deadlines · next 14 days</p>
-            <div className="flex-1 min-h-[100px]">
+            </CardContent>
+          </Card>
+          <Card className="flex-1 min-h-[120px] flex flex-col border-border/80 bg-card/90 shadow-sm overflow-hidden backdrop-blur-sm">
+            <CardHeader className="px-3 py-2 pb-0 space-y-0">
+              <CardTitle className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Deadlines · next 14 days
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-2 pt-1 flex-1 flex flex-col min-h-[100px]">
               <ResponsiveContainer width="100%" height="100%" minHeight={110}>
                 <BarChart data={deadlineBarData} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" />
                   <XAxis dataKey="day" tick={{ fontSize: 9 }} interval={2} />
                   <YAxis allowDecimals={false} width={22} tick={{ fontSize: 10 }} />
-                  <Tooltip />
-                  <Bar dataKey="n" fill="#0ea5e9" radius={[3, 3, 0, 0]} />
+                  <Tooltip content={<DeadlineBarTooltip />} cursor={{ fill: "hsl(var(--muted) / 0.35)" }} />
+                  <Bar dataKey="n" name="Deadlines" fill="hsl(var(--primary))" radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         </div>
 
-        <div className="lg:col-span-4 flex flex-col min-h-0 rounded-lg border border-border/80 bg-card/60 overflow-hidden">
-          <div className="px-3 py-2 border-b border-border/80 flex items-center justify-between shrink-0">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Attention</h2>
+        <Card className="lg:col-span-4 flex flex-col min-h-0 border-border/80 bg-card/90 shadow-sm overflow-hidden backdrop-blur-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 px-3 py-2 pb-2">
+            <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Attention</CardTitle>
             {canViewProjects ? (
-              <Link to="/projects" className="text-[11px] text-accent hover:underline flex items-center gap-0.5">
+              <Link
+                to="/projects"
+                className="text-[11px] font-medium text-primary hover:underline inline-flex items-center gap-0.5"
+              >
                 All <ArrowRight className="w-3 h-3" />
               </Link>
             ) : (
               <span className="text-[11px] text-muted-foreground">Calendar and deadlines</span>
             )}
-          </div>
-          <div className="overflow-y-auto flex-1 min-h-0">
+          </CardHeader>
+          <Separator />
+          <div className="overflow-y-auto flex-1 min-h-0 p-1">
             {attentionItems.length === 0 ? (
-              <p className="text-xs text-muted-foreground p-3">Nothing urgent in the next week.</p>
+              <DashboardEmptyState
+                title="All clear"
+                description="Nothing urgent in the next week based on next steps and deadlines."
+              />
             ) : (
               attentionItems.map((item, i) => (
                 <motion.div key={item.key} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.03 }}>
                   <Link
                     to={item.href}
-                    className={`block px-3 py-2 border-b border-border/40 last:border-0 hover:bg-secondary/40 transition-colors ${item.urgent ? "border-l-2 border-l-destructive" : ""}`}
+                    className={cn(
+                      "block rounded-lg mx-1 my-0.5 px-2.5 py-2 border border-transparent",
+                      "hover:bg-accent/40 hover:border-border/60 transition-colors",
+                      item.urgent && "border-l-2 border-l-destructive rounded-l-md",
+                    )}
                   >
                     <p className="text-xs font-medium text-foreground line-clamp-2">{item.title}</p>
                     <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-1">{item.sub}</p>
@@ -464,18 +670,38 @@ export default function DashboardPage() {
               ))
             )}
           </div>
-        </div>
+        </Card>
 
-        <div className="lg:col-span-3 flex flex-col min-h-0 rounded-lg border border-border/80 bg-card/60 overflow-hidden">
-          <div className="px-3 py-2 border-b border-border/80 flex items-center justify-between shrink-0">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Deadlines</h2>
-            <Link to="/calendar" className="text-[11px] text-accent hover:underline flex items-center gap-0.5">
+        <Card className="lg:col-span-3 flex flex-col min-h-0 border-border/80 bg-card/90 shadow-sm overflow-hidden backdrop-blur-sm">
+          <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0 px-3 py-2 pb-2">
+            <div className="min-w-0">
+              <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Deadlines</CardTitle>
+              <p className="text-[10px] font-normal normal-case tracking-normal text-muted-foreground mt-0.5 leading-snug">
+                {upcomingDeadlineSlice.length > 0 ? (
+                  <>
+                    {upcomingDeadlineSlice.length} deadline{upcomingDeadlineSlice.length === 1 ? "" : "s"} on{" "}
+                    <span className="font-medium text-foreground/80">{upcomingDeadlineSlice[0].date}</span>
+                    {upcomingDeadlineSlice.length > 6 ? " — scroll for full list" : null}
+                  </>
+                ) : (
+                  "No deadlines in loaded range"
+                )}
+              </p>
+            </div>
+            <Link
+              to="/calendar"
+              className="text-[11px] font-medium text-primary hover:underline inline-flex items-center gap-0.5 shrink-0 pt-0.5"
+            >
               Cal <ArrowRight className="w-3 h-3" />
             </Link>
-          </div>
-          <div className="overflow-y-auto flex-1 min-h-0">
+          </CardHeader>
+          <Separator />
+          <div className="overflow-y-auto flex-1 min-h-0 p-1">
             {upcomingDeadlineSlice.length === 0 ? (
-              <p className="text-xs text-muted-foreground p-3">No deadline events in the loaded date range.</p>
+              <DashboardEmptyState
+                title="No deadlines"
+                description="No deadline events in the loaded date range."
+              />
             ) : (
               upcomingDeadlineSlice.map((event, i) => {
                 const pid = event.projectId?.trim() ?? "";
@@ -487,14 +713,14 @@ export default function DashboardPage() {
                       <p className="text-xs font-medium line-clamp-2">{event.title}</p>
                     </div>
                     <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-1">{event.propertyAddress}</p>
-                    <p className="text-[10px] text-accent font-medium mt-0.5">{event.date}</p>
+                    <p className="text-[10px] text-primary font-medium mt-0.5">{event.date}</p>
                   </>
                 );
                 return (
                   <motion.div key={event.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.04 }}>
                     <Link
                       to={projectHref ?? "/calendar"}
-                      className="block px-3 py-2 border-b border-border/40 last:border-0 hover:bg-secondary/40"
+                      className="block rounded-lg mx-1 my-0.5 px-2.5 py-2 border border-transparent hover:bg-accent/40 hover:border-border/60 transition-colors"
                     >
                       {inner}
                     </Link>
@@ -503,25 +729,33 @@ export default function DashboardPage() {
               })
             )}
           </div>
-        </div>
+        </Card>
       </div>
 
-      <div className="rounded-lg border border-border/80 bg-card/60 flex flex-col flex-1 min-h-[140px] max-h-[220px] shrink-0 overflow-hidden">
-        <div className="px-3 py-2 border-b border-border/80 flex items-center justify-between shrink-0">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Active transactions</h2>
+      <Card className="flex flex-col flex-1 min-h-[140px] max-h-[220px] shrink-0 overflow-hidden border-border/80 bg-card/90 shadow-sm backdrop-blur-sm">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 px-3 py-2 pb-2 shrink-0">
+          <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Active transactions
+          </CardTitle>
           {canViewProjects ? (
-            <Link to="/projects" className="text-[11px] text-accent hover:underline flex items-center gap-0.5">
+            <Link to="/projects" className="text-[11px] font-medium text-primary hover:underline inline-flex items-center gap-0.5">
               Open list <ArrowRight className="w-3 h-3" />
             </Link>
           ) : (
             <span className="text-[11px] text-muted-foreground">Restricted</span>
           )}
-        </div>
+        </CardHeader>
+        <Separator />
         <div className="overflow-auto flex-1 min-h-0">
           {!canViewProjects ? (
-            <p className="text-xs text-muted-foreground px-3 py-6 text-center">You do not have permission to view transactions. Use Calendar for dates that apply to you.</p>
+            <div className="px-3 py-4">
+              <DashboardEmptyState
+                title="Transactions restricted"
+                description="You do not have permission to view transactions. Use Calendar for dates that apply to you."
+              />
+            </div>
           ) : (
-          <table className="w-full text-xs">
+            <table className="w-full text-xs">
             <thead>
               <tr className="text-left text-[10px] text-muted-foreground uppercase tracking-wider border-b border-border/60 bg-muted/20">
                 <th className="px-2 py-1.5 font-medium">Property</th>
@@ -535,8 +769,12 @@ export default function DashboardPage() {
             <tbody className="divide-y divide-border/50">
               {tableRows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-2 py-4 text-muted-foreground text-center">
-                    {apiOn && liveRows === null && loading ? "Loading…" : "No active transactions."}
+                  <td colSpan={6} className="px-2 py-3">
+                    {apiOn && liveRows === null && loading ? (
+                      <p className="text-center text-xs text-muted-foreground py-4">Loading…</p>
+                    ) : (
+                      <DashboardEmptyState compact title="No active transactions" description="Closed files are hidden from this snapshot." />
+                    )}
                   </td>
                 </tr>
               ) : (
@@ -550,7 +788,7 @@ export default function DashboardPage() {
                   return (
                     <tr key={row.id} className="hover:bg-secondary/30">
                       <td className="px-2 py-1.5">
-                        <Link to={`/projects/${row.id}`} className="font-medium text-foreground hover:text-accent line-clamp-1">
+                        <Link to={`/projects/${row.id}`} className="font-medium text-foreground hover:text-primary line-clamp-1">
                           {row.propertyAddress.split(",")[0]}
                         </Link>
                       </td>
@@ -561,7 +799,7 @@ export default function DashboardPage() {
                       </td>
                       <td className="px-2 py-1.5 text-muted-foreground max-w-[140px] truncate hidden md:table-cell">{row.nextStep}</td>
                       <td className="px-2 py-1.5">
-                        <Link to={`/projects/${row.id}`} className="text-accent hover:underline">
+                        <Link to={`/projects/${row.id}`} className="text-primary hover:underline">
                           →
                         </Link>
                       </td>
@@ -573,7 +811,7 @@ export default function DashboardPage() {
           </table>
           )}
         </div>
-      </div>
+      </Card>
     </div>
   );
 }

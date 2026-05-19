@@ -12,6 +12,7 @@ import {
   MessageSquare,
   Pencil,
   CloudDownload,
+  Folder,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
@@ -21,6 +22,7 @@ import { useAuthStore } from "@/store/authStore";
 import { getApiBaseUrl } from "@/lib/apiConfig";
 import { authFetch } from "@/lib/authFetch";
 import { parseSignerEmailsFromInput, validateSignerEmailListForDocuSign } from "@/lib/parseClientSignerEmails";
+import { getTransactionRecipientSuggestions } from "@/lib/transactionRecipientSuggestions";
 import {
   listProjectStoredFiles,
   uploadProjectStoredFile,
@@ -38,7 +40,11 @@ import {
   getProjectFromApi,
   patchProjectDocumentStatusApi,
 } from "@/api/projects";
+import StatusBadge from "@/components/shared/StatusBadge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { documentChecklistSummary, documentRowAccentClass } from "@/lib/documentChecklistUtils";
+import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -81,16 +87,24 @@ export interface TransactionDocumentsWorkspaceProps {
   projectId: string;
   view: TransactionDocumentsView;
   allowPoolUpload?: boolean;
+  /** Constrain height + inner scroll when rendered inside transaction detail tabs. */
+  embeddedInTransactionTab?: boolean;
 }
 
 export default function TransactionDocumentsWorkspace({
   projectId,
   view,
   allowPoolUpload = true,
+  embeddedInTransactionTab = false,
 }: TransactionDocumentsWorkspaceProps) {
   const project = useAppStore((s) => s.projects.find((p) => p.id === projectId));
   const client = useAppStore((s) => s.clients.find((c) => c.id === project?.clientId));
   const user = useAuthStore((s) => s.user);
+
+  const docuSignRecipientSuggestions = useMemo(
+    () => getTransactionRecipientSuggestions(project ?? null, client ?? null),
+    [project, client],
+  );
 
   const setDocStatusStore = useAppStore((s) => s.setDocStatus);
   const bulkSetDocStatusStore = useAppStore((s) => s.bulkSetDocStatus);
@@ -130,6 +144,13 @@ export default function TransactionDocumentsWorkspace({
   const [esignDrafts, setEsignDrafts] = useState<EsignDocumentDto[]>([]);
   const [docuSignDocs, setDocuSignDocs] = useState<DocRow[]>([]);
   const [docuSignRecipient, setDocuSignRecipient] = useState("");
+  const docuSignRecipientSelectValue = useMemo(() => {
+    const parsed = parseSignerEmailsFromInput(docuSignRecipient);
+    if (parsed.length !== 1) return undefined;
+    const lower = parsed[0].toLowerCase();
+    const hit = docuSignRecipientSuggestions.find((s) => s.email.toLowerCase() === lower);
+    return hit ? hit.email : undefined;
+  }, [docuSignRecipient, docuSignRecipientSuggestions]);
   const [pullingEsignForDocId, setPullingEsignForDocId] = useState<string | null>(null);
   const [docNoteDrafts, setDocNoteDrafts] = useState<Record<string, string>>({});
   const [savingDocNoteId, setSavingDocNoteId] = useState<string | null>(null);
@@ -161,6 +182,8 @@ export default function TransactionDocumentsWorkspace({
       })),
     [project]
   );
+
+  const checklistSummary = useMemo(() => documentChecklistSummary(docs), [docs]);
 
   const filteredPoolFiles = useMemo(() => {
     if (!project?.attachments) return [];
@@ -1016,11 +1039,23 @@ export default function TransactionDocumentsWorkspace({
         </p>
       </motion.div>
     ) : (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-card border border-border rounded-lg overflow-hidden">
-      <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] min-h-[360px]">
-        <div className="border-r border-border bg-secondary/20 p-3 flex flex-col">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 px-2">Folders</p>
-          <div className="flex-1 space-y-0.5">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className={cn(
+        "bg-card border border-border rounded-lg overflow-hidden",
+        embeddedInTransactionTab && "flex min-h-0 flex-1 flex-col",
+      )}
+    >
+      <div
+        className={cn(
+          "grid grid-cols-1 md:grid-cols-[220px_1fr]",
+          embeddedInTransactionTab ? "min-h-0 flex-1" : "min-h-[360px]",
+        )}
+      >
+        <div className="border-r border-border bg-secondary/20 p-3 flex min-h-0 flex-col">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 px-2 shrink-0">Folders</p>
+          <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto overscroll-contain pr-0.5">
             <button
               type="button"
               onClick={() => setStorageScope("all")}
@@ -1051,7 +1086,10 @@ export default function TransactionDocumentsWorkspace({
                         storageScope === folder.id ? "bg-accent/15 text-accent-foreground font-medium" : "hover:bg-muted"
                       }`}
                     >
-                      📁 {folder.name}
+                      <span className="inline-flex min-w-0 items-center gap-1.5 truncate">
+                        <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        {folder.name}
+                      </span>
                     </button>
                     <Button
                       type="button"
@@ -1079,7 +1117,10 @@ export default function TransactionDocumentsWorkspace({
                             storageScope === sub.id ? "bg-accent/15 text-accent-foreground font-medium" : "hover:bg-muted"
                           }`}
                         >
-                          📁 {sub.name}
+                          <span className="inline-flex min-w-0 items-center gap-1.5 truncate">
+                            <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            {sub.name}
+                          </span>
                         </button>
                         <Button
                           type="button"
@@ -1146,7 +1187,10 @@ export default function TransactionDocumentsWorkspace({
         </div>
 
         <div
-          className="p-4 border-2 border-dashed border-transparent rounded-lg m-2 transition-colors hover:border-border/80"
+          className={cn(
+            "m-2 flex min-h-0 flex-col rounded-lg border-2 border-dashed border-transparent p-4 transition-colors hover:border-border/80",
+            embeddedInTransactionTab && "overflow-hidden",
+          )}
           onDragOver={(e) => e.preventDefault()}
           onDrop={allowPoolUpload && canUploadDocs ? onPoolDrop : undefined}
         >
@@ -1184,7 +1228,12 @@ export default function TransactionDocumentsWorkspace({
                 : "PDF and Word · Upload one file at a time. Link to checklist rows on the Document Checklist tab."}
           </p>
           {filteredPoolFiles.length > 0 ? (
-            <div className="space-y-1">
+            <div
+              className={cn(
+                "space-y-1",
+                embeddedInTransactionTab && "min-h-0 flex-1 overflow-y-auto overscroll-contain pr-0.5",
+              )}
+            >
               {filteredPoolFiles.map((file) => (
                 <div
                   key={file.id}
@@ -1323,17 +1372,59 @@ export default function TransactionDocumentsWorkspace({
   );
 
   const checklistSection = (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={view === "full" ? "pb-8" : "pb-24"}>
-      <div className="bg-card border border-border rounded-lg overflow-hidden">
-        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-          <h3 className="font-display font-semibold text-foreground text-sm">
-            Document checklist · {docs.length} documents
-          </h3>
-          <p className="text-xs text-muted-foreground">{project.type}</p>
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className={cn(
+        embeddedInTransactionTab ? "flex min-h-0 flex-1 flex-col overflow-hidden" : view === "full" ? "pb-8" : "pb-24",
+      )}
+    >
+      <div
+        className={cn(
+          "bg-card border border-border rounded-lg overflow-hidden",
+          embeddedInTransactionTab && "flex min-h-0 flex-1 flex-col",
+        )}
+      >
+        <div className="shrink-0 space-y-2 border-b border-border px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="font-display text-sm font-semibold text-foreground">
+              Document checklist · {docs.length} documents
+            </h3>
+            <p className="text-xs text-muted-foreground">{project.type}</p>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            <Badge variant="secondary" className="text-[10px] font-medium">
+              {checklistSummary.complete}/{checklistSummary.total} complete
+            </Badge>
+            {checklistSummary.outForSignature > 0 ? (
+              <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-800 dark:text-amber-200">
+                Out for signature · {checklistSummary.outForSignature}
+              </Badge>
+            ) : null}
+            {checklistSummary.needsSignature > 0 ? (
+              <Badge variant="outline" className="border-orange-500/40 bg-orange-500/10 text-[10px] text-orange-800 dark:text-orange-200">
+                Needs signature · {checklistSummary.needsSignature}
+              </Badge>
+            ) : null}
+            {checklistSummary.pending > 0 ? (
+              <Badge variant="outline" className="text-[10px]">
+                Pending · {checklistSummary.pending}
+              </Badge>
+            ) : null}
+          </div>
         </div>
-        <div className="overflow-x-auto">
+        <div
+          className={cn(
+            embeddedInTransactionTab ? "min-h-0 flex-1 overflow-y-auto overscroll-contain" : "overflow-x-auto",
+          )}
+        >
           <table className="w-full text-sm">
-            <thead className="bg-secondary/40 text-xs text-muted-foreground uppercase tracking-wider">
+            <thead
+              className={cn(
+                "bg-secondary/40 text-xs text-muted-foreground uppercase tracking-wider",
+                embeddedInTransactionTab && "sticky top-0 z-10 bg-secondary/95 backdrop-blur-sm",
+              )}
+            >
               <tr>
                 <th className="px-3 py-2 w-8">
                   <Checkbox
@@ -1356,7 +1447,11 @@ export default function TransactionDocumentsWorkspace({
               {docs.map((doc) => (
                 <tr
                   key={doc.id}
-                  className={`hover:bg-secondary/30 ${selected.has(doc.id) ? "bg-accent/5" : ""}`}
+                  className={cn(
+                    "hover:bg-secondary/30",
+                    documentRowAccentClass(doc.status),
+                    selected.has(doc.id) && "bg-accent/5",
+                  )}
                 >
                   <td className="px-3 py-1.5">
                     <Checkbox
@@ -1368,16 +1463,19 @@ export default function TransactionDocumentsWorkspace({
                   <td className="px-3 py-1.5">
                     <div className="flex items-center gap-2">
                       <span className="text-foreground font-medium truncate">{doc.name}</span>
-                      {doc.required && (
-                        <span className="text-[9px] bg-destructive/10 text-destructive px-1 py-0.5 rounded font-semibold uppercase">
+                      {doc.required ? (
+                        <Badge variant="destructive" className="h-4 px-1 text-[9px] font-semibold uppercase tracking-wide">
                           Req
-                        </span>
-                      )}
-                      {doc.sourceRuleId && (
-                        <span className="text-[9px] bg-secondary text-muted-foreground px-1 py-0.5 rounded font-semibold">
+                        </Badge>
+                      ) : null}
+                      {doc.sourceRuleId ? (
+                        <Badge variant="secondary" className="h-4 px-1 text-[9px] font-semibold">
                           rule #{doc.sourceRuleId}
-                        </span>
-                      )}
+                        </Badge>
+                      ) : null}
+                      {embeddedInTransactionTab ? (
+                        <StatusBadge status={doc.status} className="hidden text-[10px] sm:inline-flex sm:px-1.5 sm:py-0" />
+                      ) : null}
                     </div>
                   </td>
                   <td className="px-3 py-1.5">
@@ -1646,11 +1744,18 @@ export default function TransactionDocumentsWorkspace({
         </div>
       )}
       {view === "pool-only" && (
-        <section className="space-y-3" aria-label="Upload and stored files">
-          <h2 className="font-display text-lg font-semibold text-foreground">Your files</h2>
-          {poolSection}
-          {draftsSection}
-        </section>
+        embeddedInTransactionTab ? (
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden" aria-label="Upload and stored files">
+            {poolSection}
+            <div className="shrink-0">{draftsSection}</div>
+          </div>
+        ) : (
+          <section className="space-y-3" aria-label="Upload and stored files">
+            <h2 className="font-display text-lg font-semibold text-foreground">Your files</h2>
+            {poolSection}
+            {draftsSection}
+          </section>
+        )
       )}
       {view === "checklist-only" && checklistSection}
       <div className="mt-3">
@@ -1753,13 +1858,30 @@ export default function TransactionDocumentsWorkspace({
             </div>
             <div className="space-y-2">
               <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Recipient</label>
+              {docuSignRecipientSuggestions.length > 0 ? (
+                <Select value={docuSignRecipientSelectValue} onValueChange={(v) => setDocuSignRecipient(v)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Choose signer from this transaction…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {docuSignRecipientSuggestions.map((row) => (
+                      <SelectItem key={row.email} value={row.email}>
+                        <span className="font-medium">{row.label}</span>
+                        <span className="text-muted-foreground"> · {row.email}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : null}
               <Input
                 value={docuSignRecipient}
                 onChange={(e) => setDocuSignRecipient(e.target.value)}
                 placeholder="signer@email.com (comma / newline for CC)"
+                autoComplete="off"
               />
               <p className="text-[11px] text-muted-foreground">
-                Pre-filled from contact: {client?.name ?? "—"}. First address signs; extras are carbon copies only.
+                Quick pick: contact, parties on the file (buyers, sellers, agents, escrow, TCs), and assigned team. First address signs; extras are carbon copies only. You can still type or paste any
+                addresses.
               </p>
             </div>
             <div className="bg-secondary/40 border border-border rounded-lg p-3">
@@ -1793,6 +1915,7 @@ export default function TransactionDocumentsWorkspace({
         prefillFromUpload={esignPrefill}
         initialDraftId={openDraftId}
         defaultClientEmail={client?.email ?? ""}
+        recipientEmailSuggestions={docuSignRecipientSuggestions}
         onEnvelopeSent={() => {
           void getProjectFromApi(project.id)
             .then((p) => upsertProject(p))

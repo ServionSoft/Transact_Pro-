@@ -26,6 +26,7 @@ import { getApiBaseUrl } from "@/lib/apiConfig";
 import PdfJsViewer from "@/components/documents/PdfJsViewer";
 import { getSmtpSettingsFromApi, type SmtpSettingsDto } from "@/api/smtpSettings";
 import { parseSignerEmailsFromInput, validateSignerEmailListForDocuSign } from "@/lib/parseClientSignerEmails";
+import type { TransactionRecipientSuggestion } from "@/lib/transactionRecipientSuggestions";
 
 type Props = {
   open: boolean;
@@ -37,6 +38,8 @@ type Props = {
   initialDraftId?: string | null;
   /** Pre-fills client email for DocuSign send */
   defaultClientEmail?: string;
+  /** Contact, metadata parties (buyers/sellers/agents/escrow/TCs), and assignees for the signer quick-pick */
+  recipientEmailSuggestions?: TransactionRecipientSuggestion[];
   onEnvelopeSent?: () => void;
 };
 
@@ -69,6 +72,7 @@ export default function EsignDraftSheet({
   prefillFromUpload,
   initialDraftId,
   defaultClientEmail = "",
+  recipientEmailSuggestions = [],
   onEnvelopeSent,
 }: Props) {
   const isEditingExistingEntry = Boolean(initialDraftId);
@@ -93,6 +97,13 @@ export default function EsignDraftSheet({
   const [smtpSettings, setSmtpSettings] = useState<SmtpSettingsDto | null>(null);
   const [vendorSignatureObjectUrl, setVendorSignatureObjectUrl] = useState<string | null>(null);
   const [clientSendEmail, setClientSendEmail] = useState("");
+  const clientSendEmailSelectValue = useMemo(() => {
+    const parsed = parseSignerEmailsFromInput(clientSendEmail);
+    if (parsed.length !== 1) return undefined;
+    const lower = parsed[0].toLowerCase();
+    const hit = recipientEmailSuggestions.find((s) => s.email.toLowerCase() === lower);
+    return hit ? hit.email : undefined;
+  }, [clientSendEmail, recipientEmailSuggestions]);
   const [sendingEnvelope, setSendingEnvelope] = useState(false);
   const [downloadingSignedPdf, setDownloadingSignedPdf] = useState(false);
   const [syncingDocuSign, setSyncingDocuSign] = useState(false);
@@ -910,13 +921,31 @@ export default function EsignDraftSheet({
                     <code className="text-[11px]">POST /api/docusign/connect</code> on a public URL so completed envelopes import into this project.
                     Templates stay reusable after each completed envelope.
                   </p>
+                  {recipientEmailSuggestions.length > 0 ? (
+                    <Select value={clientSendEmailSelectValue} onValueChange={(v) => setClientSendEmail(v)}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Choose signer from this transaction…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {recipientEmailSuggestions.map((row) => (
+                          <SelectItem key={row.email} value={row.email}>
+                            <span className="font-medium">{row.label}</span>
+                            <span className="text-muted-foreground"> · {row.email}</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : null}
                   <Input
                     type="text"
-                    autoComplete="email"
+                    autoComplete="off"
                     placeholder="Signer email (comma / newline for CC copies)"
                     value={clientSendEmail}
                     onChange={(e) => setClientSendEmail(e.target.value)}
                   />
+                  <p className="text-[11px] text-muted-foreground">
+                    Quick pick lists contact, parties on the file (buyers, sellers, agents, escrow, TCs), and assigned team; you can still type any address.
+                  </p>
                   <Button type="button" className="gap-2" disabled={sendingEnvelope} onClick={() => void sendDocusignFromBuilder()}>
                     <Send className="w-4 h-4" /> {sendingEnvelope ? "Sending…" : "Send envelope"}
                   </Button>
