@@ -1,16 +1,10 @@
-// Session-only in-memory store backed by Zustand. Acts as a single source of
-// truth for clients, projects, tasks, calendar events, reminders, sent emails,
-// and email templates. When VITE_API_URL is set, `clients` starts empty and is
-// filled from the API (no mock seed flash). Without an API URL, clients seed
-// from mock data for local demo.
+// Session-only in-memory store backed by Zustand. Hydrated from the API per page;
+// no sample transactions/contacts are seeded at startup.
 
 import { create } from "zustand";
-import { getApiBaseUrl } from "@/lib/apiConfig";
 import {
-  clients as seedClients,
-  projects as seedProjects,
-  calendarEvents as seedCalendar,
-  reminderDrafts as seedReminders,
+  createCrmDocumentVaultProject,
+  CRM_DOCUMENT_VAULT_PROJECT_ID,
   type Client,
   type Project,
   type ProjectStage,
@@ -24,8 +18,7 @@ import {
   type DocumentStatus,
   type FileAttachment,
   type ProjectFolder,
-  CRM_DOCUMENT_VAULT_PROJECT_ID,
-} from "@/data/mockData";
+} from "@/types/domain";
 
 const uid = (prefix: string) =>
   `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -127,15 +120,12 @@ interface AppState {
   deleteEmailTemplate: (id: string) => void;
 }
 
-const initialClients = getApiBaseUrl() ? [] : seedClients;
-const initialEmailTemplates: EmailTemplate[] = [];
-
 export const useAppStore = create<AppState>((set, get) => ({
-  clients: initialClients,
-  projects: seedProjects,
-  calendarEvents: seedCalendar,
-  reminderDrafts: seedReminders,
-  emailTemplates: initialEmailTemplates,
+  clients: [],
+  projects: [createCrmDocumentVaultProject()],
+  calendarEvents: [],
+  reminderDrafts: [],
+  emailTemplates: [],
   sentEmails: [],
 
   setClients: (clients) => set(() => ({ clients })),

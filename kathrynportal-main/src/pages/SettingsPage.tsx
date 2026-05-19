@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import { Plus, Edit, Trash2, Save, X, Users, Mail as MailIcon, UserPlus, Shield, FileText, Tags, Server } from "lucide-react";
-import { teamMembers as initialTeam, type EmailTemplate, type TeamMember } from "@/data/mockData";
+import type { EmailTemplate, TeamMember } from "@/types/domain";
 import { getApiBaseUrl } from "@/lib/apiConfig";
 import { listTeamMembersFromApi, type TeamMemberListItem } from "@/api/teamMembers";
 import {
@@ -92,7 +92,7 @@ export default function SettingsPage() {
   const [editValues, setEditValues] = useState<Partial<EmailTemplate>>({});
 
   // Team state — API when configured, else mock
-  const [team, setTeam] = useState<TeamMember[]>(initialTeam);
+  const [team, setTeam] = useState<TeamMember[]>([]);
   const [teamLoading, setTeamLoading] = useState(false);
   const [teamError, setTeamError] = useState<string | null>(null);
 

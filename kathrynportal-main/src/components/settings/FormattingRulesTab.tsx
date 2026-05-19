@@ -11,7 +11,6 @@ import { listProjectStoredFiles } from "@/api/storedFiles";
 import { getApiBaseUrl } from "@/lib/apiConfig";
 import {
   CRM_DOCUMENT_VAULT_PROJECT_ID,
-  conditionalFormattingRules,
   type ConditionalFormattingRule,
   type DocumentRule,
   type FileAttachment,
@@ -20,8 +19,7 @@ import {
   type RuleTriggerField,
   type RuleAction,
   type RuleKind,
-} from "@/data/mockData";
-import { useAppStore } from "@/store/appStore";
+} from "@/types/domain";
 import DocumentNameSlotCombobox from "@/components/settings/DocumentNameSlotCombobox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -119,10 +117,6 @@ export default function FormattingRulesTab() {
       Boolean(s.user?.permissions?.includes("document_rules.delete")) ||
       Boolean(s.user?.permissions?.includes("document_rules.toggle_active"))
   );
-  const crmVaultAttachments = useAppStore(
-    (s) => s.projects.find((p) => p.id === CRM_DOCUMENT_VAULT_PROJECT_ID)?.attachments ?? []
-  );
-
   const [rules, setRules] = useState<ConditionalFormattingRule[]>([]);
   const [rulesLoadState, setRulesLoadState] = useState<"idle" | "loading" | "ok" | "error">("idle");
   const [vaultFiles, setVaultFiles] = useState<FileAttachment[]>([]);
@@ -141,12 +135,9 @@ export default function FormattingRulesTab() {
   const refreshRulesFromApi = useCallback(async () => {
     const base = getApiBaseUrl();
     if (!base) {
-      setRules(conditionalFormattingRules);
-      setRulesLoadState("ok");
-      setRulesLoadError(null);
-      toast.message("API not configured", {
-        description: "Showing built-in sample rules. Set VITE_API_URL to load and save document rules.",
-      });
+      setRules([]);
+      setRulesLoadState("error");
+      setRulesLoadError("VITE_API_URL is not set. Document rules require the backend API.");
       return;
     }
     setRulesLoadState("loading");
@@ -174,23 +165,22 @@ export default function FormattingRulesTab() {
   }, [refreshRulesFromApi]);
 
   useEffect(() => {
+    if (!getApiBaseUrl()) {
+      setVaultFiles([]);
+      return;
+    }
     let cancelled = false;
-    (async () => {
-      if (getApiBaseUrl()) {
-        try {
-          const { attachments } = await listProjectStoredFiles(CRM_DOCUMENT_VAULT_PROJECT_ID);
-          if (!cancelled) setVaultFiles(attachments);
-        } catch {
-          if (!cancelled) setVaultFiles(crmVaultAttachments);
-        }
-      } else if (!cancelled) {
-        setVaultFiles(crmVaultAttachments);
-      }
-    })();
+    void listProjectStoredFiles(CRM_DOCUMENT_VAULT_PROJECT_ID)
+      .then(({ attachments }) => {
+        if (!cancelled) setVaultFiles(attachments);
+      })
+      .catch(() => {
+        if (!cancelled) setVaultFiles([]);
+      });
     return () => {
       cancelled = true;
     };
-  }, [crmVaultAttachments]);
+  }, []);
 
   const openCreate = (kind: RuleKind) => {
     setForm(blankForm(kind));

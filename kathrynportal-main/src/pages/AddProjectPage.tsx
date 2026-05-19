@@ -7,7 +7,12 @@ import { listClientsFromApi } from "@/api/clients";
 import { listDocumentRulesFromApi } from "@/api/documentRules";
 import { listEsignDocumentsApi, type EsignDocumentDto } from "@/api/esign";
 import { getApiBaseUrl } from "@/lib/apiConfig";
-import { conditionalFormattingRules, CRM_DOCUMENT_VAULT_PROJECT_ID, type ProjectStage, type ProjectType } from "@/data/mockData";
+import {
+  CRM_DOCUMENT_VAULT_PROJECT_ID,
+  type ConditionalFormattingRule,
+  type ProjectStage,
+  type ProjectType,
+} from "@/types/domain";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,7 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PrimaryContactPicker } from "@/components/shared/PrimaryContactPicker";
 import { ContactLinkPicker } from "@/components/shared/ContactLinkPicker";
-import type { Client } from "@/data/mockData";
+import type { Client } from "@/types/domain";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import PageHeader from "@/components/shared/PageHeader";
@@ -239,7 +244,7 @@ export default function AddProjectPage() {
     for (const c of fromStore) byId.set(c.id, c);
     return Array.from(byId.values());
   };
-  const [ruleCatalog, setRuleCatalog] = useState(conditionalFormattingRules);
+  const [ruleCatalog, setRuleCatalog] = useState<ConditionalFormattingRule[]>([]);
   const [loadingEditProject, setLoadingEditProject] = useState(false);
 
   // Sections collapse state
@@ -371,7 +376,7 @@ export default function AddProjectPage() {
   useEffect(() => {
     if (!apiOn) {
       setClientOptions(clients);
-      setRuleCatalog(conditionalFormattingRules);
+      setRuleCatalog([]);
       return;
     }
     let cancelled = false;
@@ -388,8 +393,8 @@ export default function AddProjectPage() {
       } catch (e) {
         if (!cancelled) {
           setClientOptions(clients);
-          setRuleCatalog(conditionalFormattingRules);
-          toast.error("Could not load live contacts/rules. Using local fallback.", {
+          setRuleCatalog([]);
+          toast.error("Could not load contacts or document rules.", {
             description: e instanceof Error ? e.message : "Unknown error",
           });
         }
