@@ -11,6 +11,10 @@ import pg from "pg";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const backendRoot = path.resolve(__dirname, "..");
 dotenv.config({ path: path.join(backendRoot, ".env") });
+const renderEnvPath = path.join(backendRoot, ".env.render");
+if (fs.existsSync(renderEnvPath)) {
+  dotenv.config({ path: renderEnvPath, override: true });
+}
 
 const migrationDir = path.join(__dirname, "migration");
 

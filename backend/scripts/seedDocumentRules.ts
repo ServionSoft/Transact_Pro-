@@ -2,6 +2,7 @@
  * Idempotent seed: document_types, document_sets, document_set_members, conditional_rules, conditional_rule_sets, conditional_rule_documents.
  * Run from backend after migrations: npm run db:seed:document-rules
  */
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
@@ -18,6 +19,10 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const backendRoot = path.resolve(__dirname, "..");
 dotenv.config({ path: path.join(backendRoot, ".env") });
+const renderEnvPath = path.join(backendRoot, ".env.render");
+if (fs.existsSync(renderEnvPath)) {
+  dotenv.config({ path: renderEnvPath, override: true });
+}
 
 const RULE_IDS = SEEDED_RULES.map((r) => r.id);
 
