@@ -19,13 +19,17 @@ import type { FileAttachment, ProjectFolder } from "@/data/mockData";
 import { authFetch } from "@/lib/authFetch";
 
 export class ApiRequestError extends Error {
+  public code?: string;
+
   constructor(
     message: string,
     public status: number,
-    public bodyText?: string
+    public bodyText?: string,
+    code?: string
   ) {
     super(message);
     this.name = "ApiRequestError";
+    this.code = code;
   }
 }
 

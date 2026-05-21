@@ -1154,6 +1154,22 @@ async function getProjectDocuments(pool: Pool, projectId: string): Promise<Proje
   }));
 }
 
+/** Soft-deleted project row for 404 messaging (list/detail hide these). */
+export async function getProjectDeletedSnapshot(
+  pool: Pool,
+  projectId: string
+): Promise<{ id: string; name: string } | null> {
+  if (!/^\d+$/.test(projectId)) return null;
+  const { rows } = await pool.query<{ id: string; name: string }>(
+    `SELECT id::text, name
+     FROM public.projects
+     WHERE id = $1::bigint AND deleted_at IS NOT NULL
+     LIMIT 1`,
+    [projectId]
+  );
+  return rows[0] ?? null;
+}
+
 export async function getProjectById(pool: Pool, projectId: string): Promise<ProjectDetailApi | null> {
   if (!/^\d+$/.test(projectId)) return null;
   const { rows } = await pool.query<{
@@ -1194,7 +1210,7 @@ export async function getProjectById(pool: Pool, projectId: string): Promise<Pro
        p.created_at,
        p.metadata_json
      FROM public.projects p
-     JOIN public.contacts c ON c.id = p.client_id
+     LEFT JOIN public.contacts c ON c.id = p.client_id
      LEFT JOIN public.transaction_party_contacts co ON co.id = p.escrow_officer_contact_id
      WHERE p.id = $1::bigint
        AND p.deleted_at IS NULL
@@ -1215,7 +1231,7 @@ export async function getProjectById(pool: Pool, projectId: string): Promise<Pro
     id: row.id,
     name: row.name,
     clientId: row.client_id,
-    clientName: row.client_name,
+    clientName: row.client_name ?? "Unassigned",
     propertyAddress: row.property_address,
     type: TYPE_DB_TO_UI[row.transaction_type] ?? "Listing",
     stage: STAGE_DB_TO_UI[row.stage] ?? "Listing Prep",

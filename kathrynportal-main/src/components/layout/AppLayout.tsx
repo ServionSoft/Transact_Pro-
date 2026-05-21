@@ -20,6 +20,10 @@ function usesInnerScroll(pathname: string): boolean {
   ) {
     return true;
   }
+  // Project detail only — not long forms like /projects/new or /projects/:id/edit
+  if (pathname === "/projects/new" || /\/edit$/.test(pathname)) {
+    return false;
+  }
   return /^\/projects\/[^/]+$/.test(pathname);
 }
 

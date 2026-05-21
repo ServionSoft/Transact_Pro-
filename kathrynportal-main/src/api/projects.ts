@@ -146,11 +146,18 @@ async function parseJsonSafe(res: Response): Promise<unknown> {
   return res.json().catch(() => null);
 }
 
+function readApiError(json: unknown): { code?: string; message?: string } {
+  if (!json || typeof json !== "object" || !("error" in json)) return {};
+  const err = (json as { error?: { code?: string; message?: string } }).error;
+  return {
+    code: typeof err?.code === "string" ? err.code : undefined,
+    message: typeof err?.message === "string" ? err.message : undefined,
+  };
+}
+
 function readErrorMessage(json: unknown, fallback: string): string {
-  if (json && typeof json === "object" && "error" in json) {
-    const err = (json as { error?: { message?: string } }).error;
-    if (typeof err?.message === "string" && err.message.trim()) return err.message;
-  }
+  const { message } = readApiError(json);
+  if (message?.trim()) return message.trim();
   return fallback;
 }
 
@@ -164,7 +171,13 @@ async function apiCall(path: string, init?: RequestInit): Promise<unknown> {
   }
   const json = await parseJsonSafe(res);
   if (!res.ok) {
-    throw new ApiRequestError(readErrorMessage(json, `Projects request failed (${res.status})`), res.status, typeof json === "object" ? JSON.stringify(json) : String(json));
+    const { code } = readApiError(json);
+    throw new ApiRequestError(
+      readErrorMessage(json, `Projects request failed (${res.status})`),
+      res.status,
+      typeof json === "object" ? JSON.stringify(json) : String(json),
+      code,
+    );
   }
   return json;
 }

@@ -19,6 +19,7 @@ import {
   deleteProject,
   deleteProjectDocument,
   getProjectById,
+  getProjectDeletedSnapshot,
   listProjects,
   patchProjectDocumentStatus,
   patchProjectNextStep,
@@ -196,6 +197,17 @@ export function createProjectsController(pool: Pool, config: AppConfig) {
       try {
         const project = await getProjectById(pool, req.params.id);
         if (!project) {
+          const deleted = await getProjectDeletedSnapshot(pool, req.params.id);
+          if (deleted) {
+            res.status(404).json({
+              success: false,
+              error: {
+                code: "PROJECT_DELETED",
+                message: `Transaction "${deleted.name}" was deleted and is no longer available.`,
+              },
+            });
+            return;
+          }
           res.status(404).json({
             success: false,
             error: { code: "PROJECT_NOT_FOUND", message: "Project not found." },

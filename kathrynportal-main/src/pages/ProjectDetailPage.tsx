@@ -21,6 +21,7 @@ import {
   setProjectAssignmentsApi,
 } from "@/api/projects";
 import { getApiBaseUrl } from "@/lib/apiConfig";
+import { ApiRequestError } from "@/api/storedFiles";
 import TransactionDocumentsWorkspace from "@/components/documents/TransactionDocumentsWorkspace";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -103,6 +104,7 @@ export default function ProjectDetailPage() {
   const [sendingReminder, setSendingReminder] = useState(false);
   const [savingReminderDraft, setSavingReminderDraft] = useState(false);
   const [loadingProject, setLoadingProject] = useState(() => Boolean(getApiBaseUrl() && id));
+  const [loadFailure, setLoadFailure] = useState<{ code?: string; message: string } | null>(null);
   const [deletingProject, setDeletingProject] = useState(false);
   const canDeleteProject = hasPermission(user, "projects.delete");
   const canAssignMembers = hasPermission(user, "projects.assign_members");
@@ -118,13 +120,20 @@ export default function ProjectDetailPage() {
     if (!id || !getApiBaseUrl()) return;
     let cancelled = false;
     setLoadingProject(true);
+    setLoadFailure(null);
     void getProjectFromApi(id)
       .then((loaded) => {
-        if (!cancelled) upsertProject(loaded);
+        if (!cancelled) {
+          setLoadFailure(null);
+          upsertProject(loaded);
+        }
       })
       .catch((e) => {
         if (!cancelled) {
-          toast.error(e instanceof Error ? e.message : "Could not load transaction.");
+          const code = e instanceof ApiRequestError ? e.code : undefined;
+          const message = e instanceof Error ? e.message : "Could not load transaction.";
+          setLoadFailure({ code, message });
+          toast.error(message);
         }
       })
       .finally(() => {
@@ -191,11 +200,23 @@ export default function ProjectDetailPage() {
   );
 
   if (!project) {
+    const deleted = loadFailure?.code === "PROJECT_DELETED";
     return (
       <div className="mx-auto flex min-h-[50vh] w-full max-w-7xl flex-col items-center justify-center p-8 text-center">
         <p className="text-muted-foreground">
-          {loadingProject ? "Loading transaction…" : "Transaction not found."}
+          {loadingProject
+            ? "Loading transaction…"
+            : deleted
+              ? loadFailure?.message ?? "This transaction was deleted."
+              : loadFailure?.message ?? "Transaction not found."}
         </p>
+        {!loadingProject && deleted ? (
+          <p className="mt-2 max-w-md text-xs text-muted-foreground">
+            Deleted transactions are hidden from the list. To restore one in the database, clear{" "}
+            <code className="rounded bg-muted px-1">deleted_at</code> on that row in{" "}
+            <code className="rounded bg-muted px-1">projects</code> (or create a new transaction).
+          </p>
+        ) : null}
         {!loadingProject ? (
           <Button variant="outline" onClick={() => navigate("/projects")} className="mt-4">
             Back to Transactions
