@@ -1,10 +1,9 @@
-# Map checklist document names to CRM vault filenames (stored_files.name on live).
-# Regenerate rules from Excel: python backend/scripts/export_checklist_from_excel.py
-# Only rows with vault_filename set receive storedFileId during seed.
+# Map checklist document_name (from Excel/CSV) -> CRM vault filename (Documents page upload name).
+# Re-run after edits: cd backend && npm run db:seed:document-rules
 document_name,vault_filename
-test doc 11.pdf,test doc 11.pdf
-test doc 12.pdf,test doc 12.pdf
-test doc 13.pdf,test doc 13.pdf
-test doc 14.pdf,test doc 14.pdf
-test doc 15.pdf,test doc 15.pdf
-test doc 16.pdf,test doc 16.pdf
+[AD] Disclosure Regarding Real Estate Agency Relationships,test doc 11.pdf
+[RLA] Residential Listing Agreement,test doc 12.pdf
+[MLSA] Multiple Listing Service Addendum,test doc 13.pdf
+[BCA] Broker Compensation Advisory,test doc 14.pdf
+[PRBS] Possible Representation of more than one Buyer or Seller,test doc 15.pdf
+[FHDA] Fair Housing & Discrimination Advisory,test doc 16.pdf

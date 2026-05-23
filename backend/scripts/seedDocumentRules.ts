@@ -123,7 +123,8 @@ async function main(): Promise<void> {
 
   const vaultProjectId = Number(process.env.CRM_VAULT_PROJECT_ID?.trim() || "1");
   const { listingRows, buyerRows, rules } = loadChecklistFromCsv();
-  const RULE_IDS = rules.map((r) => r.id);
+  /** Always replace seeded rule ids (includes legacy 10019 test rule). */
+  const RULE_IDS = Array.from({ length: 9 }, (_, i) => 10011 + i);
 
   const pool = new pg.Pool({ connectionString: databaseUrl });
   const client = await pool.connect();

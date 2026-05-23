@@ -272,38 +272,8 @@ export function loadChecklistFromCsv(): {
     })),
   });
 
-  appendTestTemplateRule(rulesById, vaultMap);
-
   const rules = [...rulesById.values()].sort((a, b) => a.id - b.id);
   return { listingRows, buyerRows, rules };
-}
-
-function appendTestTemplateRule(
-  rulesById: Map<number, ConditionalRuleSeed>,
-  vaultMap: Map<string, string>
-): void {
-  const TEST_RULE_ID = 10019;
-  const testDocs: ConditionalRuleSeed["documents"] = [];
-  for (const [docName, vaultFilename] of vaultMap) {
-    if (!docName.startsWith("test doc")) continue;
-    testDocs.push({
-      id: `slot-${TEST_RULE_ID}-${testDocs.length + 1}`,
-      name: docName,
-      required: true,
-      section: "Live test templates",
-      vaultFilename,
-    });
-  }
-  if (testDocs.length === 0) return;
-  rulesById.set(TEST_RULE_ID, {
-    id: TEST_RULE_ID,
-    name: "Live vault test templates",
-    kind: "standard",
-    triggers: [{ field: "transactionType", value: "Listing" }],
-    actions: [],
-    transactionType: "listing",
-    documents: testDocs,
-  });
 }
 
 export function typeCodeFromMockId(mockId: string): string {
