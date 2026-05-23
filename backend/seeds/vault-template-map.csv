@@ -1,0 +1,10 @@
+# Map checklist document names to CRM vault filenames (stored_files.name on live).
+# Regenerate rules from Excel: python backend/scripts/export_checklist_from_excel.py
+# Only rows with vault_filename set receive storedFileId during seed.
+document_name,vault_filename
+test doc 11.pdf,test doc 11.pdf
+test doc 12.pdf,test doc 12.pdf
+test doc 13.pdf,test doc 13.pdf
+test doc 14.pdf,test doc 14.pdf
+test doc 15.pdf,test doc 15.pdf
+test doc 16.pdf,test doc 16.pdf

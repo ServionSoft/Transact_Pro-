@@ -52,11 +52,7 @@ function sanitizeDecimal(value: string): string {
 }
 
 function sanitizePercent(value: string): string {
-  return sanitizeDecimal(value.replace(/%/g, "")).replace(/^(\d+(\.\d{0,2})?).*$/, "$1");
-}
-
-function sanitizeZip(value: string): string {
-  return value.replace(/[^a-zA-Z0-9\s-]/g, "").slice(0, 32);
+  return sanitizeDecimal(value).replace(/^(\d+(\.\d{0,2})?).*$/, "$1");
 }
 
 /** Rules use "Yes" / "No"; unset must not be treated as "No" or conditional rules misfire. */
@@ -481,22 +477,8 @@ export default function AddProjectPage() {
       if (md.sellers && Array.isArray(md.sellers) && md.sellers.length > 0) setSellers(md.sellers as typeof sellers);
       if (md.buyers && Array.isArray(md.buyers) && md.buyers.length > 0) setBuyers(md.buyers as typeof buyers);
       if (md.listing && typeof md.listing === "object") setListing((prev) => ({ ...prev, ...(md.listing as typeof prev) }));
-      if (md.transaction && typeof md.transaction === "object") {
-        const tx = md.transaction as typeof transaction;
-        setTransaction((prev) => ({
-          ...prev,
-          ...tx,
-          spbbPct: tx.spbbPct ? sanitizePercent(String(tx.spbbPct)) : prev.spbbPct,
-        }));
-      }
-      if (md.property && typeof md.property === "object") {
-        const prop = md.property as typeof property;
-        setProperty((prev) => ({
-          ...prev,
-          ...prop,
-          zip: prop.zip ? sanitizeZip(String(prop.zip)) : prev.zip,
-        }));
-      }
+      if (md.transaction && typeof md.transaction === "object") setTransaction((prev) => ({ ...prev, ...(md.transaction as typeof prev) }));
+      if (md.property && typeof md.property === "object") setProperty((prev) => ({ ...prev, ...(md.property as typeof prev) }));
     };
     if (existingProject) {
       hydrate(existingProject);
@@ -550,16 +532,13 @@ export default function AddProjectPage() {
     if (!property.address) {
       validationErrors.push("Property address is required.");
     }
-    if (property.zip && !/^[a-zA-Z0-9\s-]{2,32}$/.test(property.zip.trim())) {
-      validationErrors.push("ZIP must be 2–32 letters, numbers, spaces, or hyphens.");
-    }
+    if (property.zip && !/^\d+$/.test(property.zip)) validationErrors.push("ZIP must contain numbers only.");
     if (property.yearBuilt && !/^\d+$/.test(property.yearBuilt)) validationErrors.push("Year Built must contain numbers only.");
     if (property.squareFeet && !/^\d+$/.test(property.squareFeet)) validationErrors.push("Square Feet must contain numbers only.");
     if (property.lotSize && !/^\d+(\.\d+)?$/.test(property.lotSize)) validationErrors.push("Lot Size must be a valid number.");
     if (property.mlsNumber && !/^\d+$/.test(property.mlsNumber)) validationErrors.push("MLS # must contain numbers only.");
     if (transaction.purchasePrice && !/^\d+(\.\d+)?$/.test(transaction.purchasePrice)) validationErrors.push("Purchase Price must be a valid number.");
-    const spbb = transaction.spbbPct.replace(/%/g, "").trim();
-    if (spbb && !/^\d+(\.\d{1,2})?$/.test(spbb)) validationErrors.push("SPBB % must be a valid number (e.g. 2.5).");
+    if (transaction.spbbPct && !/^\d+(\.\d{1,2})?$/.test(transaction.spbbPct)) validationErrors.push("SPBB % must be a valid percentage.");
     if (transaction.ftcAmount && !/^\d+(\.\d+)?$/.test(transaction.ftcAmount)) validationErrors.push("FTC Amount must be a valid number.");
     if (escrow.phone && !/^\d+$/.test(escrow.phone)) validationErrors.push("Escrow phone must contain numbers only.");
 
@@ -1004,7 +983,7 @@ export default function AddProjectPage() {
               <Field label="Property Address *" className="md:col-span-2 xl:col-span-2"><Input value={property.address} onChange={e => setProperty(p => ({ ...p, address: e.target.value }))} required /></Field>
               <Field label="City" className="xl:col-span-1"><Input value={property.city} onChange={e => setProperty(p => ({ ...p, city: e.target.value }))} /></Field>
               <Field label="State" className="xl:col-span-1"><Input value={property.state} onChange={e => setProperty(p => ({ ...p, state: e.target.value }))} /></Field>
-              <Field label="ZIP" className="xl:col-span-1"><Input value={property.zip} onChange={e => setProperty(p => ({ ...p, zip: sanitizeZip(e.target.value) }))} placeholder="e.g. 90210 or Karachi" /></Field>
+              <Field label="ZIP" className="xl:col-span-1"><Input value={property.zip} onChange={e => setProperty(p => ({ ...p, zip: sanitizeDigits(e.target.value) }))} /></Field>
               <Field label="County" className="xl:col-span-1"><Input value={property.county} onChange={e => setProperty(p => ({ ...p, county: e.target.value }))} /></Field>
               <Field label="Year Built" className="xl:col-span-1"><Input value={property.yearBuilt} onChange={e => setProperty(p => ({ ...p, yearBuilt: sanitizeDigits(e.target.value) }))} /></Field>
               <Field label="Lot Size" className="xl:col-span-1"><Input value={property.lotSize} onChange={e => setProperty(p => ({ ...p, lotSize: sanitizeDecimal(e.target.value) }))} /></Field>

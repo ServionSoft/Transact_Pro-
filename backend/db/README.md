@@ -18,7 +18,17 @@ npm run db:migrate
 npm run db:seed:document-rules
 ```
 
-Requires `DATABASE_URL` in `backend/.env`. The **document-rules** seed is idempotent: upserts `document_types`, `document_sets` (ids `10001` / `10002`), members, and `conditional_rules` (ids `10011`–`10018`) for the Settings UI.
+Requires `DATABASE_URL` in `backend/.env`. The **document-rules** seed reads `backend/seeds/document-rules.csv` (export from `Docs/Checklist Automation_.xlsx`) and optional `backend/seeds/vault-template-map.csv` for CRM vault PDF links.
+
+```bash
+# After editing the Excel workbook:
+python backend/scripts/export_checklist_from_excel.py
+# or: npm run db:export-document-rules-csv   (from backend/)
+
+npm run db:seed:document-rules
+```
+
+Idempotent: upserts `document_types`, `document_sets` (ids `10001` / `10002`), members, and `conditional_rules` (ids `10011`–`10019`). Vault `storedFileId` values are resolved at seed time from `stored_files` in CRM vault (`CRM_VAULT_PROJECT_ID`, default `1`).
 
 Regenerate baseline SQL after a new pgAdmin schema dump:
 

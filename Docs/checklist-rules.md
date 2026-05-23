@@ -22,4 +22,18 @@ See **`Docs/product-summary.md`** for the resolution algorithm (union, dedupe).
 
 ## Implementation note
 
-Seed data can live in `backend/seeds/` once migrations exist; keep this file as the **human-readable spec** so product and engineering stay aligned.
+Seed data lives in:
+
+- `Docs/Checklist Automation_.xlsx` — source workbook
+- `backend/seeds/document-rules.csv` — generated export (commit to git)
+- `backend/seeds/vault-template-map.csv` — map checklist names → CRM vault filenames for `storedFileId` at seed time
+
+```bash
+# After editing the Excel file:
+python backend/scripts/export_checklist_from_excel.py
+
+# Apply to database (local or Render via backend/.env.render):
+cd backend && npm run db:seed:document-rules
+```
+
+Upload PDFs to **CRM Documents** on live before seeding so vault links resolve.

@@ -11,6 +11,7 @@
     "db:migrate:render": "tsx db/migrate.ts",
     "db:migrate:generate": "tsx db/extractMigrationsFromSchemaLive.ts",
     "db:seed:document-rules": "tsx scripts/seedDocumentRules.ts",
+    "db:export-document-rules-csv": "python scripts/export_checklist_from_excel.py",
     "db:seed:admin-user": "tsx scripts/seedAdminUser.ts"
   },
   "dependencies": {
