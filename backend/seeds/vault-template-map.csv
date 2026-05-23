@@ -1,5 +1,6 @@
 # Map checklist document_name (from Excel/CSV) -> CRM vault filename (Documents page upload name).
 # Re-run after edits: cd backend && npm run db:seed:document-rules
+# Do not map "signature" (SMTP/vendor asset) — seed excludes it automatically.
 document_name,vault_filename
 [AD] Disclosure Regarding Real Estate Agency Relationships,test doc 11.pdf
 [RLA] Residential Listing Agreement,test doc 12.pdf

@@ -47,6 +47,13 @@ type ActionJsonRow = {
   storedFileId?: string;
 };
 
+/** CRM vault uploads that must never be linked from document-rules seed (e.g. SMTP signature image). */
+const EXCLUDED_VAULT_FILENAMES = new Set(["signature"]);
+
+function isExcludedVaultName(name: string): boolean {
+  return EXCLUDED_VAULT_FILENAMES.has(name.trim().toLowerCase());
+}
+
 async function loadVaultFileIds(
   client: pg.PoolClient,
   vaultProjectId: number
@@ -60,7 +67,9 @@ async function loadVaultFileIds(
   );
   const byName = new Map<string, string>();
   for (const r of rows) {
-    byName.set(r.name.trim().toLowerCase(), r.id);
+    const key = r.name.trim().toLowerCase();
+    if (isExcludedVaultName(key)) continue;
+    byName.set(key, r.id);
   }
   return byName;
 }
@@ -72,6 +81,7 @@ function resolveStoredFileId(
 ): string | undefined {
   const candidates = [vaultFilename.trim(), documentName.trim()].filter(Boolean);
   for (const c of candidates) {
+    if (isExcludedVaultName(c)) continue;
     const id = vaultByName.get(c.toLowerCase());
     if (id) return id;
   }
