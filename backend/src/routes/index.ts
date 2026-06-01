@@ -7,6 +7,7 @@ import { registerDocumentRulesRoutes } from "./documentRulesRouter.js";
 import { registerStoredFilesRoutes } from "./storedFilesRouter.js";
 import { registerRoleProfilesRoutes } from "./roleProfilesRouter.js";
 import { registerSmtpSettingsRoutes } from "./smtpSettingsRouter.js";
+import { registerDocusignSettingsRoutes } from "./docusignSettingsRouter.js";
 import { registerTeamMembersRoutes } from "./teamMembersRouter.js";
 import { registerProjectsRoutes } from "./projectsRouter.js";
 import { registerEmailTemplatesRoutes } from "./emailTemplatesRouter.js";
@@ -42,4 +43,5 @@ export function registerRoutes(app: Express, config: AppConfig): void {
   registerTeamMembersRoutes(app, config, pool);
   registerRoleProfilesRoutes(app, config, pool);
   registerSmtpSettingsRoutes(app, config, pool);
+  registerDocusignSettingsRoutes(app, config, pool);
 }

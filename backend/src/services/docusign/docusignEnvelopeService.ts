@@ -35,7 +35,24 @@ type EnvelopesApiCtor = new (apiClient: object) => {
 
 const docusign = docusignPkg as unknown as { ApiClient: new (opts?: object) => object; EnvelopesApi: EnvelopesApiCtor };
 import type { AppConfig } from "../../config/env.js";
-import { assertDocusignConfigured, createConfiguredApiClient, getDocusignAccessToken } from "./docusignAuth.js";
+import { createConfiguredApiClient, getDocusignAccessToken } from "./docusignAuth.js";
+import type { DocusignRuntimeConfig } from "./docusignRuntimeConfig.js";
+import {
+  loadStoredConnectHmacKey,
+  loadStoredPrivateKeyPem,
+  resolveDocusignRuntimeConfig,
+} from "../docusignSettingsService.js";
+
+type DocusignCtx = { runtime: DocusignRuntimeConfig; privateKeyPem: string };
+
+async function loadDocusignCtx(pool: Pool, config: AppConfig): Promise<DocusignCtx> {
+  const runtime = await resolveDocusignRuntimeConfig(pool, config);
+  const privateKeyPem = (await loadStoredPrivateKeyPem(pool, config))?.trim();
+  if (!privateKeyPem) {
+    throw new Error("DocuSign RSA private key is not configured.");
+  }
+  return { runtime, privateKeyPem };
+}
 import { getEsignDraft, type EsignFieldInput } from "../esignService.js";
 import { absolutePathForStorageKey, insertStoredFile } from "../storedFilesService.js";
 import { storageKeyFor } from "../../utils/storedFilesLayout.js";
@@ -280,7 +297,8 @@ function summarizeRecipientsFromListApi(data: unknown): unknown {
 }
 
 async function createEnvelopeRequest(
-  config: AppConfig,
+  ctx: DocusignCtx,
+  appConfig: AppConfig,
   args: {
     pdfBuffer: Buffer;
     documentName: string;
@@ -299,8 +317,9 @@ async function createEnvelopeRequest(
     debugEnvelope?: boolean;
   }
 ): Promise<{ envelopeId: string }> {
-  const accessToken = await getDocusignAccessToken(config);
-  const apiClient = createConfiguredApiClient(config, accessToken);
+  const { runtime, privateKeyPem } = ctx;
+  const accessToken = await getDocusignAccessToken(runtime, privateKeyPem);
+  const apiClient = createConfiguredApiClient(runtime, accessToken);
   const envelopesApi = new docusign.EnvelopesApi(apiClient);
 
   const document: Record<string, unknown> = {
@@ -384,7 +403,7 @@ async function createEnvelopeRequest(
 
   const summary = await new Promise<{ envelopeId?: string }>((resolve, reject) => {
     envelopesApi.createEnvelope(
-      config.docusignAccountId!,
+      runtime.accountId,
       { envelopeDefinition },
       (err: Error | null, data: { envelopeId?: string }) => {
         if (err) reject(err);
@@ -401,7 +420,7 @@ async function createEnvelopeRequest(
   if (args.debugEnvelope) {
     await new Promise<void>((resolve) => {
       envelopesApi.listRecipients(
-        config.docusignAccountId!,
+        runtime.accountId,
         envelopeId,
         { includeTabs: "true", includeExtended: "true" },
         (err: Error | null, data: unknown) => {
@@ -419,14 +438,19 @@ async function createEnvelopeRequest(
   return { envelopeId };
 }
 
-export async function downloadCombinedPdf(config: AppConfig, docusignEnvelopeId: string): Promise<Buffer> {
-  const accessToken = await getDocusignAccessToken(config);
-  const apiClient = createConfiguredApiClient(config, accessToken);
+export async function downloadCombinedPdf(
+  pool: Pool,
+  config: AppConfig,
+  docusignEnvelopeId: string
+): Promise<Buffer> {
+  const ctx = await loadDocusignCtx(pool, config);
+  const accessToken = await getDocusignAccessToken(ctx.runtime, ctx.privateKeyPem);
+  const apiClient = createConfiguredApiClient(ctx.runtime, accessToken);
   const envelopesApi = new docusign.EnvelopesApi(apiClient);
 
   return new Promise<Buffer>((resolve, reject) => {
     envelopesApi.getDocument(
-      config.docusignAccountId!,
+      ctx.runtime.accountId,
       docusignEnvelopeId,
       "combined",
       { certificate: "true" },
@@ -469,13 +493,18 @@ async function assertChecklistRowMatchesEsignTemplate(
   return { ok: true };
 }
 
-async function fetchDocuSignEnvelopeStatus(config: AppConfig, docusignEnvelopeId: string): Promise<string> {
-  const accessToken = await getDocusignAccessToken(config);
-  const apiClient = createConfiguredApiClient(config, accessToken);
+async function fetchDocuSignEnvelopeStatus(
+  pool: Pool,
+  config: AppConfig,
+  docusignEnvelopeId: string
+): Promise<string> {
+  const ctx = await loadDocusignCtx(pool, config);
+  const accessToken = await getDocusignAccessToken(ctx.runtime, ctx.privateKeyPem);
+  const apiClient = createConfiguredApiClient(ctx.runtime, accessToken);
   const envelopesApi = new docusign.EnvelopesApi(apiClient);
   const data = await new Promise<{ status?: string }>((resolve, reject) => {
     envelopesApi.getEnvelope(
-      config.docusignAccountId!,
+      ctx.runtime.accountId,
       docusignEnvelopeId,
       {},
       (err: Error | null, envelope: { status?: string }) => {
@@ -501,7 +530,7 @@ export async function syncDocuSignCompletionForEsignDocument(
   | { error: ServiceError }
 > {
   try {
-    assertDocusignConfigured(config);
+    await loadDocusignCtx(pool, config);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "DocuSign is not configured.";
     return { error: { status: 503, code: "DOCUSIGN_NOT_CONFIGURED", message: msg } };
@@ -554,7 +583,7 @@ export async function syncDocuSignCompletionForEsignDocument(
   const docusignEnvelopeId = envRow.docusign_envelope_id.trim();
   let remoteStatus: string;
   try {
-    remoteStatus = await fetchDocuSignEnvelopeStatus(config, docusignEnvelopeId);
+    remoteStatus = await fetchDocuSignEnvelopeStatus(pool, config, docusignEnvelopeId);
   } catch (err) {
     return {
       error: {
@@ -590,7 +619,7 @@ export async function syncDocuSignCompletionForEsignDocument(
   try {
     await client.query("BEGIN");
     try {
-      await storeSignedPdfAndFinalize(client, config, uploadDirAbs, {
+      await storeSignedPdfAndFinalize(pool, client, config, uploadDirAbs, {
         internalEnvelopeId: internalId,
         docusignEnvelopeId,
         esignDocumentId: args.esignDocumentId,
@@ -621,8 +650,13 @@ export async function syncDocuSignCompletionForEsignDocument(
   };
 }
 
-export function verifyConnectHmac(config: AppConfig, rawBody: Buffer, headerSig: string | undefined): boolean {
-  const secret = config.docusignConnectHmacKey;
+export async function verifyConnectHmac(
+  pool: Pool,
+  config: AppConfig,
+  rawBody: Buffer,
+  headerSig: string | undefined
+): Promise<boolean> {
+  const secret = await loadStoredConnectHmacKey(pool, config);
   if (!secret) {
     return config.nodeEnv !== "production";
   }
@@ -703,6 +737,7 @@ function parseEnvelopeIdFromConnectBody(rawBody: Buffer): { event: string | null
 }
 
 async function storeSignedPdfAndFinalize(
+  pool: Pool,
   client: PoolClient,
   config: AppConfig,
   uploadDirAbs: string,
@@ -717,7 +752,7 @@ async function storeSignedPdfAndFinalize(
     uploadedByUserId: number | null;
   }
 ): Promise<void> {
-  const pdf = await downloadCombinedPdf(config, args.docusignEnvelopeId);
+  const pdf = await downloadCombinedPdf(pool, config, args.docusignEnvelopeId);
 
   const folderRes = await client.query<{ folder_id: string | null }>(
     `SELECT folder_id::text
@@ -928,7 +963,7 @@ export async function processDocuSignConnectPayload(
 
     await client.query("BEGIN");
     try {
-      await storeSignedPdfAndFinalize(client, config, uploadDirAbs, {
+      await storeSignedPdfAndFinalize(pool, client, config, uploadDirAbs, {
         internalEnvelopeId: internalId,
         docusignEnvelopeId: envelopeId,
         esignDocumentId: esignId,
@@ -971,8 +1006,9 @@ export async function sendEsignTemplateEnvelope(
     }
   | { error: ServiceError }
 > {
+  let docusignCtx: DocusignCtx;
   try {
-    assertDocusignConfigured(config);
+    docusignCtx = await loadDocusignCtx(pool, config);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "DocuSign is not configured.";
     return { error: { status: 503, code: "DOCUSIGN_NOT_CONFIGURED", message: msg } };
@@ -1185,7 +1221,7 @@ export async function sendEsignTemplateEnvelope(
 
   let docusignEnvelopeId: string;
   try {
-    const created = await createEnvelopeRequest(config, {
+    const created = await createEnvelopeRequest(docusignCtx, config, {
       pdfBuffer,
       documentName: draft.document.title,
       emailSubject: `Please sign: ${draft.document.title}`,

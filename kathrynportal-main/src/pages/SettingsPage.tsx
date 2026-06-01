@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
-import { Plus, Edit, Trash2, Save, X, Users, Mail as MailIcon, UserPlus, Shield, FileText, Tags, Server } from "lucide-react";
+import { Plus, Edit, Trash2, Save, X, Users, Mail as MailIcon, UserPlus, Shield, FileText, Tags, Server, FileSignature } from "lucide-react";
 import type { EmailTemplate, TeamMember } from "@/types/domain";
 import { getApiBaseUrl } from "@/lib/apiConfig";
 import { listTeamMembersFromApi, type TeamMemberListItem } from "@/api/teamMembers";
@@ -15,6 +15,7 @@ import { useAuthStore } from "@/store/authStore";
 import { useAppStore } from "@/store/appStore";
 import FormattingRulesTabComponent from "@/components/settings/FormattingRulesTab";
 import SmtpSettingsTab from "@/components/settings/SmtpSettingsTab";
+import DocusignSettingsTab from "@/components/settings/DocusignSettingsTab";
 import RoleProfilesTabComponent from "@/components/settings/RoleProfilesTab";
 import PageHeader from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -54,6 +55,7 @@ export default function SettingsPage() {
     }
     if (canManageSmtp) {
       tabs.push({ id: "smtp", label: "Email / SMTP", icon: Server });
+      tabs.push({ id: "docusign", label: "DocuSign", icon: FileSignature });
     }
     tabs.push({ id: "account", label: "Account", icon: Shield });
     return tabs;
@@ -237,7 +239,7 @@ export default function SettingsPage() {
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="mx-auto flex min-h-0 flex-1 w-full max-w-5xl flex-col overflow-hidden p-6 sm:p-8"
+      className="mx-auto flex min-h-0 flex-1 w-full max-w-6xl flex-col overflow-hidden p-6 sm:p-8"
     >
       <div className="shrink-0 space-y-4">
         <PageHeader title="Settings" subtitle="Manage templates, team members, and account preferences." />
@@ -262,13 +264,16 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      <div className="mt-4 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <div
+        className={cn(
+          "mt-4 flex min-h-0 min-w-0 flex-1 flex-col rounded-xl border border-border bg-card shadow-sm",
+          activeTab === "formatting" ? "overflow-hidden" : "overflow-x-hidden overflow-y-auto overscroll-contain",
+        )}
+      >
         <div
           className={cn(
-            "min-h-0 flex-1 p-4 sm:p-5",
-            activeTab === "formatting"
-              ? "flex flex-col overflow-hidden"
-              : "overflow-y-auto overscroll-contain",
+            "min-w-0 p-4 sm:p-5",
+            activeTab === "formatting" ? "flex min-h-0 flex-1 flex-col overflow-hidden" : "",
           )}
         >
       {/* Email Templates Tab */}
@@ -537,6 +542,8 @@ export default function SettingsPage() {
       {activeTab === "roles" && canManageRoles && <RoleProfilesTabComponent />}
 
       {activeTab === "smtp" && canManageSmtp && <SmtpSettingsTab />}
+
+      {activeTab === "docusign" && canManageSmtp && <DocusignSettingsTab />}
 
 
       {/* Account Tab */}

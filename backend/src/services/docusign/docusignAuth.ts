@@ -1,5 +1,4 @@
-import fs from "node:fs";
-import type { AppConfig } from "../../config/env.js";
+import type { DocusignRuntimeConfig } from "./docusignRuntimeConfig.js";
 import docusignPkg from "docusign-esign";
 
 /** OAuth token errors often arrive as axios `response.data` (object, JSON string, or Buffer). */
@@ -49,27 +48,22 @@ type DocusignSdk = {
 
 const docusign = docusignPkg as unknown as DocusignSdk;
 
-type CachedToken = { accessToken: string; expiresAtMs: number };
+type CachedToken = { accessToken: string; expiresAtMs: number; cacheKey: string };
 
 let tokenCache: CachedToken | null = null;
 
-export function assertDocusignConfigured(config: AppConfig): void {
-  if (!config.docusignIntegrationKey || !config.docusignUserId || !config.docusignAccountId) {
-    throw new Error("DOCUSIGN_INTEGRATION_KEY, DOCUSIGN_USER_ID, and DOCUSIGN_ACCOUNT_ID must be set.");
-  }
-  if (!config.docusignRsaPrivateKey && !config.docusignRsaPrivateKeyPath) {
-    throw new Error("DOCUSIGN_RSA_PRIVATE_KEY or DOCUSIGN_RSA_PRIVATE_KEY_PATH must be set.");
-  }
+export function clearDocusignTokenCache(): void {
+  tokenCache = null;
 }
 
-export function loadDocusignPrivateKeyPem(config: AppConfig): string {
-  if (config.docusignRsaPrivateKey?.trim()) {
-    return config.docusignRsaPrivateKey.trim();
+function tokenCacheKey(runtime: DocusignRuntimeConfig): string {
+  return `${runtime.integrationKey}:${runtime.userId}:${runtime.accountId}`;
+}
+
+export function assertDocusignConfigured(runtime: DocusignRuntimeConfig): void {
+  if (!runtime.integrationKey || !runtime.userId || !runtime.accountId) {
+    throw new Error("Integration Key, User ID, and Account ID must be set.");
   }
-  if (config.docusignRsaPrivateKeyPath) {
-    return fs.readFileSync(config.docusignRsaPrivateKeyPath, "utf8");
-  }
-  throw new Error("DocuSign RSA private key is not configured.");
 }
 
 function oauthHostToHttpsOrigin(host: string): string {
@@ -77,86 +71,137 @@ function oauthHostToHttpsOrigin(host: string): string {
   return `https://${h}`;
 }
 
-/** One-time JWT impersonation consent (open while logged in as `DOCUSIGN_USER_ID`). */
-export function buildDocuSignJwtConsentUrl(config: AppConfig): string {
-  const origin = oauthHostToHttpsOrigin(config.docusignOAuthHost);
+/** One-time JWT impersonation consent (open while logged in as `userId`). */
+export function buildDocuSignJwtConsentUrl(runtime: DocusignRuntimeConfig): string {
+  const origin = oauthHostToHttpsOrigin(runtime.oauthHost);
   const scope = encodeURIComponent("signature impersonation");
-  const clientId = encodeURIComponent(config.docusignIntegrationKey ?? "");
-  const redirect = encodeURIComponent(config.docusignConsentRedirectUri);
+  const clientId = encodeURIComponent(runtime.integrationKey);
+  const redirect = encodeURIComponent(runtime.consentRedirectUri);
   return `${origin}/oauth/auth?response_type=code&scope=${scope}&client_id=${clientId}&redirect_uri=${redirect}`;
 }
 
-export async function getDocusignAccessToken(config: AppConfig): Promise<string> {
-  assertDocusignConfigured(config);
+/** docusign-esign may return `{ body: { access_token } }`, axios data, or bare `{ access_token }`. */
+function parseJwtTokenResponse(
+  result: unknown,
+  defaultExpiresIn: number
+): { accessToken: string; expiresIn: number } | null {
+  if (result == null || typeof result !== "object") return null;
+  const root = result as Record<string, unknown>;
+  const nested =
+    root.body && typeof root.body === "object" ? (root.body as Record<string, unknown>) : root;
+  const accessToken =
+    typeof nested.access_token === "string"
+      ? nested.access_token
+      : typeof nested.accessToken === "string"
+        ? nested.accessToken
+        : null;
+  if (!accessToken) return null;
+  const expRaw = nested.expires_in ?? nested.expiresIn;
+  const expiresIn =
+    typeof expRaw === "number" && Number.isFinite(expRaw) ? expRaw : defaultExpiresIn;
+  return { accessToken, expiresIn };
+}
+
+function requestJwtUserTokenAsync(
+  apiClient: InstanceType<DocusignSdk["ApiClient"]>,
+  integrationKey: string,
+  userId: string,
+  scopes: string[],
+  pem: string,
+  expiresIn: number
+): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const cb = (err: Error | null, res?: unknown) => {
+      if (err) reject(err);
+      else resolve(res);
+    };
+    try {
+      const ret = apiClient.requestJWTUserToken(
+        integrationKey,
+        userId,
+        scopes,
+        pem,
+        expiresIn,
+        cb
+      );
+      if (ret && typeof (ret as Promise<unknown>).then === "function") {
+        (ret as Promise<unknown>).then(resolve).catch(reject);
+      }
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+export async function getDocusignAccessToken(
+  runtime: DocusignRuntimeConfig,
+  privateKeyPem: string
+): Promise<string> {
+  assertDocusignConfigured(runtime);
+  const pem = privateKeyPem.trim();
+  if (!pem) {
+    throw new Error("DocuSign RSA private key is not configured.");
+  }
+
+  const cacheKey = tokenCacheKey(runtime);
   const now = Date.now();
-  if (tokenCache && now < tokenCache.expiresAtMs - 120_000) {
+  if (tokenCache && tokenCache.cacheKey === cacheKey && now < tokenCache.expiresAtMs - 120_000) {
     return tokenCache.accessToken;
   }
-  const apiClient = new docusign.ApiClient();
-  apiClient.setBasePath(config.docusignBasePath.replace(/\/+$/, ""));
-  apiClient.setOAuthBasePath(config.docusignOAuthHost.replace(/^https?:\/\//, "").replace(/\/+$/, ""));
 
-  const privateKey = loadDocusignPrivateKeyPem(config);
+  const apiClient = new docusign.ApiClient();
+  apiClient.setBasePath(runtime.basePath.replace(/\/+$/, ""));
+  apiClient.setOAuthBasePath(runtime.oauthHost.replace(/^https?:\/\//, "").replace(/\/+$/, ""));
+
   const scopes = ["signature", "impersonation"];
   const expiresIn = 3600;
 
-  let result: { body?: { access_token?: string; expires_in?: number } };
+  let rawResult: unknown;
   try {
-    result = await new Promise<{ body?: { access_token?: string; expires_in?: number } }>((resolve, reject) => {
-      apiClient.requestJWTUserToken(
-        config.docusignIntegrationKey!,
-        config.docusignUserId!,
-        scopes,
-        privateKey,
-        expiresIn,
-        (err: Error | null, res: { body?: { access_token?: string; expires_in?: number } }) => {
-          if (err) reject(err);
-          else resolve(res);
-        }
-      );
-    });
+    rawResult = await requestJwtUserTokenAsync(
+      apiClient,
+      runtime.integrationKey,
+      runtime.userId,
+      scopes,
+      pem,
+      expiresIn
+    );
   } catch (err) {
     const { error, errorDescription } = readJwtGrantErrorFields(err);
-    const desc = errorDescription ?? "";
-    const needsConsent =
-      error === "consent_required" || (error === "invalid_grant" && desc.toLowerCase().includes("consent_required"));
-    if (needsConsent) {
-      const url = buildDocuSignJwtConsentUrl(config);
-      const oauthOrigin = oauthHostToHttpsOrigin(config.docusignOAuthHost);
+    if (error === "consent_required") {
+      const url = buildDocuSignJwtConsentUrl(runtime);
+      const oauthOrigin = oauthHostToHttpsOrigin(runtime.oauthHost);
       throw new Error(
-        "DocuSign JWT: one-time consent is required for this Integration Key and impersonated user (" +
-          `${config.docusignUserId}). Sign in to DocuSign demo as that user, then open this URL (must start with ${oauthOrigin} — ` +
-          `not www.docusign.com; www.docusign.com is only the redirect landing): ${url} ` +
-          `If you see redirect_uri mismatch, add "${config.docusignConsentRedirectUri}" to Redirect URIs in Apps and Keys and Save.`
+        `DocuSign consent required for user ${runtime.userId}. Sign in to DocuSign (${runtime.environment}) as that user, then open: ${url} ` +
+          `(must use ${oauthOrigin}, not www.docusign.com for the consent host).`
       );
     }
-    if (error === "invalid_grant" && desc.includes("no_valid_keys_or_signatures")) {
+    if (error === "invalid_grant" || errorDescription?.includes("no_valid_keys_or_signatures")) {
       throw new Error(
-        "DocuSign JWT: private key does not match the public key on this Integration Key (or no RSA public key is registered). " +
-          "In DocuSign Admin → Apps and Keys → your app (Integration Key " +
-          `${config.docusignIntegrationKey}), add the RSA public key that pairs with the PEM in DOCUSIGN_RSA_PRIVATE_KEY / DOCUSIGN_RSA_PRIVATE_KEY_PATH. ` +
-          "Regenerate an RSA keypair in DocuSign if needed, save the public key there, replace the private PEM on the server, restart the API, then complete consent for this user if prompted."
+        `DocuSign rejected the RSA key for integration ${runtime.integrationKey}. ` +
+          `Register the matching public key in DocuSign Admin → Apps and Keys, then save the correct private key in Settings → DocuSign.`
       );
     }
-    if (error === "invalid_grant") {
-      throw new Error(`DocuSign JWT invalid_grant: ${desc || (err instanceof Error ? err.message : String(err))}`);
-    }
-    throw err instanceof Error ? err : new Error(String(err));
+    const detail = errorDescription || (err instanceof Error ? err.message : String(err));
+    throw new Error(`DocuSign JWT authentication failed: ${detail}`);
   }
 
-  const accessToken = result.body?.access_token;
-  if (!accessToken) {
-    throw new Error("DocuSign JWT exchange returned no access_token.");
+  const parsed = parseJwtTokenResponse(rawResult, expiresIn);
+  if (!parsed) {
+    throw new Error("DocuSign JWT grant returned no access token.");
   }
-  const ttlSec = typeof result.body?.expires_in === "number" ? result.body.expires_in : expiresIn;
-  tokenCache = { accessToken, expiresAtMs: now + ttlSec * 1000 };
-  return accessToken;
+  tokenCache = {
+    accessToken: parsed.accessToken,
+    expiresAtMs: now + parsed.expiresIn * 1000,
+    cacheKey,
+  };
+  return parsed.accessToken;
 }
 
-export function createConfiguredApiClient(config: AppConfig, accessToken: string) {
+export function createConfiguredApiClient(runtime: DocusignRuntimeConfig, accessToken: string) {
   const apiClient = new docusign.ApiClient();
-  apiClient.setBasePath(config.docusignBasePath.replace(/\/+$/, ""));
-  apiClient.setOAuthBasePath(config.docusignOAuthHost.replace(/^https?:\/\//, "").replace(/\/+$/, ""));
+  apiClient.setBasePath(runtime.basePath.replace(/\/+$/, ""));
+  apiClient.setOAuthBasePath(runtime.oauthHost.replace(/^https?:\/\//, "").replace(/\/+$/, ""));
   apiClient.setJWTToken(accessToken);
   return apiClient;
 }

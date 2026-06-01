@@ -629,7 +629,7 @@ export default function DashboardPage() {
               </ResponsiveContainer>
             </CardContent>
           </Card>
-        </div>
+          </div>
 
         <Card className="lg:col-span-4 flex flex-col min-h-0 border-border/80 bg-card/90 shadow-sm overflow-hidden backdrop-blur-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 px-3 py-2 pb-2">
@@ -655,7 +655,7 @@ export default function DashboardPage() {
             ) : (
               attentionItems.map((item, i) => (
                 <motion.div key={item.key} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.03 }}>
-                  <Link
+                <Link
                     to={item.href}
                     className={cn(
                       "block rounded-lg mx-1 my-0.5 px-2.5 py-2 border border-transparent",
@@ -665,8 +665,8 @@ export default function DashboardPage() {
                   >
                     <p className="text-xs font-medium text-foreground line-clamp-2">{item.title}</p>
                     <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-1">{item.sub}</p>
-                  </Link>
-                </motion.div>
+                </Link>
+              </motion.div>
               ))
             )}
           </div>
@@ -687,7 +687,7 @@ export default function DashboardPage() {
                   "No deadlines in loaded range"
                 )}
               </p>
-            </div>
+        </div>
             <Link
               to="/calendar"
               className="text-[11px] font-medium text-primary hover:underline inline-flex items-center gap-0.5 shrink-0 pt-0.5"
@@ -711,20 +711,20 @@ export default function DashboardPage() {
                     <div className="flex items-center gap-1.5">
                       <AlertTriangle className="w-3 h-3 text-destructive shrink-0" />
                       <p className="text-xs font-medium line-clamp-2">{event.title}</p>
-                    </div>
+          </div>
                     <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-1">{event.propertyAddress}</p>
                     <p className="text-[10px] text-primary font-medium mt-0.5">{event.date}</p>
                   </>
                 );
                 return (
                   <motion.div key={event.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.04 }}>
-                    <Link
+                <Link
                       to={projectHref ?? "/calendar"}
                       className="block rounded-lg mx-1 my-0.5 px-2.5 py-2 border border-transparent hover:bg-accent/40 hover:border-border/60 transition-colors"
                     >
                       {inner}
-                    </Link>
-                  </motion.div>
+                </Link>
+              </motion.div>
                 );
               })
             )}
@@ -740,7 +740,7 @@ export default function DashboardPage() {
           {canViewProjects ? (
             <Link to="/projects" className="text-[11px] font-medium text-primary hover:underline inline-flex items-center gap-0.5">
               Open list <ArrowRight className="w-3 h-3" />
-            </Link>
+          </Link>
           ) : (
             <span className="text-[11px] text-muted-foreground">Restricted</span>
           )}
@@ -753,7 +753,7 @@ export default function DashboardPage() {
                 title="Transactions restricted"
                 description="You do not have permission to view transactions. Use Calendar for dates that apply to you."
               />
-            </div>
+        </div>
           ) : (
             <table className="w-full text-xs">
             <thead>

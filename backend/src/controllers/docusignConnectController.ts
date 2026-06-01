@@ -20,7 +20,7 @@ export async function handleDocuSignConnect(
     (req.headers["x-docusign-signature-1"] as string | undefined) ??
     (req.headers["X-DocuSign-Signature-1"] as string | undefined);
 
-  if (!verifyConnectHmac(config, raw, sig)) {
+  if (!(await verifyConnectHmac(pool, config, raw, sig))) {
     res.status(401).send("Invalid signature");
     return;
   }
