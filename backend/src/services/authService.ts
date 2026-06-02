@@ -223,3 +223,47 @@ export async function refresh(
     expiresIn: parseDurationSeconds(config.accessTokenTtl),
   };
 }
+
+export async function changePassword(
+  pool: Pool,
+  userId: string,
+  input: { currentPassword: string; newPassword: string }
+): Promise<{ ok: true } | { error: AuthError }> {
+  const currentPassword = input.currentPassword;
+  const newPassword = input.newPassword;
+  if (!currentPassword || !newPassword) {
+    return { error: { status: 400, code: "INVALID_BODY", message: "Current and new password are required." } };
+  }
+  if (newPassword.length < 8) {
+    return { error: { status: 400, code: "INVALID_BODY", message: "New password must be at least 8 characters." } };
+  }
+  if (currentPassword === newPassword) {
+    return {
+      error: { status: 400, code: "INVALID_BODY", message: "New password must be different from the current password." },
+    };
+  }
+
+  const { rows } = await pool.query<{ password_hash: string; status: string }>(
+    `SELECT password_hash, status::text AS status
+     FROM public.users
+     WHERE id = $1::bigint AND deleted_at IS NULL
+     LIMIT 1`,
+    [userId]
+  );
+  const row = rows[0];
+  if (!row) {
+    return { error: { status: 404, code: "AUTH_USER_NOT_FOUND", message: "User not found." } };
+  }
+  if (row.status !== "active") {
+    return { error: { status: 403, code: "AUTH_USER_INACTIVE", message: "User is not active." } };
+  }
+
+  const ok = await bcrypt.compare(currentPassword, row.password_hash);
+  if (!ok) {
+    return { error: { status: 401, code: "AUTH_INVALID_CREDENTIALS", message: "Current password is incorrect." } };
+  }
+
+  const hash = await bcrypt.hash(newPassword, 12);
+  await pool.query(`UPDATE public.users SET password_hash = $1, updated_at = now() WHERE id = $2::bigint`, [hash, userId]);
+  return { ok: true };
+}

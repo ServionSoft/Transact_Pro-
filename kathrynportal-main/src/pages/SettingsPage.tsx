@@ -20,6 +20,7 @@ import RoleProfilesTabComponent from "@/components/settings/RoleProfilesTab";
 import PageHeader from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -27,6 +28,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { changePasswordApi } from "@/api/auth";
 
 export default function SettingsPage() {
   const location = useLocation();
@@ -99,6 +101,11 @@ export default function SettingsPage() {
   const [teamError, setTeamError] = useState<string | null>(null);
 
   const [teamReload, setTeamReload] = useState(0);
+
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [savingPassword, setSavingPassword] = useState(false);
 
   const mapApiToUi = (u: TeamMemberListItem): TeamMember => ({
     id: u.id,
@@ -234,6 +241,37 @@ export default function SettingsPage() {
     : user?.role === "super_admin"
       ? "Super Admin (built-in)"
       : "No profile assigned";
+
+  const handleChangePassword = async () => {
+    if (!apiOn) {
+      toast.error("Password change requires the API (set VITE_API_URL).");
+      return;
+    }
+    if (!currentPassword || !newPassword) {
+      toast.error("Enter your current password and a new password.");
+      return;
+    }
+    if (newPassword.length < 8) {
+      toast.error("New password must be at least 8 characters.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error("New password and confirmation do not match.");
+      return;
+    }
+    setSavingPassword(true);
+    try {
+      await changePasswordApi(currentPassword, newPassword);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      toast.success("Password updated.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not change password.");
+    } finally {
+      setSavingPassword(false);
+    }
+  };
 
   return (
     <motion.div
@@ -606,11 +644,51 @@ export default function SettingsPage() {
 
           <div className="bg-card border border-border rounded-lg p-6">
             <h3 className="font-display font-semibold text-foreground mb-4">Security</h3>
-            <div className="space-y-3">
-              <Button variant="outline" onClick={() => toast.success("Password reset email sent!")}>
-                Change Password
-              </Button>
-              <p className="text-xs text-muted-foreground">Last password change: March 15, 2026</p>
+            <div className="grid max-w-xl grid-cols-1 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="account-current-password">Current password</Label>
+                <Input
+                  id="account-current-password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  disabled={savingPassword}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="account-new-password">New password</Label>
+                <Input
+                  id="account-new-password"
+                  type="password"
+                  autoComplete="new-password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  disabled={savingPassword}
+                  placeholder="Min 8 characters"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="account-confirm-password">Confirm new password</Label>
+                <Input
+                  id="account-confirm-password"
+                  type="password"
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  disabled={savingPassword}
+                />
+              </div>
+              <div>
+                <Button onClick={() => void handleChangePassword()} disabled={savingPassword || !apiOn}>
+                  {savingPassword ? "Saving…" : "Update password"}
+                </Button>
+                {!apiOn ? (
+                  <p className="mt-2 text-xs text-muted-foreground">Connect the portal to the API to change your password.</p>
+                ) : (
+                  <p className="mt-2 text-xs text-muted-foreground">You stay signed in after updating your password.</p>
+                )}
+              </div>
             </div>
           </div>
         </motion.div>

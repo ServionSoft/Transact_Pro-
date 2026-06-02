@@ -15,6 +15,7 @@ export function registerAuthRoutes(app: Express, config: AppConfig, pool: Pool |
     router.get("/auth/me", requirePool(null));
     router.post("/auth/refresh", requirePool(null));
     router.post("/auth/logout", requirePool(null));
+    router.post("/auth/change-password", requirePool(null));
     app.use("/api", router);
     return;
   }
@@ -34,6 +35,9 @@ export function registerAuthRoutes(app: Express, config: AppConfig, pool: Pool |
   });
   router.post("/auth/logout", requirePool(pool), (req, res) => {
     void ctrl.logout(req, res);
+  });
+  router.post("/auth/change-password", requirePool(pool), requireAuth(config, pool), (req, res) => {
+    void ctrl.changePassword(req, res);
   });
   app.use("/api", router);
 }

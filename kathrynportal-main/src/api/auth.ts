@@ -1,4 +1,5 @@
 import { getApiBaseUrl } from "@/lib/apiConfig";
+import { authFetch } from "@/lib/authFetch";
 export class AuthApiError extends Error {
   constructor(
     message: string,
@@ -118,4 +119,16 @@ export async function refreshApi(refreshToken: string): Promise<{ accessToken: s
 
 export async function logoutApi(refreshToken: string): Promise<void> {
   await postJson("/api/auth/logout", { refreshToken });
+}
+
+export async function changePasswordApi(currentPassword: string, newPassword: string): Promise<void> {
+  const res = await authFetch(`${requireBase()}/api/auth/change-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+  const json = await parseJson(res);
+  if (!res.ok) {
+    throw new AuthApiError(readErrorMessage(json, `Password change failed (${res.status})`), res.status);
+  }
 }
