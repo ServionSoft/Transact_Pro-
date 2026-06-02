@@ -199,8 +199,31 @@ export default function ProjectDetailPage() {
     [project, clientForEmail],
   );
 
-  if (!project) {
+  const consumedNavRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!project) return;
+    const state = location.state as ProjectDetailLocationState | null | undefined;
+    if (!state?.tab) return;
+    const token = `${location.key}:${state.tab}:${state.composeEmail ?? ""}`;
+    if (consumedNavRef.current === token) return;
+    consumedNavRef.current = token;
+    setActiveTab(state.tab);
+    if (state.tab === "emails") {
+      setShowComposeEmail(true);
+      const email = state.composeEmail?.trim() || clients.find((c) => c.id === project.clientId)?.email?.trim();
+      if (email) setComposeTo(email);
+      setComposeSubject((prev) => prev.trim() || `Re: ${project.propertyAddress}`);
+    }
+    navigate(location.pathname, { replace: true, state: {} });
+  }, [project, location.key, location.state, location.pathname, navigate, clients]);
+
+  /** Stale list cache can leave a row in the store after detail API returns 404. */
+  const showUnavailableState = !project || (!loadingProject && loadFailure != null);
+
+  if (showUnavailableState) {
     const deleted = loadFailure?.code === "PROJECT_DELETED";
+    const notFound = loadFailure?.code === "PROJECT_NOT_FOUND" || !project;
     return (
       <div className="mx-auto flex min-h-[50vh] w-full max-w-7xl flex-col items-center justify-center p-8 text-center">
         <p className="text-muted-foreground">
@@ -208,13 +231,21 @@ export default function ProjectDetailPage() {
             ? "Loading transaction…"
             : deleted
               ? loadFailure?.message ?? "This transaction was deleted."
-              : loadFailure?.message ?? "Transaction not found."}
+              : notFound
+                ? loadFailure?.message ?? "Transaction not found."
+                : loadFailure?.message ?? "Could not load this transaction."}
         </p>
         {!loadingProject && deleted ? (
           <p className="mt-2 max-w-md text-xs text-muted-foreground">
             Deleted transactions are hidden from the list. To restore one in the database, clear{" "}
             <code className="rounded bg-muted px-1">deleted_at</code> on that row in{" "}
             <code className="rounded bg-muted px-1">projects</code> (or create a new transaction).
+          </p>
+        ) : null}
+        {!loadingProject && notFound ? (
+          <p className="mt-2 max-w-md text-xs text-muted-foreground">
+            This ID may not exist on the server you are connected to (for example, a link from local data opened on
+            production).
           </p>
         ) : null}
         {!loadingProject ? (
@@ -267,22 +298,6 @@ export default function ProjectDetailPage() {
     }
     setComposeSubject((prev) => prev.trim() || `Re: ${project.propertyAddress}`);
   };
-
-  const consumedNavRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!project) return;
-    const state = location.state as ProjectDetailLocationState | null | undefined;
-    if (!state?.tab) return;
-    const token = `${location.key}:${state.tab}:${state.composeEmail ?? ""}`;
-    if (consumedNavRef.current === token) return;
-    consumedNavRef.current = token;
-    setActiveTab(state.tab);
-    if (state.tab === "emails") {
-      openTransactionEmail(state.composeEmail);
-    }
-    navigate(location.pathname, { replace: true, state: {} });
-  }, [project, location.key, location.state, location.pathname, navigate, client?.email]);
 
   const handleAssignmentsChange = (userIds: string[]) => {
     setSavingAssignments(true);
