@@ -725,6 +725,30 @@ export async function deleteEsignDraft(
   return { ok: true };
 }
 
+export async function patchEsignDraftTitle(
+  pool: Pool,
+  args: { projectId: number; esignDocumentId: number; title: string }
+): Promise<{ document: EsignDocumentRow } | { error: ServiceError }> {
+  const title = args.title.trim();
+  if (!title) {
+    return { error: { status: 422, code: "TITLE_REQUIRED", message: "title is required." } };
+  }
+  const { rows } = await pool.query<Record<string, unknown>>(
+    `UPDATE public.esign_documents
+     SET title = $1, updated_at = now()
+     WHERE id = $2::bigint
+       AND project_id = $3::bigint
+       AND deleted_at IS NULL
+     RETURNING id::text, project_id::text, project_document_id::text, original_file_id::text, render_file_id::text,
+               provider, provider_document_id, title, status, created_by_user_id::text, created_at, updated_at`,
+    [title.slice(0, 512), args.esignDocumentId, args.projectId]
+  );
+  if (!rows[0]) {
+    return { error: { status: 404, code: "ESIGN_NOT_FOUND", message: "E-sign draft not found." } };
+  }
+  return { document: mapDocRow(rows[0]) };
+}
+
 export async function deleteEsignDraftsByFile(
   pool: Pool,
   args: { projectId: number; storedFileId: number }

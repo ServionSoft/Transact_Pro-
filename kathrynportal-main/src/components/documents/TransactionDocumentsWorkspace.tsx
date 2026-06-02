@@ -57,6 +57,7 @@ import {
   deleteEsignDocumentApi,
   deleteEsignDraftsByFileApi,
   listEsignDocumentsApi,
+  patchEsignDocumentTitleApi,
   sendEsignDocusignApi,
   syncDocusignCompletionApi,
   type EsignDocumentDto,
@@ -67,6 +68,29 @@ export type TransactionDocumentsView = "checklist-only" | "pool-only" | "full";
 
 const POOL_ACCEPT =
   ".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+function esignStatusLabel(status: EsignDocumentDto["status"]): string {
+  switch (status) {
+    case "draft_uploaded":
+      return "Draft uploaded";
+    case "editing":
+      return "Editing";
+    case "ready_for_send":
+      return "Ready to send";
+    case "conversion_failed":
+      return "Conversion failed";
+    case "sent":
+      return "Sent";
+    case "completed":
+      return "Completed";
+    case "declined":
+      return "Declined";
+    case "voided":
+      return "Voided";
+    default:
+      return status;
+  }
+}
 
 interface DocRow {
   id: string;
@@ -156,6 +180,7 @@ export default function TransactionDocumentsWorkspace({
   const [savingDocNoteId, setSavingDocNoteId] = useState<string | null>(null);
   const [poolAccessDenied, setPoolAccessDenied] = useState(false);
   const [renamingFileId, setRenamingFileId] = useState<string | null>(null);
+  const [renamingTemplateId, setRenamingTemplateId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const canViewDocs = hasPermission(user, "documents.view");
   const canUploadDocs = hasPermission(user, "documents.upload");
@@ -194,8 +219,36 @@ export default function TransactionDocumentsWorkspace({
 
   const unfiledCount = useMemo(
     () => project?.attachments.filter((a) => a.folderId == null).length ?? 0,
-    [project]
+    [project],
   );
+
+  const attachmentById = useMemo(() => {
+    const map = new Map<string, FileAttachment>();
+    for (const file of project?.attachments ?? []) map.set(file.id, file);
+    return map;
+  }, [project?.attachments]);
+
+  const poolListsTemplates = view === "pool-only";
+
+  const folderIdForDraft = useCallback(
+    (draft: EsignDocumentDto): string | null => attachmentById.get(draft.originalFileId)?.folderId ?? null,
+    [attachmentById],
+  );
+
+  const filteredEsignDrafts = useMemo(() => {
+    if (!poolListsTemplates) return esignDrafts;
+    if (storageScope === "all") return esignDrafts;
+    if (storageScope === "inbox") return esignDrafts.filter((draft) => folderIdForDraft(draft) == null);
+    return esignDrafts.filter((draft) => folderIdForDraft(draft) === storageScope);
+  }, [poolListsTemplates, esignDrafts, storageScope, folderIdForDraft]);
+
+  const templateUnfiledCount = useMemo(
+    () => esignDrafts.filter((draft) => folderIdForDraft(draft) == null).length,
+    [esignDrafts, folderIdForDraft],
+  );
+
+  const poolScopeCount = poolListsTemplates ? filteredEsignDrafts.length : filteredPoolFiles.length;
+  const poolTotalCount = poolListsTemplates ? esignDrafts.length : (project?.attachments.length ?? 0);
 
   const attachTargetDoc = useMemo(() => docs.find((d) => d.id === attachDocId), [docs, attachDocId]);
 
@@ -634,7 +687,49 @@ export default function TransactionDocumentsWorkspace({
 
   const cancelRenamePoolFile = () => {
     setRenamingFileId(null);
+    setRenamingTemplateId(null);
     setRenameDraft("");
+  };
+
+  const commitRenameTemplate = async (draft: EsignDocumentDto) => {
+    const trimmed = renameDraft.trim();
+    if (!trimmed) {
+      toast.error("Template name is required.");
+      return;
+    }
+    if (!canMoveDocs) {
+      toast.error("You do not have permission to rename templates.");
+      return;
+    }
+    if (trimmed === draft.title) {
+      cancelRenamePoolFile();
+      return;
+    }
+    if (getApiBaseUrl()) {
+      try {
+        const updated = await patchEsignDocumentTitleApi(project.id, draft.id, trimmed);
+        const linkedFile = attachmentById.get(draft.originalFileId);
+        if (linkedFile?.serverBacked) {
+          try {
+            await patchProjectStoredFile(project.id, linkedFile.id, { name: trimmed });
+            renameStoredFileInPoolStore(project.id, linkedFile.id, trimmed);
+          } catch {
+            /* template title saved; stored file rename is best-effort */
+          }
+        }
+        setEsignDrafts((prev) => prev.map((item) => (item.id === draft.id ? { ...item, ...updated } : item)));
+        toast.success("Template renamed.");
+      } catch (err) {
+        toast.error("Could not rename template on server", {
+          description: err instanceof Error ? err.message : undefined,
+        });
+        return;
+      }
+    } else {
+      setEsignDrafts((prev) => prev.map((item) => (item.id === draft.id ? { ...item, title: trimmed } : item)));
+      toast.success("Template renamed.");
+    }
+    cancelRenamePoolFile();
   };
 
   const commitRenamePoolFile = async (file: FileAttachment) => {
@@ -969,6 +1064,42 @@ export default function TransactionDocumentsWorkspace({
       ? "All pool files are already linked, or the pool is empty. Upload files in the File pool section above."
       : "All pool files are already linked, or the pool is empty. Upload on the Stored Documents tab first.";
 
+  const removeEsignTemplate = async (draft: EsignDocumentDto) => {
+    if (!window.confirm(`Delete template "${draft.title}"?`)) return;
+    try {
+      await deleteEsignDocumentApi(project.id, draft.id);
+      setEsignDrafts((prev) => prev.filter((x) => x.id !== draft.id));
+      if (openDraftId === draft.id) setOpenDraftId(null);
+      toast.success("Template deleted.");
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.message.toLowerCase().includes("not found") || error.message.toLowerCase().includes("404"))
+      ) {
+        setEsignDrafts((prev) => prev.filter((x) => x.id !== draft.id));
+        if (openDraftId === draft.id) setOpenDraftId(null);
+        toast.success("Template already removed.");
+        return;
+      }
+      toast.error(error instanceof Error ? error.message : "Could not delete template.");
+    }
+  };
+
+  const downloadEsignTemplate = (draft: EsignDocumentDto) => {
+    const fileId = draft.renderFileId ?? draft.originalFileId;
+    const file = attachmentById.get(fileId);
+    if (!file) {
+      toast.error("Preview file is not available yet. Open the template builder to finish conversion.");
+      return;
+    }
+    void downloadPoolFile(file);
+  };
+
+  const openEsignTemplate = (draftId: string) => {
+    setOpenDraftId(draftId);
+    setEsignOpen(true);
+  };
+
   const draftsSection = (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-card border border-border rounded-lg p-3">
       <div className="flex items-center justify-between mb-2">
@@ -983,43 +1114,17 @@ export default function TransactionDocumentsWorkspace({
             <div key={draft.id} className="flex items-center justify-between gap-2 rounded border border-border px-2 py-1.5">
               <div className="min-w-0">
                 <p className="text-sm truncate">{draft.title}</p>
-                <p className="text-[11px] text-muted-foreground">{draft.status}</p>
+                <p className="text-[11px] text-muted-foreground">{esignStatusLabel(draft.status)}</p>
               </div>
               <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setOpenDraftId(draft.id);
-                    setEsignOpen(true);
-                  }}
-                >
+                <Button size="sm" variant="outline" onClick={() => openEsignTemplate(draft.id)}>
                   Open
                 </Button>
                 <Button
                   size="sm"
                   variant="ghost"
                   className="text-destructive hover:text-destructive"
-                  onClick={async () => {
-                    if (!window.confirm(`Delete template "${draft.title}"?`)) return;
-                    try {
-                      await deleteEsignDocumentApi(project.id, draft.id);
-                      setEsignDrafts((prev) => prev.filter((x) => x.id !== draft.id));
-                      if (openDraftId === draft.id) setOpenDraftId(null);
-                      toast.success("Template deleted.");
-                    } catch (error) {
-                      if (
-                        error instanceof Error &&
-                        (error.message.toLowerCase().includes("not found") || error.message.toLowerCase().includes("404"))
-                      ) {
-                        setEsignDrafts((prev) => prev.filter((x) => x.id !== draft.id));
-                        if (openDraftId === draft.id) setOpenDraftId(null);
-                        toast.success("Template already removed.");
-                        return;
-                      }
-                      toast.error(error instanceof Error ? error.message : "Could not delete template.");
-                    }
-                  }}
+                  onClick={() => void removeEsignTemplate(draft)}
                 >
                   Delete
                 </Button>
@@ -1063,7 +1168,7 @@ export default function TransactionDocumentsWorkspace({
                 storageScope === "all" ? "bg-accent/15 text-accent-foreground font-medium" : "hover:bg-muted"
               }`}
             >
-              All files ({project.attachments.length})
+              {poolListsTemplates ? `All templates (${poolTotalCount})` : `All files (${poolTotalCount})`}
             </button>
             <button
               type="button"
@@ -1072,7 +1177,7 @@ export default function TransactionDocumentsWorkspace({
                 storageScope === "inbox" ? "bg-accent/15 text-accent-foreground font-medium" : "hover:bg-muted"
               }`}
             >
-              Inbox (unfiled) ({unfiledCount})
+              Inbox (unfiled) ({poolListsTemplates ? templateUnfiledCount : unfiledCount})
             </button>
             {folders
               .filter((f) => f.parentId == null)
@@ -1206,28 +1311,191 @@ export default function TransactionDocumentsWorkspace({
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <h3 className="font-display font-semibold text-foreground text-sm">
               {storageScope === "all"
-                ? "All files"
+                ? poolListsTemplates
+                  ? "All templates"
+                  : "All files"
                 : storageScope === "inbox"
                   ? "Inbox (unfiled)"
                   : folders.find((f) => f.id === storageScope)?.name ?? "Folder"}{" "}
-              · {filteredPoolFiles.length} shown
+              · {poolScopeCount} shown
             </h3>
             {allowPoolUpload ? (
               <Button size="sm" className="gap-1" type="button" onClick={triggerPoolUpload} disabled={!canUploadDocs}>
-                <Upload className="w-3 h-3" /> Upload
+                <Upload className="w-3 h-3" /> {poolListsTemplates ? "Upload & create template" : "Upload"}
               </Button>
             ) : null}
           </div>
           <p className="text-[11px] text-muted-foreground mb-3">
             {!allowPoolUpload
-              ? "Browse files and organize folders. Upload from the Documents hub."
-              : view === "full"
-              ? "PDF and Word · Upload one file at a time (DocuSign naming and tabs). Link each to a checklist row below."
-              : view === "pool-only"
-                ? "PDF and Word · Upload one file at a time. DocuSign on each row when connected."
-                : "PDF and Word · Upload one file at a time. Link to checklist rows on the Document Checklist tab."}
+              ? poolListsTemplates
+                ? "Browse eSign templates and organize folders. Upload from the Documents hub."
+                : "Browse files and organize folders. Upload from the Documents hub."
+              : poolListsTemplates
+                ? "PDF and Word · Upload creates a stored file and opens the template builder. Word is converted to PDF on the server."
+                : view === "full"
+                  ? "PDF and Word · Upload one file at a time (DocuSign naming and tabs). Link each to a checklist row below."
+                  : "PDF and Word · Upload one file at a time. Link to checklist rows on the Document Checklist tab."}
           </p>
-          {filteredPoolFiles.length > 0 ? (
+          {poolListsTemplates ? (
+            filteredEsignDrafts.length > 0 ? (
+              <div
+                className={cn(
+                  "space-y-1",
+                  embeddedInTransactionTab && "min-h-0 flex-1 overflow-y-auto overscroll-contain pr-0.5",
+                )}
+              >
+                {filteredEsignDrafts.map((draft) => {
+                  const linkedFile = attachmentById.get(draft.originalFileId);
+                  const folderId = folderIdForDraft(draft);
+                  const isRenaming = renamingTemplateId === draft.id;
+                  return (
+                    <div
+                      key={draft.id}
+                      className="flex flex-wrap items-center gap-2 px-3 py-2 rounded hover:bg-secondary/40 transition-colors"
+                    >
+                      <FileText className="w-4 h-4 text-destructive shrink-0" />
+                      {!isRenaming && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 w-7 p-0 shrink-0 text-muted-foreground hover:text-foreground"
+                          disabled={!canMoveDocs}
+                          title={canMoveDocs ? "Rename template" : "No permission to rename templates"}
+                          onClick={() => {
+                            setRenamingTemplateId(draft.id);
+                            setRenamingFileId(null);
+                            setRenameDraft(draft.title);
+                          }}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        {isRenaming ? (
+                          <div className="space-y-1.5">
+                            <Input
+                              value={renameDraft}
+                              onChange={(e) => setRenameDraft(e.target.value)}
+                              className="h-8 text-xs"
+                              maxLength={512}
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  void commitRenameTemplate(draft);
+                                }
+                                if (e.key === "Escape") {
+                                  e.preventDefault();
+                                  cancelRenamePoolFile();
+                                }
+                              }}
+                            />
+                            <div className="flex gap-1.5">
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="h-7 text-xs px-2"
+                                onClick={() => void commitRenameTemplate(draft)}
+                              >
+                                Save
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs px-2"
+                                onClick={cancelRenamePoolFile}
+                              >
+                                Cancel
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <p className="text-sm font-medium text-foreground truncate">{draft.title}</p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {linkedFile
+                                ? `${linkedFile.size}${linkedFile.uploadedAt ? ` · ${linkedFile.uploadedAt}` : ""}`
+                                : "Source file processing…"}
+                            </p>
+                          </>
+                        )}
+                      </div>
+                      <Badge
+                        variant={draft.status === "ready_for_send" ? "default" : "secondary"}
+                        className="text-[10px] shrink-0"
+                      >
+                        {esignStatusLabel(draft.status)}
+                      </Badge>
+                      <Select
+                        value={folderId ?? "__inbox__"}
+                        onValueChange={(v) => {
+                          if (!linkedFile) return;
+                          void movePoolFileToFolder(linkedFile, v === "__inbox__" ? null : v);
+                        }}
+                        disabled={!canMoveDocs || !linkedFile || isRenaming}
+                      >
+                        <SelectTrigger className="h-7 w-[140px] text-xs shrink-0">
+                          <SelectValue placeholder="Folder" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__inbox__" className="text-xs">
+                            Inbox (unfiled)
+                          </SelectItem>
+                          {folders.map((f) => (
+                            <SelectItem key={f.id} value={f.id} className="text-xs">
+                              {f.parentId ? `↳ ${f.name}` : f.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-xs shrink-0"
+                        type="button"
+                        disabled={isRenaming}
+                        onClick={() => openEsignTemplate(draft.id)}
+                      >
+                        Open
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={!canDownloadDocs || isRenaming}
+                        className="h-7 w-7 p-0"
+                        type="button"
+                        onClick={() => downloadEsignTemplate(draft)}
+                        title="Download PDF"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={!canDeleteDocs || isRenaming}
+                        className="h-7 w-7 p-0 text-destructive"
+                        type="button"
+                        onClick={() => void removeEsignTemplate(draft)}
+                        title="Delete template"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="px-6 py-12 text-center">
+                <Paperclip className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
+                <p className="text-sm text-muted-foreground">No eSign templates in this view yet.</p>
+                {allowPoolUpload ? (
+                  <p className="mt-1 text-xs text-muted-foreground">Upload a PDF or Word file to create one.</p>
+                ) : null}
+              </div>
+            )
+          ) : filteredPoolFiles.length > 0 ? (
             <div
               className={cn(
                 "space-y-1",
@@ -1250,6 +1518,7 @@ export default function TransactionDocumentsWorkspace({
                       title={canMoveDocs ? "Rename file" : "No permission to rename files"}
                       onClick={() => {
                         setRenamingFileId(file.id);
+                        setRenamingTemplateId(null);
                         setRenameDraft(file.name);
                       }}
                     >
@@ -1745,15 +2014,13 @@ export default function TransactionDocumentsWorkspace({
       )}
       {view === "pool-only" && (
         embeddedInTransactionTab ? (
-          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden" aria-label="Upload and stored files">
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden" aria-label="eSign templates">
             {poolSection}
-            <div className="shrink-0">{draftsSection}</div>
           </div>
         ) : (
-          <section className="space-y-3" aria-label="Upload and stored files">
-            <h2 className="font-display text-lg font-semibold text-foreground">Your files</h2>
+          <section className="space-y-3" aria-label="eSign templates">
+            <h2 className="font-display text-lg font-semibold text-foreground">eSign templates</h2>
             {poolSection}
-            {draftsSection}
           </section>
         )
       )}
@@ -1907,7 +2174,10 @@ export default function TransactionDocumentsWorkspace({
         open={esignOpen}
         onOpenChange={(open) => {
           setEsignOpen(open);
-          if (!open) setOpenDraftId(null);
+          if (!open) {
+            setOpenDraftId(null);
+            void loadMergedEsignDrafts().then((merged) => setEsignDrafts(merged));
+          }
         }}
         projectId={project.id}
         docs={project.documents}

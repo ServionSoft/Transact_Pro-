@@ -481,56 +481,56 @@ export default function ProjectDetailPage() {
   };
 
   const handleSaveNewTask = () => {
-    const title = newTaskTitle.trim();
-    if (!title) {
-      toast.error("Task title is required.");
-      return;
-    }
-    if (apiOn) {
-      void createProjectTaskApi(project.id, {
-        title,
-        stage: project.stage,
-        dueDate: newTaskDueDate || undefined,
-      })
-        .then((updated) => {
-          upsertProject(updated);
-          setNewTaskTitle("");
-          setNewTaskDueDate("");
-          setShowAddTask(false);
-          toast.success("Task added.");
-        })
-        .catch((e) => {
-          toast.error(e instanceof Error ? e.message : "Could not add task.");
-        });
-      return;
-    }
-    addProjectTaskStore(project.id, {
-      title,
-      stage: project.stage,
-      status: "Pending",
-      dueDate: newTaskDueDate || new Date().toISOString().split("T")[0],
-    });
-    setNewTaskTitle("");
-    setNewTaskDueDate("");
-    setShowAddTask(false);
-    toast.success("Task added.");
+                    const title = newTaskTitle.trim();
+                    if (!title) {
+                      toast.error("Task title is required.");
+                      return;
+                    }
+                    if (apiOn) {
+                      void createProjectTaskApi(project.id, {
+                        title,
+                        stage: project.stage,
+                        dueDate: newTaskDueDate || undefined,
+                      })
+                        .then((updated) => {
+                          upsertProject(updated);
+                          setNewTaskTitle("");
+                          setNewTaskDueDate("");
+                          setShowAddTask(false);
+                          toast.success("Task added.");
+                        })
+                        .catch((e) => {
+                          toast.error(e instanceof Error ? e.message : "Could not add task.");
+                        });
+                      return;
+                    }
+                    addProjectTaskStore(project.id, {
+                      title,
+                      stage: project.stage,
+                      status: "Pending",
+                      dueDate: newTaskDueDate || new Date().toISOString().split("T")[0],
+                    });
+                    setNewTaskTitle("");
+                    setNewTaskDueDate("");
+                    setShowAddTask(false);
+                    toast.success("Task added.");
   };
 
   const handleToggleTaskComplete = (taskId: string, isComplete: boolean) => {
-    const nextStatus = isComplete ? "Pending" : "Complete";
-    if (apiOn) {
+                        const nextStatus = isComplete ? "Pending" : "Complete";
+                        if (apiOn) {
       void patchProjectTaskStatusApi(project.id, taskId, nextStatus)
-        .then((updated) => {
-          upsertProject(updated);
-          toast.success(isComplete ? "Task unchecked" : "Task completed!");
-        })
-        .catch((e) => {
-          toast.error(e instanceof Error ? e.message : "Could not update task.");
-        });
-      return;
-    }
+                            .then((updated) => {
+                              upsertProject(updated);
+                              toast.success(isComplete ? "Task unchecked" : "Task completed!");
+                            })
+                            .catch((e) => {
+                              toast.error(e instanceof Error ? e.message : "Could not update task.");
+                            });
+                          return;
+                        }
     setTaskStatusStore(project.id, taskId, nextStatus);
-    toast.success(isComplete ? "Task unchecked" : "Task completed!");
+                        toast.success(isComplete ? "Task unchecked" : "Task completed!");
   };
 
   const handleMarkAllTasksComplete = () => {
@@ -581,35 +581,35 @@ export default function ProjectDetailPage() {
   };
 
   const handleSendEmail = () => {
-    const payload = {
-      to: composeTo || client?.email || "",
-      subject: composeSubject || `Re: ${project.propertyAddress}`,
-      body: composeBody,
-    };
-    if (!isValidEmail(payload.to)) {
-      toast.error("Recipient email is invalid.");
-      return;
-    }
-    if (apiOn) {
-      void createProjectEmailApi(project.id, payload)
-        .then(({ project: updated, emailSendFailed, emailSendError }) => {
-          upsertProject(updated);
-          if (emailSendFailed) {
-            toast.warning("Email saved; sending failed", {
-              description: emailSendError ?? "Check SMTP settings and the Communications thread.",
-            });
-          } else {
-            toast.success("Email sent.");
-          }
+                    const payload = {
+                      to: composeTo || client?.email || "",
+                      subject: composeSubject || `Re: ${project.propertyAddress}`,
+                      body: composeBody,
+                    };
+                    if (!isValidEmail(payload.to)) {
+                      toast.error("Recipient email is invalid.");
+                      return;
+                    }
+                    if (apiOn) {
+                      void createProjectEmailApi(project.id, payload)
+                        .then(({ project: updated, emailSendFailed, emailSendError }) => {
+                          upsertProject(updated);
+                          if (emailSendFailed) {
+                            toast.warning("Email saved; sending failed", {
+                              description: emailSendError ?? "Check SMTP settings and the Communications thread.",
+                            });
+                          } else {
+                            toast.success("Email sent.");
+                          }
           handleCancelCompose();
-        })
-        .catch((e) => {
-          toast.error(e instanceof Error ? e.message : "Could not send email.");
-        });
-      return;
-    }
-    sendEmailStore({ ...payload, projectId: project.id });
-    toast.success("Email sent & logged to transaction!");
+                        })
+                        .catch((e) => {
+                          toast.error(e instanceof Error ? e.message : "Could not send email.");
+                        });
+                      return;
+                    }
+                    sendEmailStore({ ...payload, projectId: project.id });
+                    toast.success("Email sent & logged to transaction!");
     handleCancelCompose();
   };
 
@@ -623,16 +623,16 @@ export default function ProjectDetailPage() {
   };
 
   const handleDeleteEmail = (emailId: string) => {
-    if (!window.confirm("Remove this message from the communication thread? This cannot be undone.")) return;
-    if (apiOn) {
+                            if (!window.confirm("Remove this message from the communication thread? This cannot be undone.")) return;
+                            if (apiOn) {
       void deleteProjectEmailApi(project.id, emailId)
-        .then((updated) => {
-          upsertProject(updated);
-          toast.success("Email removed from thread.");
-        })
-        .catch((e) => {
-          toast.error(e instanceof Error ? e.message : "Could not delete email.");
-        });
+                                .then((updated) => {
+                                  upsertProject(updated);
+                                  toast.success("Email removed from thread.");
+                                })
+                                .catch((e) => {
+                                  toast.error(e instanceof Error ? e.message : "Could not delete email.");
+                                });
       return;
     }
     removeProjectEmailStore(project.id, emailId);
@@ -640,32 +640,32 @@ export default function ProjectDetailPage() {
   };
 
   const handleAddNote = () => {
-    const body = newNoteBody.trim();
-    if (!body) {
-      toast.error("Note text is required.");
-      return;
-    }
-    if (apiOn) {
-      void createProjectNoteApi(project.id, body)
-        .then((updated) => {
-          upsertProject(updated);
-          setNewNoteBody("");
-          toast.success("Note added.");
-        })
-        .catch((e) => {
-          toast.error(e instanceof Error ? e.message : "Could not add note.");
-        });
-      return;
-    }
-    const localNote = {
-      id: `n-${Date.now()}`,
-      body,
-      author: user?.name ?? "Kathryn",
-      createdAt: new Date().toISOString().split("T")[0],
-    };
-    upsertProject({ ...project, notes: [localNote, ...(project.notes ?? [])] });
-    setNewNoteBody("");
-    toast.success("Note added.");
+              const body = newNoteBody.trim();
+              if (!body) {
+                toast.error("Note text is required.");
+                return;
+              }
+              if (apiOn) {
+                void createProjectNoteApi(project.id, body)
+                  .then((updated) => {
+                    upsertProject(updated);
+                    setNewNoteBody("");
+                    toast.success("Note added.");
+                  })
+                  .catch((e) => {
+                    toast.error(e instanceof Error ? e.message : "Could not add note.");
+                  });
+                return;
+              }
+              const localNote = {
+                id: `n-${Date.now()}`,
+                body,
+                author: user?.name ?? "Kathryn",
+                createdAt: new Date().toISOString().split("T")[0],
+              };
+              upsertProject({ ...project, notes: [localNote, ...(project.notes ?? [])] });
+              setNewNoteBody("");
+              toast.success("Note added.");
   };
 
   const tabUsesOwnScroll =
@@ -699,7 +699,7 @@ export default function ProjectDetailPage() {
           onSave={saveNextStep}
         />
         <TransactionDetailTabBar activeTab={activeTab} onTabChange={setActiveTab} />
-      </div>
+                </div>
 
       <TransactionTabPanel scroll={!tabUsesOwnScroll}>
       {activeTab === "overview" && (

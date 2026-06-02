@@ -7,7 +7,7 @@ export default function DocumentsPage() {
     <div className="p-8 max-w-7xl mx-auto">
       <PageHeader
         title="Documents"
-        subtitle="Your CRM file library — not tied to a client or transaction. Folders help you organize uploads now; document rules from Settings will drive sets and workflows later."
+        subtitle="CRM eSign template library — upload PDF or Word (converted on the server), place fields, and use templates in document rules and transactions."
       />
 
       <div className="mt-8">

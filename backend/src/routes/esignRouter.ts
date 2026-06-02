@@ -35,6 +35,9 @@ export function registerEsignRoutes(app: Express, config: AppConfig, pool: Pool 
   router.put("/:projectId/esign-documents/:documentId", requireDb, auth, docUpload, resolveProject, projectAccess, (req, res) => {
     void ctrl.save(req, res);
   });
+  router.patch("/:projectId/esign-documents/:documentId", requireDb, auth, docUpload, resolveProject, projectAccess, (req, res) => {
+    void ctrl.patchTitle(req, res);
+  });
   router.post(
     "/:projectId/esign-documents/:documentId/ready",
     requireDb,

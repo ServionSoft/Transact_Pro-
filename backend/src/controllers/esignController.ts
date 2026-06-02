@@ -8,6 +8,7 @@ import {
   getEsignDraft,
   listEsignDrafts,
   markEsignDraftReady,
+  patchEsignDraftTitle,
   saveEsignDraft,
   type EsignFieldInput,
   type EsignRecipientInput,
@@ -192,6 +193,26 @@ export function createEsignController(pool: Pool, deps: { uploadDirAbs: string; 
         return;
       }
       res.status(204).send();
+    },
+
+    async patchTitle(req: Request, res: Response): Promise<void> {
+      const projectId = res.locals.numericProjectId as number;
+      const documentId = Number(req.params.documentId);
+      if (!Number.isFinite(documentId) || documentId <= 0) {
+        res.status(400).json({ success: false, error: { code: "BAD_ID", message: "Invalid document id." } });
+        return;
+      }
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const title = typeof body.title === "string" ? body.title : "";
+      const result = await patchEsignDraftTitle(pool, { projectId, esignDocumentId: documentId, title });
+      if ("error" in result) {
+        res.status(result.error.status).json({
+          success: false,
+          error: { code: result.error.code, message: result.error.message },
+        });
+        return;
+      }
+      res.json({ success: true, data: { document: result.document }, message: "" });
     },
 
     async deleteByFile(req: Request, res: Response): Promise<void> {

@@ -183,6 +183,22 @@ export async function deleteEsignDocumentApi(projectId: string, documentId: stri
   });
 }
 
+export async function patchEsignDocumentTitleApi(
+  projectId: string,
+  documentId: string,
+  title: string,
+): Promise<EsignDocumentDto> {
+  const data = await request<{ document: EsignDocumentDto }>(
+    `/api/projects/${encodeURIComponent(projectId)}/esign-documents/${encodeURIComponent(documentId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    },
+  );
+  return data.document;
+}
+
 export async function deleteEsignDraftsByFileApi(projectId: string, fileId: string): Promise<number> {
   const data = await request<{ deletedCount: number }>(
     `/api/projects/${encodeURIComponent(projectId)}/esign-documents/by-file/${encodeURIComponent(fileId)}`,
