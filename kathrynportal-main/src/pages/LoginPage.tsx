@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuthStore } from "@/store/authStore";
+import BrandLogo from "@/components/brand/BrandLogo";
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -42,10 +43,13 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <div className="w-full max-w-md border border-border rounded-lg p-6 bg-card">
-        <h1 className="text-xl font-semibold text-foreground mb-1">Sign in</h1>
-        <p className="text-sm text-muted-foreground mb-5">Use your portal account to continue.</p>
+    <div className="flex min-h-screen items-center justify-center bg-[hsl(215_45%_12%)] p-4">
+      <div className="w-full max-w-md rounded-xl border border-border/60 bg-card p-6 shadow-lg sm:p-8">
+        <div className="mb-6 flex justify-center rounded-lg bg-[hsl(215_45%_12%)] px-4 py-5">
+          <BrandLogo className="max-h-24 max-w-[280px]" />
+        </div>
+        <h1 className="mb-1 text-center text-xl font-semibold text-foreground">Sign in</h1>
+        <p className="mb-5 text-center text-sm text-muted-foreground">Use your portal account to continue.</p>
         <form className="space-y-4" onSubmit={onSubmit}>
           <div className="space-y-1.5">
             <Label htmlFor="email">Email</Label>

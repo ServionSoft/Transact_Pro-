@@ -22,6 +22,7 @@ import { hasPermission } from "@/lib/permissions";
 import { getApiBaseUrl } from "@/lib/apiConfig";
 import { listCalendarEventsApi, listRecentEmailsFromApi } from "@/api/projects";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import BrandLogo from "@/components/brand/BrandLogo";
 
 type NavItem = {
   to: string;
@@ -239,26 +240,11 @@ export default function AppSidebar() {
       {/* Brand */}
       <div
         className={cn(
-          "flex shrink-0 items-center gap-3 border-b border-sidebar-border/80 px-4 py-5",
-          collapsed && "flex-col gap-2 px-2 py-4",
+          "flex shrink-0 items-center border-b border-sidebar-border/80 px-3 py-4",
+          collapsed ? "justify-center px-2 py-3" : "px-4 py-5",
         )}
       >
-        <div
-          className={cn(
-            "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground shadow-md ring-2 ring-sidebar-primary/25 ring-offset-2 ring-offset-sidebar",
-            collapsed && "h-9 w-9",
-          )}
-        >
-          <span className="font-display text-sm font-bold">KS</span>
-        </div>
-        {!collapsed && (
-          <div className="min-w-0 flex-1">
-            <h1 className="truncate font-display text-base font-bold leading-tight tracking-tight text-sidebar-accent-foreground">
-              TransactPro
-            </h1>
-            <p className="truncate text-xs text-sidebar-muted">Transaction Portal</p>
-          </div>
-        )}
+        <BrandLogo variant={collapsed ? "mark" : "full"} className={collapsed ? "max-h-10 max-w-10" : undefined} />
       </div>
 
       {/* Nav */}
