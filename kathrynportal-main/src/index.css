@@ -103,6 +103,19 @@
     @apply border-border;
   }
 
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  #root {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-body);

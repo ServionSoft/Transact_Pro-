@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 
 function groupByModule(rows: PermissionRow[]): Record<string, PermissionRow[]> {
   return rows.reduce<Record<string, PermissionRow[]>>((acc, r) => {
@@ -35,6 +36,7 @@ export default function RoleProfilesTab() {
   const [defaultDesignation, setDefaultDesignation] = useState("");
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
+  const { confirm, ConfirmDialogHost } = useConfirmDialog();
 
   const load = useCallback(async () => {
     if (!getApiBaseUrl()) {
@@ -137,7 +139,16 @@ export default function RoleProfilesTab() {
       toast.error("System profiles cannot be deleted.");
       return;
     }
-    if (!getApiBaseUrl() || !window.confirm("Delete this permission profile? Users assigned to it must be moved first.")) return;
+    if (!getApiBaseUrl()) return;
+    if (
+      !(await confirm({
+        title: "Delete permission profile",
+        description: "Delete this permission profile? Users assigned to it must be moved first.",
+        confirmLabel: "Delete",
+      }))
+    ) {
+      return;
+    }
     try {
       await deleteRoleProfileApi(id);
       toast.success("Profile removed.");
@@ -249,6 +260,7 @@ export default function RoleProfilesTab() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <ConfirmDialogHost />
     </div>
   );
 }

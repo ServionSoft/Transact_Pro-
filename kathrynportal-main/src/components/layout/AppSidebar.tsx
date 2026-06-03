@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -20,7 +20,8 @@ import { useAppStore } from "@/store/appStore";
 import { useAuthStore } from "@/store/authStore";
 import { hasPermission } from "@/lib/permissions";
 import { getApiBaseUrl } from "@/lib/apiConfig";
-import { listCalendarEventsApi, listRecentEmailsFromApi } from "@/api/projects";
+import { getNavBadgeCountsApi } from "@/api/projects";
+import { dueDateBucket } from "@/lib/transactionListUtils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import BrandLogo from "@/components/brand/BrandLogo";
 
@@ -44,19 +45,6 @@ function isNavActive(pathname: string, item: NavItem): boolean {
   return pathname.startsWith(item.to);
 }
 
-/** Same bucketing as TasksPage — overdue / today need attention. */
-function taskDueBucket(dateStr: string): "overdue" | "today" | "week" | "later" {
-  const today = new Date();
-  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const d = new Date(dateStr);
-  const dueStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const diffDays = Math.floor((dueStart.getTime() - todayStart.getTime()) / (1000 * 60 * 60 * 24));
-  if (diffDays < 0) return "overdue";
-  if (diffDays === 0) return "today";
-  if (diffDays <= 7) return "week";
-  return "later";
-}
-
 function formatBadgeExpanded(n: number): string {
   if (n > 99) return "99+";
   return String(n);
@@ -73,27 +61,32 @@ export default function AppSidebar() {
   const navigate = useNavigate();
   const logout = useAuthStore((s) => s.logout);
   const user = useAuthStore((s) => s.user);
+  const accessToken = useAuthStore((s) => s.accessToken);
+  const isBootstrapping = useAuthStore((s) => s.isBootstrapping);
   const projects = useAppStore((s) => s.projects);
-  const reminderDrafts = useAppStore((s) => s.reminderDrafts);
+  const calendarEvents = useAppStore((s) => s.calendarEvents);
   const apiOn = Boolean(getApiBaseUrl());
 
-  const [apiCalendarDraftCount, setApiCalendarDraftCount] = useState(0);
-  const [apiEmailFailureCount, setApiEmailFailureCount] = useState(0);
+  const [apiBadgeCounts, setApiBadgeCounts] = useState<{
+    documents: number;
+    tasksUrgent: number;
+    calendarReminderDrafts: number;
+    emailFailures: number;
+  } | null>(null);
 
   const transactionProjects = useMemo(() => projects.filter(isTransactionProject), [projects]);
 
-  const taskUrgentCount = useMemo(() => {
+  const localTaskUrgentCount = useMemo(() => {
     return transactionProjects
       .flatMap((p) => p.tasks)
       .filter((t) => {
         if (t.status === "Complete") return false;
-        if (!t.dueDate?.trim()) return false;
-        const b = taskDueBucket(t.dueDate);
-        return b === "overdue" || b === "today";
+        const bucket = dueDateBucket(t.dueDate);
+        return bucket === "overdue" || bucket === "today";
       }).length;
   }, [transactionProjects]);
 
-  const documentAlertCount = useMemo(() => {
+  const localDocumentAlertCount = useMemo(() => {
     const done = new Set(["Completed", "Complete"]);
     return transactionProjects
       .flatMap((p) => p.documents)
@@ -101,40 +94,65 @@ export default function AppSidebar() {
   }, [transactionProjects]);
 
   const localEmailFailureCount = useMemo(() => {
-    return transactionProjects.flatMap((p) => p.emails).filter((e) => e.deliveryStatus === "failed").length;
+    const recent = transactionProjects
+      .flatMap((p) => p.emails)
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 50);
+    return recent.filter((e) => e.deliveryStatus === "failed").length;
   }, [transactionProjects]);
 
-  const calendarAlertCount = apiOn ? apiCalendarDraftCount : reminderDrafts.length;
-  const emailAlertCount = apiOn ? apiEmailFailureCount : localEmailFailureCount;
+  const localCalendarReminderCount = useMemo(
+    () => calendarEvents.filter((e) => e.type === "reminder").length,
+    [calendarEvents],
+  );
+
+  const badgeTitles: Record<string, string> = {
+    "/documents": "Required documents still incomplete",
+    "/tasks": "Tasks overdue or due today",
+    "/calendar": "Reminder items on calendar",
+    "/email": "Failed sends in your 50 most recent emails",
+  };
+
+  const refreshApiBadgeCounts = useCallback(async () => {
+    if (!apiOn || !user || !accessToken) return;
+    try {
+      const counts = await getNavBadgeCountsApi();
+      setApiBadgeCounts(counts);
+    } catch {
+      // On failure, apiBadgeCounts stays null — resolveBadgeCount uses local store counts.
+    }
+  }, [apiOn, user, accessToken]);
 
   useEffect(() => {
-    if (!apiOn || !user) return;
+    if (!apiOn || !user || !accessToken || isBootstrapping) return;
     let cancelled = false;
     const run = async () => {
-      try {
-        const events = await listCalendarEventsApi({ kinds: ["reminder"] });
-        if (!cancelled) {
-          setApiCalendarDraftCount(events.filter((e) => e.source === "reminder_drafts").length);
-        }
-      } catch {
-        if (!cancelled) setApiCalendarDraftCount(0);
-      }
-      try {
-        const emails = await listRecentEmailsFromApi(50);
-        if (!cancelled) {
-          setApiEmailFailureCount(emails.filter((e) => e.deliveryStatus === "failed").length);
-        }
-      } catch {
-        if (!cancelled) setApiEmailFailureCount(0);
-      }
+      if (cancelled) return;
+      await refreshApiBadgeCounts();
     };
     void run();
-    const intervalId = window.setInterval(() => void run(), 120_000);
+    const intervalId = window.setInterval(() => void run(), 60_000);
+    const onRefresh = () => void run();
+    window.addEventListener("focus", onRefresh);
+    window.addEventListener("transactpro:refresh-nav-badges", onRefresh);
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
+      window.removeEventListener("focus", onRefresh);
+      window.removeEventListener("transactpro:refresh-nav-badges", onRefresh);
     };
-  }, [apiOn, user, location.pathname]);
+  }, [apiOn, user, accessToken, isBootstrapping, location.pathname, refreshApiBadgeCounts]);
+
+  const resolveBadgeCount = (apiValue: number | undefined, localValue: number) =>
+    apiOn && apiBadgeCounts != null ? (apiValue ?? 0) : localValue;
+
+  const documentAlertCount = resolveBadgeCount(apiBadgeCounts?.documents, localDocumentAlertCount);
+  const taskUrgentCount = resolveBadgeCount(apiBadgeCounts?.tasksUrgent, localTaskUrgentCount);
+  const calendarAlertCount = resolveBadgeCount(
+    apiBadgeCounts?.calendarReminderDrafts,
+    localCalendarReminderCount,
+  );
+  const emailAlertCount = resolveBadgeCount(apiBadgeCounts?.emailFailures, localEmailFailureCount);
 
   const navItems: NavItem[] = [
     { to: "/", icon: LayoutDashboard, label: "Dashboard", badge: 0 },
@@ -160,12 +178,12 @@ export default function AppSidebar() {
 
   const badgeTone = (to: string) =>
     to === "/tasks"
-      ? "bg-destructive text-destructive-foreground shadow-sm"
+      ? "bg-destructive text-destructive-foreground ring-1 ring-destructive/40 shadow-sm"
       : to === "/calendar"
-        ? "bg-accent text-accent-foreground shadow-sm"
+        ? "bg-sidebar-primary text-sidebar-primary-foreground ring-1 ring-sidebar-primary/50 shadow-sm"
         : to === "/documents"
-          ? "bg-warning text-warning-foreground shadow-sm"
-          : "bg-primary text-primary-foreground shadow-sm";
+          ? "bg-sidebar-primary text-sidebar-primary-foreground ring-1 ring-sidebar-primary/50 shadow-sm"
+          : "bg-info text-info-foreground ring-1 ring-info/40 shadow-sm";
 
   const renderNavLink = (item: NavItem) => {
     const isActive = isNavActive(location.pathname, item);
@@ -196,6 +214,7 @@ export default function AppSidebar() {
         {!collapsed && <span className="min-w-0 flex-1 truncate">{item.label}</span>}
         {!collapsed && item.badge > 0 && (
           <span
+            title={badgeTitles[item.to]}
             className={cn(
               "flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1.5 text-[10px] font-semibold tabular-nums",
               badgeTone(item.to),
@@ -206,6 +225,7 @@ export default function AppSidebar() {
         )}
         {collapsed && item.badge > 0 && (
           <span
+            title={badgeTitles[item.to]}
             className={cn(
               "absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[9px] font-bold leading-none",
               badgeTone(item.to),
@@ -224,7 +244,9 @@ export default function AppSidebar() {
         <TooltipTrigger asChild>{link}</TooltipTrigger>
         <TooltipContent side="right" className="font-medium">
           {item.label}
-          {item.badge > 0 ? ` · ${formatBadgeExpanded(item.badge)}` : ""}
+          {item.badge > 0
+            ? ` · ${formatBadgeExpanded(item.badge)}${badgeTitles[item.to] ? ` (${badgeTitles[item.to]})` : ""}`
+            : ""}
         </TooltipContent>
       </Tooltip>
     );

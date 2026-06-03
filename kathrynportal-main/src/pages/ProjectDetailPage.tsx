@@ -11,7 +11,13 @@ import {
   createProjectEmailApi,
   deleteProjectEmailApi,
   createProjectNoteApi,
+  updateProjectNoteApi,
+  deleteProjectNoteApi,
+  updateProjectDeadlineDateApi,
+  deleteProjectDeadlineApi,
   createProjectTaskApi,
+  updateProjectTaskApi,
+  deleteProjectTaskApi,
   deleteProjectApi,
   getProjectFromApi,
   listProjectAssignmentOptionsApi,
@@ -45,6 +51,7 @@ import TransactionTabPanel from "@/components/transactions/detail/TransactionTab
 import TransactionTasksTab from "@/components/transactions/detail/TransactionTasksTab";
 import type { TransactionDetailTabId } from "@/components/transactions/detail/transactionDetailTabs";
 import type { ProjectDetailLocationState } from "@/lib/projectDetailNavigation";
+import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 
 function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
@@ -67,7 +74,13 @@ export default function ProjectDetailPage() {
   const setNextStepStore = useAppStore((s) => s.setNextStep);
   const addProjectTaskStore = useAppStore((s) => s.addProjectTask);
   const setTaskStatusStore = useAppStore((s) => s.setTaskStatus);
+  const updateProjectTaskStore = useAppStore((s) => s.updateProjectTask);
+  const deleteProjectTaskStore = useAppStore((s) => s.deleteProjectTask);
   const addProjectDeadlineStore = useAppStore((s) => s.addProjectDeadline);
+  const updateProjectNoteStore = useAppStore((s) => s.updateProjectNote);
+  const deleteProjectNoteStore = useAppStore((s) => s.deleteProjectNote);
+  const updateProjectDeadlineDateStore = useAppStore((s) => s.updateProjectDeadlineDate);
+  const deleteProjectDeadlineStore = useAppStore((s) => s.deleteProjectDeadline);
   const sendEmailStore = useAppStore((s) => s.sendEmail);
   const removeProjectEmailStore = useAppStore((s) => s.removeProjectEmail);
   const apiOn = Boolean(getApiBaseUrl());
@@ -109,6 +122,7 @@ export default function ProjectDetailPage() {
   const canDeleteProject = hasPermission(user, "projects.delete");
   const canAssignMembers = hasPermission(user, "projects.assign_members");
   const canEditProject = hasPermission(user, "projects.edit");
+  const { confirm, ConfirmDialogHost } = useConfirmDialog();
 
   const sortedDeadlines = useMemo(
     () => [...(project?.deadlines ?? [])].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
@@ -356,7 +370,7 @@ export default function ProjectDetailPage() {
       body: reminderBody.trim(),
     };
     if (!payload.to || !payload.subject || !payload.body) {
-      toast.error("To, subject, and message are required.");
+      toast.error("To, subject, and email are required.");
       return;
     }
     if (!isValidEmail(payload.to)) {
@@ -400,7 +414,7 @@ export default function ProjectDetailPage() {
       body: reminderBody.trim(),
     };
     if (!payload.to || !payload.subject || !payload.body) {
-      toast.error("To, subject, and message are required.");
+      toast.error("To, subject, and email are required.");
       return;
     }
     if (!isValidEmail(payload.to)) {
@@ -420,14 +434,21 @@ export default function ProjectDetailPage() {
       });
   };
 
-  const handleDeleteProject = () => {
+  const handleDeleteProject = async () => {
     if (!project || deletingProject) return;
     if (!canDeleteProject) {
       toast.error("You do not have permission to delete this transaction.");
       return;
     }
-    const confirmed = window.confirm(`Delete transaction "${project.propertyAddress}"? This action archives it from active lists.`);
-    if (!confirmed) return;
+    if (
+      !(await confirm({
+        title: "Archive transaction",
+        description: `Delete transaction "${project.propertyAddress}"? This action archives it from active lists.`,
+        confirmLabel: "Archive",
+      }))
+    ) {
+      return;
+    }
     if (!getApiBaseUrl()) {
       deleteProjectStore(project.id);
       toast.success("Transaction deleted.");
@@ -573,6 +594,54 @@ export default function ProjectDetailPage() {
     toast.success("All tasks reset to pending.");
   };
 
+  const handleUpdateTask = (
+    taskId: string,
+    payload: { title: string; stage: string; status: "Pending" | "In Progress" | "Complete"; dueDate: string }
+  ) => {
+    if (apiOn) {
+      void updateProjectTaskApi(project.id, taskId, payload)
+        .then((updated) => {
+          upsertProject(updated);
+          toast.success("Task updated.");
+        })
+        .catch((e) => {
+          toast.error(e instanceof Error ? e.message : "Could not update task.");
+        });
+      return;
+    }
+    updateProjectTaskStore(project.id, taskId, payload);
+    toast.success("Task updated.");
+  };
+
+  const handleDeleteTask = async (taskId: string) => {
+    const task = (project.tasks ?? []).find((t) => t.id === taskId);
+    if (
+      !(await confirm({
+        title: "Delete task",
+        description: task
+          ? `Delete "${task.title}"? This cannot be undone.`
+          : "Delete this task? This cannot be undone.",
+        confirmLabel: "Delete",
+        destructive: true,
+      }))
+    ) {
+      return;
+    }
+    if (apiOn) {
+      void deleteProjectTaskApi(project.id, taskId)
+        .then((updated) => {
+          upsertProject(updated);
+          toast.success("Task deleted.");
+        })
+        .catch((e) => {
+          toast.error(e instanceof Error ? e.message : "Could not delete task.");
+        });
+      return;
+    }
+    deleteProjectTaskStore(project.id, taskId);
+    toast.success("Task deleted.");
+  };
+
   const handleCancelCompose = () => {
     setShowComposeEmail(false);
     setComposeTo("");
@@ -580,11 +649,12 @@ export default function ProjectDetailPage() {
     setComposeBody("");
   };
 
-  const handleSendEmail = () => {
+  const handleSendEmail = (options?: { templateId?: string }) => {
                     const payload = {
                       to: composeTo || client?.email || "",
                       subject: composeSubject || `Re: ${project.propertyAddress}`,
                       body: composeBody,
+                      ...(options?.templateId ? { templateId: options.templateId } : {}),
                     };
                     if (!isValidEmail(payload.to)) {
                       toast.error("Recipient email is invalid.");
@@ -622,9 +692,17 @@ export default function ProjectDetailPage() {
     setComposeBody("");
   };
 
-  const handleDeleteEmail = (emailId: string) => {
-                            if (!window.confirm("Remove this message from the communication thread? This cannot be undone.")) return;
-                            if (apiOn) {
+  const handleDeleteEmail = async (emailId: string) => {
+    if (
+      !(await confirm({
+        title: "Remove email",
+        description: "Remove this email from the communication thread? This cannot be undone.",
+        confirmLabel: "Remove",
+      }))
+    ) {
+      return;
+    }
+    if (apiOn) {
       void deleteProjectEmailApi(project.id, emailId)
                                 .then((updated) => {
                                   upsertProject(updated);
@@ -640,32 +718,122 @@ export default function ProjectDetailPage() {
   };
 
   const handleAddNote = () => {
-              const body = newNoteBody.trim();
-              if (!body) {
-                toast.error("Note text is required.");
-                return;
-              }
-              if (apiOn) {
-                void createProjectNoteApi(project.id, body)
-                  .then((updated) => {
-                    upsertProject(updated);
-                    setNewNoteBody("");
-                    toast.success("Note added.");
-                  })
-                  .catch((e) => {
-                    toast.error(e instanceof Error ? e.message : "Could not add note.");
-                  });
-                return;
-              }
-              const localNote = {
-                id: `n-${Date.now()}`,
-                body,
-                author: user?.name ?? "Kathryn",
-                createdAt: new Date().toISOString().split("T")[0],
-              };
-              upsertProject({ ...project, notes: [localNote, ...(project.notes ?? [])] });
-              setNewNoteBody("");
-              toast.success("Note added.");
+    const body = newNoteBody.trim();
+    if (!body) {
+      toast.error("Note text is required.");
+      return;
+    }
+    if (apiOn) {
+      void createProjectNoteApi(project.id, body)
+        .then((updated) => {
+          upsertProject(updated);
+          setNewNoteBody("");
+          toast.success("Note added.");
+        })
+        .catch((e) => {
+          toast.error(e instanceof Error ? e.message : "Could not add note.");
+        });
+      return;
+    }
+    const localNote = {
+      id: `n-${Date.now()}`,
+      body,
+      author: user?.name ?? "Kathryn",
+      createdAt: new Date().toISOString().split("T")[0],
+    };
+    upsertProject({ ...project, notes: [localNote, ...(project.notes ?? [])] });
+    setNewNoteBody("");
+    toast.success("Note added.");
+  };
+
+  const handleUpdateNote = (noteId: string, body: string) => {
+    if (apiOn) {
+      void updateProjectNoteApi(project.id, noteId, body)
+        .then((updated) => {
+          upsertProject(updated);
+          toast.success("Note updated.");
+        })
+        .catch((e) => {
+          toast.error(e instanceof Error ? e.message : "Could not update note.");
+        });
+      return;
+    }
+    updateProjectNoteStore(project.id, noteId, body);
+    toast.success("Note updated.");
+  };
+
+  const handleDeleteNote = async (noteId: string) => {
+    if (
+      !(await confirm({
+        title: "Delete note",
+        description: "Delete this note? This cannot be undone.",
+        confirmLabel: "Delete",
+        destructive: true,
+      }))
+    ) {
+      return;
+    }
+    if (apiOn) {
+      void deleteProjectNoteApi(project.id, noteId)
+        .then((updated) => {
+          upsertProject(updated);
+          toast.success("Note deleted.");
+        })
+        .catch((e) => {
+          toast.error(e instanceof Error ? e.message : "Could not delete note.");
+        });
+      return;
+    }
+    deleteProjectNoteStore(project.id, noteId);
+    toast.success("Note deleted.");
+  };
+
+  const handleDeadlineDateChange = (deadlineId: string, date: string) => {
+    if (!date) {
+      toast.error("Deadline date is required.");
+      return;
+    }
+    if (apiOn) {
+      void updateProjectDeadlineDateApi(project.id, deadlineId, date)
+        .then((updated) => {
+          upsertProject(updated);
+          toast.success("Deadline updated.");
+        })
+        .catch((e) => {
+          toast.error(e instanceof Error ? e.message : "Could not update deadline.");
+        });
+      return;
+    }
+    updateProjectDeadlineDateStore(project.id, deadlineId, date);
+    toast.success("Deadline updated.");
+  };
+
+  const handleDeleteDeadline = async (deadlineId: string, title: string, formManaged?: boolean) => {
+    if (
+      !(await confirm({
+        title: formManaged ? "Clear deadline date" : "Delete deadline",
+        description: formManaged
+          ? `Clear the date for "${title}"? The deadline will be removed from the timeline until set again on the transaction form.`
+          : `Delete "${title}"? This cannot be undone.`,
+        confirmLabel: formManaged ? "Clear date" : "Delete",
+        destructive: true,
+      }))
+    ) {
+      return;
+    }
+    if (apiOn) {
+      void deleteProjectDeadlineApi(project.id, deadlineId)
+        .then((updated) => {
+          upsertProject(updated);
+          toast.success(formManaged ? "Deadline date cleared." : "Deadline deleted.");
+        })
+        .catch((e) => {
+          toast.error(e instanceof Error ? e.message : "Could not remove deadline.");
+        });
+      return;
+    }
+    deleteProjectDeadlineStore(project.id, deadlineId);
+    toast.success(formManaged ? "Deadline date cleared." : "Deadline deleted.");
   };
 
   const tabUsesOwnScroll =
@@ -780,6 +948,9 @@ export default function ProjectDetailPage() {
             onToggleTaskComplete={handleToggleTaskComplete}
             onMarkAllComplete={handleMarkAllTasksComplete}
             onResetAll={handleResetAllTasks}
+            canEdit={canEditProject}
+            onUpdateTask={canEditProject ? handleUpdateTask : undefined}
+            onDeleteTask={canEditProject ? handleDeleteTask : undefined}
           />
         </motion.div>
       )}
@@ -825,6 +996,9 @@ export default function ProjectDetailPage() {
             newNoteBody={newNoteBody}
             onNewNoteBodyChange={setNewNoteBody}
             onAddNote={handleAddNote}
+            canEdit={canEditProject}
+            onUpdateNote={canEditProject ? handleUpdateNote : undefined}
+            onDeleteNote={canEditProject ? handleDeleteNote : undefined}
           />
         </motion.div>
       )}
@@ -881,17 +1055,49 @@ export default function ProjectDetailPage() {
               </div>
             )}
             <div className="divide-y divide-border max-h-[62vh] overflow-y-auto">
-              {sortedDeadlines.map(dl => (
-                <div key={dl.id} className="flex items-center justify-between px-4 py-2.5 gap-3">
+              {sortedDeadlines.map((dl) => (
+                <div key={dl.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-foreground truncate">{dl.title}</p>
-                    <p className="text-xs text-muted-foreground">{dl.type === "deadline" ? "Deadline" : "Reminder"}</p>
+                    <p className="truncate text-sm font-medium text-foreground">{dl.title}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {dl.type === "deadline" ? "Deadline" : "Reminder"}
+                      {dl.formManaged ? " · From transaction form" : ""}
+                    </p>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-xs md:text-sm text-accent font-medium">{dl.date}</span>
-                    <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs" onClick={() => openReminderDraft(dl.id, dl.title, dl.date)}>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {canEditProject ? (
+                      <Input
+                        type="date"
+                        value={dl.date}
+                        className="h-8 w-36 text-xs"
+                        onChange={(e) => {
+                          if (e.target.value && e.target.value !== dl.date) {
+                            handleDeadlineDateChange(dl.id, e.target.value);
+                          }
+                        }}
+                      />
+                    ) : (
+                      <span className="text-xs font-medium text-accent md:text-sm">{dl.date}</span>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2.5 text-xs"
+                      onClick={() => openReminderDraft(dl.id, dl.title, dl.date)}
+                    >
                       Draft Reminder
                     </Button>
+                    {canEditProject && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                        aria-label={dl.formManaged ? "Clear deadline date" : "Delete deadline"}
+                        onClick={() => void handleDeleteDeadline(dl.id, dl.title, dl.formManaged)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -921,7 +1127,7 @@ export default function ProjectDetailPage() {
               <Input value={reminderSubject} onChange={e => setReminderSubject(e.target.value)} />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Message</label>
+              <label className="text-sm font-medium text-foreground">Email</label>
               <Textarea value={reminderBody} onChange={e => setReminderBody(e.target.value)} rows={8} />
             </div>
           </div>
@@ -938,6 +1144,7 @@ export default function ProjectDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <ConfirmDialogHost />
     </div>
   );
 }

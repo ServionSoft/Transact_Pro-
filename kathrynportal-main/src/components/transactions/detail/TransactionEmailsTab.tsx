@@ -1,14 +1,20 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Mail, Reply, Send, Trash2 } from "lucide-react";
 import type { EmailThread, Project } from "@/data/mockData";
+import { listEmailTemplatesFromApi } from "@/api/emailTemplates";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import TransactionComposeRecipientField from "@/components/transactions/detail/TransactionComposeRecipientField";
+import { applyEmailTemplateToCompose } from "@/lib/emailTemplateTokens";
+import { getApiBaseUrl } from "@/lib/apiConfig";
 import type { TransactionRecipientSuggestion } from "@/lib/transactionRecipientSuggestions";
+import { useAppStore } from "@/store/appStore";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 type Props = {
   project: Project;
@@ -23,7 +29,7 @@ type Props = {
   onComposeSubjectChange: (value: string) => void;
   composeBody: string;
   onComposeBodyChange: (value: string) => void;
-  onSend: () => void;
+  onSend: (options?: { templateId?: string }) => void;
   onCancelCompose: () => void;
   onReply: (email: EmailThread) => void;
   onDeleteEmail: (emailId: string) => void;
@@ -61,8 +67,55 @@ export default function TransactionEmailsTab({
   onDeleteEmail,
   canDelete,
 }: Props) {
+  const apiOn = Boolean(getApiBaseUrl());
+  const clients = useAppStore((s) => s.clients);
+  const emailTemplates = useAppStore((s) => s.emailTemplates);
+  const setEmailTemplates = useAppStore((s) => s.setEmailTemplates);
+  const linkedClient = useMemo(
+    () => clients.find((c) => c.id === project.clientId),
+    [clients, project.clientId]
+  );
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+
   const defaultSubject = `Re: ${project.propertyAddress}`;
   const subjectValue = composeSubject.trim() || defaultSubject;
+
+  useEffect(() => {
+    if (!apiOn) return;
+    let cancelled = false;
+    setLoadingTemplates(true);
+    void listEmailTemplatesFromApi()
+      .then((rows) => {
+        if (!cancelled) setEmailTemplates(rows);
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          toast.error("Could not load email templates.", {
+            description: e instanceof Error ? e.message : "Unknown error",
+          });
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingTemplates(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiOn, setEmailTemplates]);
+
+  useEffect(() => {
+    if (!showCompose) setSelectedTemplateId("");
+  }, [showCompose]);
+
+  const applyTemplate = (templateId: string) => {
+    const tpl = emailTemplates.find((t) => t.id === templateId);
+    if (!tpl) return;
+    setSelectedTemplateId(templateId);
+    const { subject, body } = applyEmailTemplateToCompose(tpl, project, linkedClient);
+    onComposeSubjectChange(subject);
+    onComposeBodyChange(body);
+  };
 
   const summary = useMemo(() => {
     let outbound = 0;
@@ -86,7 +139,7 @@ export default function TransactionEmailsTab({
           <div>
             <h3 className="font-display text-sm font-semibold text-foreground">Communication</h3>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              {summary.total} message{summary.total === 1 ? "" : "s"} on this file
+              {summary.total} email{summary.total === 1 ? "" : "s"} on this file
             </p>
           </div>
           <Button
@@ -122,12 +175,43 @@ export default function TransactionEmailsTab({
 
       {showCompose ? (
         <div className="shrink-0 space-y-3 border-b border-border bg-muted/20 px-4 py-4 sm:px-5">
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">New message</p>
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">New email</p>
           <TransactionComposeRecipientField
             value={composeTo || defaultRecipient}
             onChange={onComposeToChange}
             suggestions={suggestions}
           />
+          <div className="space-y-2">
+            <Label htmlFor="compose-template" className="text-sm font-medium text-foreground">
+              Use template
+            </Label>
+            <Select
+              value={selectedTemplateId || undefined}
+              onValueChange={applyTemplate}
+            >
+              <SelectTrigger id="compose-template">
+                <SelectValue
+                  placeholder={
+                    loadingTemplates
+                      ? "Loading templates…"
+                      : emailTemplates.length === 0
+                        ? "No templates — add in Settings"
+                        : "Choose a template…"
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {emailTemplates.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.name} ({t.category})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground">
+              Tokens: {"{{agent_name}}"} {"{{client_name}}"} {"{{property_address}}"} {"{{stage_name}}"} {"{{deadline_name}}"} {"{{deadline_date}}"} {"{{next_step}}"} {"{{list_price}}"} {"{{today_date}}"}
+            </p>
+          </div>
           <div className="space-y-2">
             <Label htmlFor="compose-subject" className="text-sm font-medium text-foreground">
               Subject
@@ -141,7 +225,7 @@ export default function TransactionEmailsTab({
           </div>
           <div className="space-y-2">
             <Label htmlFor="compose-body" className="text-sm font-medium text-foreground">
-              Message
+              Email
             </Label>
             <Textarea
               id="compose-body"
@@ -155,7 +239,12 @@ export default function TransactionEmailsTab({
             <Button type="button" variant="outline" size="sm" onClick={onCancelCompose}>
               Cancel
             </Button>
-            <Button type="button" size="sm" className="gap-1.5" onClick={onSend}>
+            <Button
+              type="button"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => onSend({ templateId: selectedTemplateId || undefined })}
+            >
               <Send className="h-3.5 w-3.5" /> Send
             </Button>
           </div>
@@ -168,7 +257,7 @@ export default function TransactionEmailsTab({
             <Mail className="mb-3 h-10 w-10 text-muted-foreground/50" />
             <p className="text-sm font-medium text-foreground">No emails yet</p>
             <p className="mt-1 max-w-sm text-xs text-muted-foreground">
-              Compose a message here or use Email on a party in Overview to start a thread on this transaction.
+              Compose an email here or use Email on a party in Overview to start a thread on this transaction.
             </p>
             {!showCompose ? (
               <Button type="button" size="sm" variant="outline" className="mt-4" onClick={onToggleCompose}>

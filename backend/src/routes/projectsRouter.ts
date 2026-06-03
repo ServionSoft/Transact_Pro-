@@ -24,6 +24,9 @@ export function registerProjectsRoutes(app: Express, config: AppConfig, pool: Po
   router.get("/projects", requirePool(pool), auth, view, (req, res) => {
     void ctrl.list(req, res);
   });
+  router.get("/nav/badge-counts", requirePool(pool), auth, view, (req, res) => {
+    void ctrl.getNavBadgeCounts(req, res);
+  });
   router.get("/emails/recent", requirePool(pool), auth, view, (req, res) => {
     void ctrl.listRecentEmails(req, res);
   });
@@ -66,17 +69,32 @@ export function registerProjectsRoutes(app: Express, config: AppConfig, pool: Po
   router.delete("/projects/:id", requirePool(pool), auth, del, (req, res) => {
     void ctrl.delete(req, res);
   });
+  router.post("/projects/:id/restore", requirePool(pool), auth, edit, (req, res) => {
+    void ctrl.restore(req, res);
+  });
+  router.delete("/projects/:id/permanent", requirePool(pool), auth, del, (req, res) => {
+    void ctrl.permanentDelete(req, res);
+  });
   router.post("/projects/:id/tasks", requirePool(pool), auth, edit, (req, res) => {
     void ctrl.createTask(req, res);
   });
   router.patch("/projects/:id/tasks/:taskId", requirePool(pool), auth, edit, (req, res) => {
-    void ctrl.patchTaskStatus(req, res);
+    void ctrl.patchTask(req, res);
+  });
+  router.delete("/projects/:id/tasks/:taskId", requirePool(pool), auth, edit, (req, res) => {
+    void ctrl.deleteTask(req, res);
   });
   router.patch("/projects/:id/tasks/bulk", requirePool(pool), auth, edit, (req, res) => {
     void ctrl.patchTasksBulkStatus(req, res);
   });
   router.post("/projects/:id/deadlines", requirePool(pool), auth, edit, (req, res) => {
     void ctrl.createDeadline(req, res);
+  });
+  router.patch("/projects/:id/deadlines/:deadlineId", requirePool(pool), auth, edit, (req, res) => {
+    void ctrl.patchDeadline(req, res);
+  });
+  router.delete("/projects/:id/deadlines/:deadlineId", requirePool(pool), auth, edit, (req, res) => {
+    void ctrl.deleteDeadline(req, res);
   });
   router.post("/projects/:id/reminder-drafts", requirePool(pool), auth, edit, (req, res) => {
     void ctrl.createReminderDraft(req, res);
@@ -89,6 +107,12 @@ export function registerProjectsRoutes(app: Express, config: AppConfig, pool: Po
   });
   router.post("/projects/:id/notes", requirePool(pool), auth, edit, (req, res) => {
     void ctrl.createNote(req, res);
+  });
+  router.patch("/projects/:id/notes/:noteId", requirePool(pool), auth, edit, (req, res) => {
+    void ctrl.updateNote(req, res);
+  });
+  router.delete("/projects/:id/notes/:noteId", requirePool(pool), auth, edit, (req, res) => {
+    void ctrl.deleteNote(req, res);
   });
   router.get("/projects/assignment-options", requirePool(pool), auth, assign, (req, res) => {
     void ctrl.listAssignmentOptions(req, res);

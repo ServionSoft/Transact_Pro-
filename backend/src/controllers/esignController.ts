@@ -223,6 +223,13 @@ export function createEsignController(pool: Pool, deps: { uploadDirAbs: string; 
         return;
       }
       const result = await deleteEsignDraftsByFile(pool, { projectId, storedFileId });
+      if ("error" in result) {
+        res.status(result.error.status).json({
+          success: false,
+          error: { code: result.error.code, message: result.error.message },
+        });
+        return;
+      }
       res.json({ success: true, data: { deletedCount: result.deletedCount }, message: "" });
     },
 

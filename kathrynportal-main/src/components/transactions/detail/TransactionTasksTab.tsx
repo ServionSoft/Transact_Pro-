@@ -1,12 +1,29 @@
-import { CheckSquare, Plus } from "lucide-react";
+import { useState } from "react";
+import { CheckSquare, Pencil, Plus, Trash2 } from "lucide-react";
 import type { Project, ProjectTask } from "@/data/mockData";
+import { ALL_STAGES } from "@/types/domain";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { dueDateBucket, dueDateClass } from "@/lib/transactionListUtils";
 
 type TaskFilter = "All" | "Pending" | "In Progress" | "Complete";
+
+type TaskEditPayload = {
+  title: string;
+  stage: string;
+  status: ProjectTask["status"];
+  dueDate: string;
+};
 
 type Props = {
   project: Project;
@@ -23,6 +40,9 @@ type Props = {
   onToggleTaskComplete: (taskId: string, isComplete: boolean) => void;
   onMarkAllComplete: () => void;
   onResetAll: () => void;
+  canEdit?: boolean;
+  onUpdateTask?: (taskId: string, payload: TaskEditPayload) => void;
+  onDeleteTask?: (taskId: string) => void;
 };
 
 function taskStatusBadgeClass(status: ProjectTask["status"]): string {
@@ -51,11 +71,48 @@ export default function TransactionTasksTab({
   onToggleTaskComplete,
   onMarkAllComplete,
   onResetAll,
+  canEdit = true,
+  onUpdateTask,
+  onDeleteTask,
 }: Props) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editStage, setEditStage] = useState("");
+  const [editStatus, setEditStatus] = useState<ProjectTask["status"]>("Pending");
+  const [editDueDate, setEditDueDate] = useState("");
+
   const allTasks = project.tasks ?? [];
   const pendingCount = allTasks.filter((t) => t.status === "Pending").length;
   const inProgressCount = allTasks.filter((t) => t.status === "In Progress").length;
   const completeCount = allTasks.filter((t) => t.status === "Complete").length;
+
+  const startEdit = (task: ProjectTask) => {
+    setEditingId(task.id);
+    setEditTitle(task.title);
+    setEditStage(task.stage);
+    setEditStatus(task.status);
+    setEditDueDate(task.dueDate ?? "");
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditTitle("");
+    setEditStage("");
+    setEditStatus("Pending");
+    setEditDueDate("");
+  };
+
+  const saveEdit = (taskId: string) => {
+    const title = editTitle.trim();
+    if (!title) return;
+    onUpdateTask?.(taskId, {
+      title,
+      stage: editStage,
+      status: editStatus,
+      dueDate: editDueDate,
+    });
+    cancelEdit();
+  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
@@ -65,17 +122,19 @@ export default function TransactionTasksTab({
             <h3 className="font-display text-sm font-semibold text-foreground">Task roadmap</h3>
             <p className="mt-0.5 text-xs text-muted-foreground">{project.stage} · {allTasks.length} tasks</p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="outline" onClick={onToggleAddTask} className="h-8 gap-1">
-              <Plus className="h-3.5 w-3.5" /> Add task
-            </Button>
-            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={onMarkAllComplete}>
-              Mark all complete
-            </Button>
-            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={onResetAll}>
-              Reset all
-            </Button>
-          </div>
+          {canEdit && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="sm" variant="outline" onClick={onToggleAddTask} className="h-8 gap-1">
+                <Plus className="h-3.5 w-3.5" /> Add task
+              </Button>
+              <Button size="sm" variant="outline" className="h-8 text-xs" onClick={onMarkAllComplete}>
+                Mark all complete
+              </Button>
+              <Button size="sm" variant="outline" className="h-8 text-xs" onClick={onResetAll}>
+                Reset all
+              </Button>
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-3 gap-2">
@@ -112,7 +171,7 @@ export default function TransactionTasksTab({
         </div>
       </div>
 
-      {showAddTask ? (
+      {showAddTask && canEdit ? (
         <div className="shrink-0 flex flex-col gap-2 border-b border-border bg-muted/20 px-4 py-3 sm:flex-row sm:items-center">
           <Input
             placeholder="Task title (e.g. Upload signed disclosures)"
@@ -138,40 +197,132 @@ export default function TransactionTasksTab({
             {tasks.map((task) => {
               const isComplete = task.status === "Complete";
               const dueBucket = dueDateBucket(task.dueDate);
+              const isEditing = editingId === task.id;
+
               return (
                 <li
                   key={task.id}
                   className={cn(
-                    "flex items-start gap-3 px-4 py-3 transition-colors hover:bg-muted/20",
+                    "px-4 py-3 transition-colors hover:bg-muted/20",
                     dueBucket === "overdue" && !isComplete && "border-l-2 border-l-destructive bg-destructive/5",
                   )}
                 >
-                  <button
-                    type="button"
-                    onClick={() => onToggleTaskComplete(task.id, isComplete)}
-                    className={cn(
-                      "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-colors",
-                      isComplete ? "border-success bg-success text-success-foreground" : "border-border hover:border-primary",
-                    )}
-                    aria-label={isComplete ? "Mark incomplete" : "Mark complete"}
-                  >
-                    {isComplete ? <CheckSquare className="h-3 w-3" /> : null}
-                  </button>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className={cn("text-sm font-medium", isComplete && "text-muted-foreground line-through")}>{task.title}</p>
-                      <Badge variant="outline" className={cn("text-[10px] font-semibold", taskStatusBadgeClass(task.status))}>
-                        {task.status}
-                      </Badge>
+                  {isEditing ? (
+                    <div className="space-y-3">
+                      <div className="space-y-2">
+                        <Label className="text-xs">Title</Label>
+                        <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        <div className="space-y-2">
+                          <Label className="text-xs">Stage</Label>
+                          <Select value={editStage} onValueChange={setEditStage}>
+                            <SelectTrigger className="h-9">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {ALL_STAGES.map((stage) => (
+                                <SelectItem key={stage} value={stage}>
+                                  {stage}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-xs">Status</Label>
+                          <Select value={editStatus} onValueChange={(v) => setEditStatus(v as ProjectTask["status"])}>
+                            <SelectTrigger className="h-9">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Pending">Pending</SelectItem>
+                              <SelectItem value="In Progress">In Progress</SelectItem>
+                              <SelectItem value="Complete">Complete</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-xs">Due date</Label>
+                          <Input type="date" value={editDueDate} onChange={(e) => setEditDueDate(e.target.value)} />
+                        </div>
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <Button type="button" size="sm" variant="outline" onClick={cancelEdit}>
+                          Cancel
+                        </Button>
+                        <Button type="button" size="sm" disabled={!editTitle.trim()} onClick={() => saveEdit(task.id)}>
+                          Save
+                        </Button>
+                      </div>
                     </div>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      {task.stage}
-                      <span className="mx-1">·</span>
-                      <span className={cn("tabular-nums", dueDateClass(dueBucket))}>
-                        Due {task.dueDate?.trim() || "—"}
-                      </span>
-                    </p>
-                  </div>
+                  ) : (
+                    <div className="flex items-start gap-3">
+                      {canEdit ? (
+                        <button
+                          type="button"
+                          onClick={() => onToggleTaskComplete(task.id, isComplete)}
+                          className={cn(
+                            "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-colors",
+                            isComplete ? "border-success bg-success text-success-foreground" : "border-border hover:border-primary",
+                          )}
+                          aria-label={isComplete ? "Mark incomplete" : "Mark complete"}
+                        >
+                          {isComplete ? <CheckSquare className="h-3 w-3" /> : null}
+                        </button>
+                      ) : (
+                        <div
+                          className={cn(
+                            "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border-2",
+                            isComplete ? "border-success bg-success text-success-foreground" : "border-border",
+                          )}
+                        >
+                          {isComplete ? <CheckSquare className="h-3 w-3" /> : null}
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className={cn("text-sm font-medium", isComplete && "text-muted-foreground line-through")}>
+                            {task.title}
+                          </p>
+                          <Badge variant="outline" className={cn("text-[10px] font-semibold", taskStatusBadgeClass(task.status))}>
+                            {task.status}
+                          </Badge>
+                        </div>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {task.stage}
+                          <span className="mx-1">·</span>
+                          <span className={cn("tabular-nums", dueDateClass(dueBucket))}>
+                            Due {task.dueDate?.trim() || "—"}
+                          </span>
+                        </p>
+                      </div>
+                      {canEdit && onUpdateTask && onDeleteTask && (
+                        <div className="flex shrink-0 gap-1">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            aria-label="Edit task"
+                            onClick={() => startEdit(task)}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-destructive hover:text-destructive"
+                            aria-label="Delete task"
+                            onClick={() => onDeleteTask(task.id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </li>
               );
             })}

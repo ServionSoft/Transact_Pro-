@@ -65,6 +65,7 @@ type ProjectDetailApiRow = Omit<ProjectListItem, "documentsCompleteCount" | "doc
     body: string;
     author: string;
     createdAt: string;
+    updatedAt?: string;
   }>;
   assignees: Array<{
     userId: string;
@@ -72,7 +73,7 @@ type ProjectDetailApiRow = Omit<ProjectListItem, "documentsCompleteCount" | "doc
     email: string;
     designation?: string | null;
   }>;
-  deadlines: Array<{ id: string; title: string; date: string; type: string }>;
+  deadlines: Array<{ id: string; title: string; date: string; type: string; formManaged?: boolean }>;
   metadata?: Record<string, unknown>;
 };
 
@@ -372,19 +373,56 @@ export async function deleteProjectApi(projectId: string): Promise<void> {
   });
 }
 
+export async function restoreProjectApi(projectId: string): Promise<void> {
+  await apiCall(`/api/projects/${encodeURIComponent(projectId)}/restore`, {
+    method: "POST",
+  });
+}
+
+export async function permanentlyDeleteArchivedProjectApi(projectId: string): Promise<void> {
+  await apiCall(`/api/projects/${encodeURIComponent(projectId)}/permanent`, {
+    method: "DELETE",
+  });
+}
+
 export async function patchProjectTaskStatusApi(
   projectId: string,
   taskId: string,
   status: "Pending" | "In Progress" | "Complete"
 ): Promise<Project> {
+  return updateProjectTaskApi(projectId, taskId, { status });
+}
+
+export async function updateProjectTaskApi(
+  projectId: string,
+  taskId: string,
+  body: {
+    title?: string;
+    stage?: ProjectStage;
+    status?: "Pending" | "In Progress" | "Complete";
+    dueDate?: string;
+  }
+): Promise<Project> {
   const json = await apiCall(`/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ status }),
+    body: JSON.stringify(body),
   });
   const row = (json as { data?: { project?: unknown } }).data?.project;
   if (!row || typeof row !== "object") {
-    throw new ApiRequestError("Invalid task status response", 500, "");
+    throw new ApiRequestError("Invalid task update response", 500, "");
+  }
+  return mapDetailRowToProject(row as ProjectDetailApiRow);
+}
+
+export async function deleteProjectTaskApi(projectId: string, taskId: string): Promise<Project> {
+  const json = await apiCall(
+    `/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}`,
+    { method: "DELETE" }
+  );
+  const row = (json as { data?: { project?: unknown } }).data?.project;
+  if (!row || typeof row !== "object") {
+    throw new ApiRequestError("Invalid task delete response", 500, "");
   }
   return mapDetailRowToProject(row as ProjectDetailApiRow);
 }
@@ -499,6 +537,70 @@ export async function createProjectNoteApi(projectId: string, body: string): Pro
   return mapDetailRowToProject(row as ProjectDetailApiRow);
 }
 
+export async function updateProjectNoteApi(
+  projectId: string,
+  noteId: string,
+  body: string
+): Promise<Project> {
+  const json = await apiCall(
+    `/api/projects/${encodeURIComponent(projectId)}/notes/${encodeURIComponent(noteId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body }),
+    }
+  );
+  const row = (json as { data?: { project?: unknown } }).data?.project;
+  if (!row || typeof row !== "object") {
+    throw new ApiRequestError("Invalid note update response", 500, "");
+  }
+  return mapDetailRowToProject(row as ProjectDetailApiRow);
+}
+
+export async function deleteProjectNoteApi(projectId: string, noteId: string): Promise<Project> {
+  const json = await apiCall(
+    `/api/projects/${encodeURIComponent(projectId)}/notes/${encodeURIComponent(noteId)}`,
+    { method: "DELETE" }
+  );
+  const row = (json as { data?: { project?: unknown } }).data?.project;
+  if (!row || typeof row !== "object") {
+    throw new ApiRequestError("Invalid note delete response", 500, "");
+  }
+  return mapDetailRowToProject(row as ProjectDetailApiRow);
+}
+
+export async function updateProjectDeadlineDateApi(
+  projectId: string,
+  deadlineId: string,
+  date: string
+): Promise<Project> {
+  const json = await apiCall(
+    `/api/projects/${encodeURIComponent(projectId)}/deadlines/${encodeURIComponent(deadlineId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date }),
+    }
+  );
+  const row = (json as { data?: { project?: unknown } }).data?.project;
+  if (!row || typeof row !== "object") {
+    throw new ApiRequestError("Invalid deadline update response", 500, "");
+  }
+  return mapDetailRowToProject(row as ProjectDetailApiRow);
+}
+
+export async function deleteProjectDeadlineApi(projectId: string, deadlineId: string): Promise<Project> {
+  const json = await apiCall(
+    `/api/projects/${encodeURIComponent(projectId)}/deadlines/${encodeURIComponent(deadlineId)}`,
+    { method: "DELETE" }
+  );
+  const row = (json as { data?: { project?: unknown } }).data?.project;
+  if (!row || typeof row !== "object") {
+    throw new ApiRequestError("Invalid deadline delete response", 500, "");
+  }
+  return mapDetailRowToProject(row as ProjectDetailApiRow);
+}
+
 export async function listProjectAssignmentOptionsApi(): Promise<
   Array<{ id: string; name: string; email: string; designation?: string | null }>
 > {
@@ -549,6 +651,28 @@ export async function dismissReminderDraftApi(reminderDraftId: string): Promise<
   await apiCall(`/api/calendar/reminder-drafts/${encodeURIComponent(reminderDraftId)}/dismiss`, {
     method: "PATCH",
   });
+}
+
+export type NavBadgeCountsApi = {
+  documents: number;
+  tasksUrgent: number;
+  calendarReminderDrafts: number;
+  emailFailures: number;
+};
+
+export async function getNavBadgeCountsApi(): Promise<NavBadgeCountsApi> {
+  const json = await apiCall("/api/nav/badge-counts");
+  const counts = (json as { data?: { counts?: unknown } }).data?.counts;
+  if (!counts || typeof counts !== "object") {
+    throw new ApiRequestError("Invalid nav badge counts response", 500, "");
+  }
+  const c = counts as NavBadgeCountsApi;
+  return {
+    documents: Number(c.documents) || 0,
+    tasksUrgent: Number(c.tasksUrgent) || 0,
+    calendarReminderDrafts: Number(c.calendarReminderDrafts) || 0,
+    emailFailures: Number(c.emailFailures) || 0,
+  };
 }
 
 export async function listRecentEmailsFromApi(limit = 25): Promise<RecentEmailApi[]> {

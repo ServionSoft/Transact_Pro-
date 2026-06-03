@@ -124,10 +124,34 @@ function rowToClient(row: ClientDbRow): ClientApiRow {
   };
 }
 
-async function linkedProjectCount(pool: Pool, clientId: string): Promise<number> {
+/** Active transactions for a contact (matches project list + contact detail). */
+function linkedProjectsJoinSql(crmVaultProjectId: number): string {
+  return `LEFT JOIN public.projects p ON p.client_id = c.id
+     AND p.deleted_at IS NULL
+     AND p.id <> ${Number(crmVaultProjectId)}::bigint`;
+}
+
+/** Active transactions linked to this contact (excludes CRM vault). */
+async function linkedProjectCount(pool: Pool, clientId: string, crmVaultProjectId: number): Promise<number> {
   const { rows } = await pool.query<{ count: string }>(
-    `SELECT COUNT(*)::text AS count FROM public.projects WHERE client_id = $1::bigint`,
-    [clientId]
+    `SELECT COUNT(*)::text AS count
+     FROM public.projects
+     WHERE client_id = $1::bigint
+       AND deleted_at IS NULL
+       AND id <> $2::bigint`,
+    [clientId, crmVaultProjectId]
+  );
+  return Number(rows[0]?.count ?? "0");
+}
+
+/** Any project row for this contact, including archived transactions. */
+async function linkedProjectCountAll(pool: Pool, clientId: string, crmVaultProjectId: number): Promise<number> {
+  const { rows } = await pool.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count
+     FROM public.projects
+     WHERE client_id = $1::bigint
+       AND id <> $2::bigint`,
+    [clientId, crmVaultProjectId]
   );
   return Number(rows[0]?.count ?? "0");
 }
@@ -142,7 +166,12 @@ async function resolveCreatedByUserId(pool: Pool, raw: number | undefined): Prom
   return rows.length ? candidate : null;
 }
 
-export async function listClients(pool: Pool, archived = false): Promise<ClientApiRow[]> {
+export async function listClients(
+  pool: Pool,
+  archived = false,
+  crmVaultProjectId = 1
+): Promise<ClientApiRow[]> {
+  const vaultId = Number(crmVaultProjectId) || 1;
   const { rows } = await pool.query<ClientDbRow>(
     `SELECT
        c.id::text,
@@ -161,7 +190,7 @@ export async function listClients(pool: Pool, archived = false): Promise<ClientA
        c.created_at,
        COUNT(p.id)::int AS project_count
      FROM public.contacts c
-     LEFT JOIN public.projects p ON p.client_id = c.id
+     ${linkedProjectsJoinSql(vaultId)}
      WHERE ${archived ? "c.deleted_at IS NOT NULL" : "c.deleted_at IS NULL"}
      GROUP BY c.id
      ORDER BY c.name ASC
@@ -170,8 +199,13 @@ export async function listClients(pool: Pool, archived = false): Promise<ClientA
   return rows.map(rowToClient);
 }
 
-export async function getClientById(pool: Pool, id: string): Promise<ClientApiRow | null> {
+export async function getClientById(
+  pool: Pool,
+  id: string,
+  crmVaultProjectId = 1
+): Promise<ClientApiRow | null> {
   if (!/^\d+$/.test(id)) return null;
+  const vaultId = Number(crmVaultProjectId) || 1;
   const { rows } = await pool.query<ClientDbRow>(
     `SELECT
        c.id::text,
@@ -190,7 +224,7 @@ export async function getClientById(pool: Pool, id: string): Promise<ClientApiRo
        c.created_at,
        COUNT(p.id)::int AS project_count
      FROM public.contacts c
-     LEFT JOIN public.projects p ON p.client_id = c.id
+     ${linkedProjectsJoinSql(vaultId)}
      WHERE c.id = $1::bigint
        AND c.deleted_at IS NULL
      GROUP BY c.id`,
@@ -359,10 +393,22 @@ export async function updateClient(
 
 export async function archiveClient(
   pool: Pool,
-  id: string
+  id: string,
+  crmVaultProjectId = 1
 ): Promise<{ ok: true } | { error: ServiceError }> {
   if (!/^\d+$/.test(id)) {
     return { error: { status: 404, code: "CLIENT_NOT_FOUND", message: "Client not found." } };
+  }
+  const links = await linkedProjectCount(pool, id, crmVaultProjectId);
+  if (links > 0) {
+    return {
+      error: {
+        status: 409,
+        code: "CLIENT_HAS_PROJECTS",
+        message:
+          "This contact is linked to active transactions. Reassign the primary contact on those transactions or archive the transactions first.",
+      },
+    };
   }
   const { rowCount } = await pool.query(
     `UPDATE public.contacts
@@ -401,18 +447,30 @@ export async function unarchiveClient(
 
 export async function permanentlyDeleteClient(
   pool: Pool,
-  id: string
+  id: string,
+  crmVaultProjectId = 1
 ): Promise<{ ok: true } | { error: ServiceError }> {
   if (!/^\d+$/.test(id)) {
     return { error: { status: 404, code: "CLIENT_NOT_FOUND", message: "Client not found." } };
   }
-  const links = await linkedProjectCount(pool, id);
-  if (links > 0) {
+  const activeLinks = await linkedProjectCount(pool, id, crmVaultProjectId);
+  if (activeLinks > 0) {
     return {
       error: {
         status: 409,
         code: "CLIENT_HAS_PROJECTS",
-        message: "Client has linked projects. Delete or reassign those projects first.",
+        message: "Client has active linked transactions. Archive or reassign those transactions first.",
+      },
+    };
+  }
+  const allLinks = await linkedProjectCountAll(pool, id, crmVaultProjectId);
+  if (allLinks > 0) {
+    return {
+      error: {
+        status: 409,
+        code: "CLIENT_HAS_ARCHIVED_PROJECTS",
+        message:
+          "Client still has archived transaction records. Permanently remove those archived transactions before deleting this contact.",
       },
     };
   }

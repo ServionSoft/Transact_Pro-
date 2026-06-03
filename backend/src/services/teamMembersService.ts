@@ -629,13 +629,27 @@ export async function deactivateTeamMember(
   if (String(actorId) === id) {
     return { error: { status: 400, code: "INVALID", message: "You cannot deactivate your own account." } };
   }
-  const { rowCount } = await pool.query(
-    `UPDATE public.users SET deleted_at = now(), status = 'inactive'::public.user_status, updated_at = now()
-     WHERE id = $1::bigint AND deleted_at IS NULL`,
-    [id]
-  );
-  if (!rowCount) return { error: { status: 404, code: "NOT_FOUND", message: "User not found." } };
-  return { ok: true };
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rowCount } = await client.query(
+      `UPDATE public.users SET deleted_at = now(), status = 'inactive'::public.user_status, updated_at = now()
+       WHERE id = $1::bigint AND deleted_at IS NULL`,
+      [id]
+    );
+    if (!rowCount) {
+      await client.query("ROLLBACK");
+      return { error: { status: 404, code: "NOT_FOUND", message: "User not found." } };
+    }
+    await client.query(`DELETE FROM public.project_assignments WHERE user_id = $1::bigint`, [id]);
+    await client.query("COMMIT");
+    return { ok: true };
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 export async function acceptInvite(

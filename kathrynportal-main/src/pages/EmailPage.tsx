@@ -21,10 +21,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { getTransactionRecipientSuggestions } from "@/lib/transactionRecipientSuggestions";
-
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
+import {
+  applyEmailTemplateToCompose,
+  buildTransactionDocumentList,
+} from "@/lib/emailTemplateTokens";
 
 function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
@@ -46,15 +46,6 @@ function mapRecentApiToSidebar(row: RecentEmailApi): SidebarEmail {
     ...(row.deliveryError != null && row.deliveryError !== "" ? { deliveryError: row.deliveryError } : {}),
     projectLabel: label,
   };
-}
-
-function applyTokens(input: string, tokenMap: Record<string, string>): string {
-  let out = input.replace(/\\n/g, "\n");
-  for (const [key, value] of Object.entries(tokenMap)) {
-    const re = new RegExp(`\\{\\{\\s*${escapeRegExp(key)}\\s*\\}\\}`, "gi");
-    out = out.replace(re, value);
-  }
-  return out;
 }
 
 export default function EmailPage() {
@@ -162,7 +153,7 @@ export default function EmailPage() {
     }
     let cancelled = false;
     setLoadingRecentEmails(true);
-    void listRecentEmailsFromApi(25)
+    void listRecentEmailsFromApi(50)
       .then((rows) => {
         if (!cancelled) setRecentSidebarEmails(rows.map(mapRecentApiToSidebar));
       })
@@ -218,14 +209,6 @@ export default function EmailPage() {
     [apiOn, apiTransactions, transactionProjects]
   );
 
-  const buildDocumentList = (projectLike: { documents?: Array<{ name: string; status: string }> } | undefined): string => {
-    if (!projectLike?.documents || projectLike.documents.length === 0) return "• [Documents listed here]";
-    const pending = projectLike.documents.filter((d) => d.status !== "Completed" && d.status !== "Complete");
-    const source = pending.length > 0 ? pending : projectLike.documents;
-    const lines = source.slice(0, 10).map((d) => `• ${d.name}`);
-    return lines.length > 0 ? lines.join("\n") : "• [Documents listed here]";
-  };
-
   const handleProjectChange = async (projectId: string) => {
     setSelectedProject(projectId);
     const selected = transactionOptions.find((p) => p.id === projectId);
@@ -233,12 +216,12 @@ export default function EmailPage() {
     const linkedClient = clients.find((c) => c.id === selected.clientId);
     setTo(linkedClient?.email?.trim() || "");
     const localProject = transactionProjects.find((p) => p.id === projectId);
-    setSelectedProjectDocList(buildDocumentList(localProject));
+    setSelectedProjectDocList(buildTransactionDocumentList(localProject));
     if (apiOn) {
       try {
         const full = await getProjectFromApi(projectId);
         upsertProject(full);
-        setSelectedProjectDocList(buildDocumentList(full));
+        setSelectedProjectDocList(buildTransactionDocumentList(full));
       } catch {
         // leave current fallback list if full project fetch fails
       }
@@ -246,44 +229,30 @@ export default function EmailPage() {
   };
 
   const applyTemplate = (templateId: string) => {
-    const tpl = emailTemplates.find(t => t.id === templateId);
+    const tpl = emailTemplates.find((t) => t.id === templateId);
     if (!tpl) return;
     setSelectedTemplate(templateId);
 
-    const project = transactionOptions.find(p => p.id === selectedProject);
-    let subj = tpl.subject.replace(/\\n/g, "\n");
-    let bd = tpl.body.replace(/\\n/g, "\n");
-
-    if (project) {
-      const client = clients.find(c => c.id === project.clientId);
-      const parts = project.propertyAddress.split(",").map((x) => x.trim());
-      const currentProjectDetails = transactionProjects.find((p) => p.id === selectedProject);
-      const tokenMap: Record<string, string> = {
-        agent_name: client?.name || project.clientName || "",
-        client_name: project.clientName || "",
-        property_address: project.propertyAddress || "",
-        property_street: parts[0] || "",
-        property_city: parts[1] || "",
-        property_state: parts[2] || "",
-        property_zip: parts[3] || "",
-        transaction_name: project.name || "",
-        transaction_type: project.type || "",
-        stage_name: project.stage || "",
-        deadline_name: project.nextStep || "Next deadline",
-        deadline_date: project.nextStepDate || "TBD",
-        next_step: project.nextStep || "",
-        next_step_date: project.nextStepDate || "",
-        list_price: project.listPrice || "",
-        escrow_officer: project.escrowOfficer || "",
-        escrow_company: project.escrowCompany || "",
-        property_type: project.propertyType || "",
-        document_list: buildDocumentList(currentProjectDetails) || selectedProjectDocList,
-        update_details: "[Update details here]",
-        today_date: new Date().toLocaleDateString(),
-      };
-      subj = applyTokens(subj, tokenMap);
-      bd = applyTokens(bd, tokenMap);
+    const option = transactionOptions.find((p) => p.id === selectedProject);
+    if (!option) {
+      setSubject(tpl.subject.replace(/\\n/g, "\n"));
+      setBody(tpl.body.replace(/\\n/g, "\n"));
+      return;
     }
+    const fullProject = transactionProjects.find((p) => p.id === selectedProject);
+    const projectForTokens = fullProject ?? {
+      ...option,
+      documents: [],
+      tasks: [],
+      emails: [],
+      deadlines: [],
+      attachments: [],
+      fileFolders: [],
+      createdAt: "",
+    };
+    const client = clients.find((c) => c.id === option.clientId);
+    const docList = buildTransactionDocumentList(fullProject) || selectedProjectDocList;
+    const { subject: subj, body: bd } = applyEmailTemplateToCompose(tpl, projectForTokens, client, docList);
     setSubject(subj);
     setBody(bd);
   };
@@ -311,7 +280,7 @@ export default function EmailPage() {
           ...(selectedTemplate ? { templateId: selectedTemplate } : {}),
         });
         upsertProject(updated);
-        void listRecentEmailsFromApi(25)
+        void listRecentEmailsFromApi(50)
           .then((rows) => setRecentSidebarEmails(rows.map(mapRecentApiToSidebar)))
           .catch(() => {});
         if (emailSendFailed) {
@@ -344,12 +313,24 @@ export default function EmailPage() {
         }))
       )
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-      .slice(0, 25);
+      .slice(0, 50);
   }, [apiOn, recentSidebarEmails, projects]);
+
+  const failedRecentCount = useMemo(
+    () => recentEmails.filter((e) => e.deliveryStatus === "failed").length,
+    [recentEmails],
+  );
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
-      <PageHeader title="Email" subtitle="Send emails using templates and track communication." />
+      <PageHeader
+        title="Email"
+        subtitle={
+          failedRecentCount > 0
+            ? `Send emails using templates and track communication. ${failedRecentCount} failed send${failedRecentCount === 1 ? "" : "s"} in your recent email history (sidebar count uses the same window).`
+            : "Send emails using templates and track communication."
+        }
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Compose */}
@@ -422,7 +403,7 @@ export default function EmailPage() {
               <Input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Email subject..." />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Message</label>
+              <label className="text-sm font-medium text-foreground">Email</label>
               <Textarea value={body} onChange={e => setBody(e.target.value)} rows={10} placeholder="Write your email..." />
             </div>
             <div className="flex justify-end gap-3">

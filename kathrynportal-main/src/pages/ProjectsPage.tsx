@@ -3,14 +3,22 @@ import { Plus, Search, LayoutGrid, List, Columns3, FolderKanban } from "lucide-r
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAppStore } from "@/store/appStore";
 import { useAuthStore } from "@/store/authStore";
-import { listProjectsFromApi, type ProjectListItem } from "@/api/projects";
+import {
+  listProjectsFromApi,
+  permanentlyDeleteArchivedProjectApi,
+  restoreProjectApi,
+  type ProjectListItem,
+} from "@/api/projects";
 import { getApiBaseUrl } from "@/lib/apiConfig";
 import { hasPermission } from "@/lib/permissions";
 import { isTransactionProject, type Project } from "@/data/mockData";
 import PageHeader from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import ArchivedTransactionsTable from "@/components/transactions/ArchivedTransactionsTable";
 import { cn } from "@/lib/utils";
 import { TRANSACTION_STAGES, filterTransactions } from "@/lib/transactionListUtils";
 import TransactionCard from "@/components/transactions/TransactionCard";
@@ -18,6 +26,7 @@ import TransactionsTable from "@/components/transactions/TransactionsTable";
 import TransactionsKanban from "@/components/transactions/TransactionsKanban";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
+import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 
 type ViewMode = "cards" | "list" | "kanban";
 
@@ -55,12 +64,17 @@ export default function ProjectsPage() {
   const [loading, setLoading] = useState(() => Boolean(getApiBaseUrl()));
   const [loadError, setLoadError] = useState<string | null>(null);
   const [projectRows, setProjectRows] = useState<ProjectListItem[]>([]);
+  const [showArchived, setShowArchived] = useState(false);
+  const [archivedActionId, setArchivedActionId] = useState<string | null>(null);
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const projects = useAppStore((s) => s.projects);
   const clients = useAppStore((s) => s.clients);
   const apiOn = Boolean(getApiBaseUrl());
   const canCreate = !apiOn || hasPermission(user, "projects.create");
+  const canDeleteProject = !apiOn || hasPermission(user, "projects.delete");
+  const canRestoreProject = !apiOn || hasPermission(user, "projects.edit");
+  const { confirm, ConfirmDialogHost } = useConfirmDialog();
 
   const transactionProjects = useMemo(
     () =>
@@ -81,17 +95,64 @@ export default function ProjectsPage() {
     setLoading(true);
     setLoadError(null);
     try {
-      const rows = await listProjectsFromApi();
+      const rows = await listProjectsFromApi({ archived: showArchived });
       setProjectRows(rows);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Could not load transactions.";
       setLoadError(msg);
       setProjectRows([]);
-      toast.error("Could not load transactions", { description: msg });
+      toast.error(showArchived ? "Could not load archived transactions" : "Could not load transactions", {
+        description: msg,
+      });
     } finally {
       setLoading(false);
     }
-  }, [apiOn]);
+  }, [apiOn, showArchived]);
+
+  const handleRestoreArchived = async (projectId: string) => {
+    if (
+      !(await confirm({
+        title: "Restore transaction",
+        description: "Restore this transaction to the active list?",
+        confirmLabel: "Restore",
+        destructive: false,
+      }))
+    ) {
+      return;
+    }
+    setArchivedActionId(projectId);
+    try {
+      await restoreProjectApi(projectId);
+      toast.success("Transaction restored.");
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not restore transaction.");
+    } finally {
+      setArchivedActionId(null);
+    }
+  };
+
+  const handlePurgeArchived = async (projectId: string, label: string) => {
+    if (
+      !(await confirm({
+        title: "Remove archived transaction",
+        description: `Permanently remove archived transaction "${label}"? This cannot be undone.`,
+        confirmLabel: "Remove permanently",
+      }))
+    ) {
+      return;
+    }
+    setArchivedActionId(projectId);
+    try {
+      await permanentlyDeleteArchivedProjectApi(projectId);
+      toast.success("Archived transaction removed.");
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not remove archived transaction.");
+    } finally {
+      setArchivedActionId(null);
+    }
+  };
 
   useEffect(() => {
     void refresh();
@@ -102,7 +163,13 @@ export default function ProjectsPage() {
     [transactionProjects, search, filterStage, viewMode],
   );
 
-  const showStageTabs = viewMode !== "kanban";
+  const showStageTabs = viewMode !== "kanban" && !showArchived;
+
+  useEffect(() => {
+    if (showArchived && viewMode === "kanban") {
+      setViewMode("list");
+    }
+  }, [showArchived, viewMode]);
 
   const viewButtons: { mode: ViewMode; icon: typeof LayoutGrid; label: string }[] = [
     { mode: "cards", icon: LayoutGrid, label: "Cards" },
@@ -115,9 +182,15 @@ export default function ProjectsPage() {
       <div className="shrink-0">
         <PageHeader
           title="Transactions"
-          subtitle={loading ? "Loading…" : `${transactionProjects.length} total transactions`}
+          subtitle={
+            loading
+              ? "Loading…"
+              : showArchived
+                ? `${transactionProjects.length} archived`
+                : `${transactionProjects.length} active`
+          }
           actions={
-            canCreate ? (
+            canCreate && !showArchived ? (
               <Button onClick={() => navigate("/projects/new")} className="gap-2">
                 <Plus className="h-4 w-4" /> New transaction
               </Button>
@@ -140,28 +213,58 @@ export default function ProjectsPage() {
                   aria-label="Search transactions"
                 />
               </div>
-              <div className="flex items-center gap-1 self-start sm:self-auto" role="tablist" aria-label="View mode">
-                {viewButtons.map((v) => {
-                  const active = viewMode === v.mode;
-                  return (
-                    <button
-                      key={v.mode}
-                      type="button"
-                      role="tab"
-                      aria-selected={active}
-                      onClick={() => setViewMode(v.mode)}
-                      className={cn(
-                        "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors sm:text-sm",
-                        active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
-                      )}
+              <div className="flex flex-wrap items-center gap-3 self-start sm:self-auto">
+                {apiOn ? (
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="transactions-archived"
+                      checked={showArchived}
+                      onCheckedChange={(checked) => {
+                        setShowArchived(Boolean(checked));
+                        if (checked) setFilterStage("All");
+                      }}
+                    />
+                    <Label
+                      htmlFor="transactions-archived"
+                      className="cursor-pointer text-sm font-normal text-muted-foreground"
                     >
-                      <v.icon className="h-3.5 w-3.5" />
-                      <span className="hidden sm:inline">{v.label}</span>
-                    </button>
-                  );
-                })}
+                      Show archived
+                    </Label>
+                  </div>
+                ) : null}
+                {!showArchived ? (
+                  <div className="flex items-center gap-1" role="tablist" aria-label="View mode">
+                    {viewButtons.map((v) => {
+                      const active = viewMode === v.mode;
+                      return (
+                        <button
+                          key={v.mode}
+                          type="button"
+                          role="tab"
+                          aria-selected={active}
+                          onClick={() => setViewMode(v.mode)}
+                          className={cn(
+                            "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors sm:text-sm",
+                            active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+                          )}
+                        >
+                          <v.icon className="h-3.5 w-3.5" />
+                          <span className="hidden sm:inline">{v.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
               </div>
             </div>
+
+            {showArchived && apiOn ? (
+              <p className="border-t border-border/60 pt-3 text-xs text-muted-foreground">
+                Archived transactions were removed from the active list. Use <strong className="text-foreground">Restore</strong> to
+                bring one back, or <strong className="text-foreground">Remove permanently</strong> to delete the record (required
+                before permanently deleting a contact).
+              </p>
+            ) : null}
 
             {showStageTabs ? (
               <div
@@ -228,16 +331,29 @@ export default function ProjectsPage() {
               <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-muted">
                 <FolderKanban className="h-7 w-7 text-muted-foreground" />
               </div>
-              <p className="font-medium text-foreground">No transactions match</p>
-              <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-                Adjust search or stage filters, or create a new transaction.
+              <p className="font-medium text-foreground">
+                {showArchived ? "No archived transactions" : "No transactions match"}
               </p>
-              {canCreate ? (
+              <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+                {showArchived
+                  ? "Switch off “Show archived” to return to active transactions."
+                  : "Adjust search or stage filters, or create a new transaction."}
+              </p>
+              {canCreate && !showArchived ? (
                 <Button className="mt-6 gap-2" onClick={() => navigate("/projects/new")}>
                   <Plus className="h-4 w-4" /> New transaction
                 </Button>
               ) : null}
             </div>
+          ) : showArchived && apiOn ? (
+            <ArchivedTransactionsTable
+              rows={filtered}
+              busyId={archivedActionId}
+              canRestore={canRestoreProject}
+              canPurge={canDeleteProject}
+              onRestore={(id) => void handleRestoreArchived(id)}
+              onPurge={(id, label) => void handlePurgeArchived(id, label)}
+            />
           ) : (
             <>
               {viewMode === "cards" && (
@@ -267,6 +383,7 @@ export default function ProjectsPage() {
           )}
         </div>
       </div>
+      <ConfirmDialogHost />
     </div>
   );
 }

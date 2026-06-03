@@ -102,7 +102,7 @@ export default function SmtpSettingsTab() {
       return;
     }
     if (!testRecipient.trim() && !sessionEmail) {
-      toast.error("Enter an email address to receive the test message.");
+      toast.error("Enter an email address to receive the test email.");
       return;
     }
     setTesting(true);
@@ -128,7 +128,7 @@ export default function SmtpSettingsTab() {
 
   const handleTestSaved = async () => {
     if (!testRecipient.trim() && !sessionEmail) {
-      toast.error("Enter an email address to receive the test message.");
+      toast.error("Enter an email address to receive the test email.");
       return;
     }
     setTestingSaved(true);
@@ -258,7 +258,7 @@ export default function SmtpSettingsTab() {
               autoComplete="email"
             />
             <p className="text-xs text-muted-foreground">
-              Connection is verified, then a short test message is sent to this address (defaults to your login email).
+              Connection is verified, then a short test email is sent to this address (defaults to your login email).
             </p>
           </div>
         </div>

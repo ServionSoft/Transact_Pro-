@@ -10,9 +10,12 @@ import {
   RotateCcw,
   Users,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { archiveClientApi, listClientsFromApi, unarchiveClientApi } from "@/api/clients";
+import { listProjectsFromApi, type ProjectListItem } from "@/api/projects";
+import LinkedTransactionsCell from "@/components/clients/LinkedTransactionsCell";
 import { useAppStore } from "@/store/appStore";
+import { isTransactionProject } from "@/data/mockData";
 import { getApiBaseUrl } from "@/lib/apiConfig";
 import { hasPermission } from "@/lib/permissions";
 import { useAuthStore } from "@/store/authStore";
@@ -38,6 +41,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 
 const STATUS_TABS = ["All", "Active", "Inactive", "Prospect"] as const;
 
@@ -75,7 +79,7 @@ function TableSkeletonRows() {
             <Skeleton className="h-5 w-16 rounded-full" />
           </TableCell>
           <TableCell>
-            <Skeleton className="h-4 w-8" />
+            <Skeleton className="h-4 w-32" />
           </TableCell>
           <TableCell className="w-12">
             <Skeleton className="h-8 w-8 rounded-md" />
@@ -93,10 +97,13 @@ export default function ClientsPage() {
   const [loading, setLoading] = useState(() => Boolean(getApiBaseUrl()));
   const [loadError, setLoadError] = useState<string | null>(null);
   const [rowBusyId, setRowBusyId] = useState<string | null>(null);
+  const [apiProjects, setApiProjects] = useState<ProjectListItem[]>([]);
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const clients = useAppStore((s) => s.clients);
+  const storeProjects = useAppStore((s) => s.projects);
   const setClients = useAppStore((s) => s.setClients);
+  const { confirm, ConfirmDialogHost } = useConfirmDialog();
 
   const refresh = useCallback(async () => {
     if (!getApiBaseUrl()) return;
@@ -105,6 +112,16 @@ export default function ClientsPage() {
     try {
       const rows = await listClientsFromApi({ archived: showArchived });
       setClients(rows);
+      const canViewProjects = hasPermission(user, "projects.view");
+      if (canViewProjects) {
+        try {
+          setApiProjects(await listProjectsFromApi());
+        } catch {
+          setApiProjects([]);
+        }
+      } else {
+        setApiProjects([]);
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Could not load contacts.";
       setLoadError(msg);
@@ -112,7 +129,7 @@ export default function ClientsPage() {
     } finally {
       setLoading(false);
     }
-  }, [setClients, showArchived]);
+  }, [setClients, showArchived, user]);
 
   useEffect(() => {
     void refresh();
@@ -122,6 +139,34 @@ export default function ClientsPage() {
   const canCreate = !apiOn || hasPermission(user, "clients.create");
   const canArchive = !apiOn || hasPermission(user, "clients.archive");
   const canEdit = !apiOn || hasPermission(user, "clients.edit");
+  const canViewProjects = !apiOn || hasPermission(user, "projects.view");
+
+  const transactionsByClientId = useMemo(() => {
+    const map = new Map<string, { id: string; propertyAddress: string; name: string }[]>();
+    const rows: Array<{ id: string; clientId: string; propertyAddress: string; name: string }> = apiOn
+      ? apiProjects.map((p) => ({
+          id: p.id,
+          clientId: p.clientId,
+          propertyAddress: p.propertyAddress,
+          name: p.name,
+        }))
+      : storeProjects
+          .filter(isTransactionProject)
+          .map((p) => ({
+            id: p.id,
+            clientId: p.clientId,
+            propertyAddress: p.propertyAddress,
+            name: p.name,
+          }));
+    for (const p of rows) {
+      const list = map.get(p.clientId) ?? [];
+      list.push({ id: p.id, propertyAddress: p.propertyAddress, name: p.name });
+      map.set(p.clientId, list);
+    }
+    return map;
+  }, [apiOn, apiProjects, storeProjects]);
+
+  const linkedTransactionsFor = (clientId: string) => transactionsByClientId.get(clientId) ?? [];
 
   const filtered = clients.filter((c) => {
     const q = search.toLowerCase();
@@ -141,7 +186,22 @@ export default function ClientsPage() {
       toast.error("You do not have permission to archive contacts.");
       return;
     }
-    if (!confirm(`Archive ${client.name}? They will be hidden from the active list; transaction history stays.`)) return;
+    const linkCount = Math.max(linkedTransactionsFor(client.id).length, client.projectCount ?? 0);
+    if (linkCount > 0) {
+      toast.error(
+        "This contact is linked to active transactions. Reassign the primary contact or archive those transactions first."
+      );
+      return;
+    }
+    if (
+      !(await confirm({
+        title: "Archive contact",
+        description: `Archive ${client.name}? They will be hidden from the active contact list.`,
+        confirmLabel: "Archive",
+      }))
+    ) {
+      return;
+    }
     setRowBusyId(client.id);
     try {
       await archiveClientApi(client.id);
@@ -216,7 +276,11 @@ export default function ClientsPage() {
         ) : apiOn && canArchive ? (
           <>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="gap-2 text-destructive focus:text-destructive" onClick={() => void handleArchive(client)}>
+            <DropdownMenuItem
+              className="gap-2 text-destructive focus:text-destructive"
+              disabled={Math.max(linkedTransactionsFor(client.id).length, client.projectCount ?? 0) > 0}
+              onClick={() => void handleArchive(client)}
+            >
               <Archive className="h-4 w-4" /> Archive
             </DropdownMenuItem>
           </>
@@ -248,9 +312,13 @@ export default function ClientsPage() {
             </div>
             <p className="mt-1 text-xs text-muted-foreground">{client.company || "—"}</p>
             <p className="mt-0.5 text-xs text-muted-foreground">{client.phone || "—"}</p>
-            <div className="mt-2 flex items-center gap-2 text-sm">
-              <span className="text-muted-foreground">Linked</span>
-              <span className="font-semibold tabular-nums text-foreground">{client.projectCount}</span>
+            <div className="mt-2">
+              <p className="text-xs font-medium text-muted-foreground mb-1">Linked transactions</p>
+              {canViewProjects ? (
+                <LinkedTransactionsCell transactions={linkedTransactionsFor(client.id)} />
+              ) : (
+                <span className="text-sm text-muted-foreground">—</span>
+              )}
             </div>
           </div>
         </div>
@@ -319,7 +387,7 @@ export default function ClientsPage() {
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
-              Linked files counts listings and buyer files tied to each contact. Open a contact for the full list.
+              Linked transactions show property addresses for active deals where this contact is the primary client.
             </p>
           </div>
 
@@ -355,13 +423,13 @@ export default function ClientsPage() {
                     <TableHead>Role</TableHead>
                     <TableHead className="hidden xl:table-cell">Phone</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead className="whitespace-nowrap">
+                    <TableHead className="min-w-[180px] whitespace-nowrap">
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <span className="cursor-help border-b border-dotted border-muted-foreground/60">Linked files</span>
+                          <span className="cursor-help border-b border-dotted border-muted-foreground/60">Linked transactions</span>
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-xs">
-                          Number of listings and buyer files in Transactions that use this contact.
+                          Property address of each active listing or buyer file for this contact. Click to open the deal.
                         </TooltipContent>
                       </Tooltip>
                     </TableHead>
@@ -418,13 +486,13 @@ export default function ClientsPage() {
                     <TableHead>Role</TableHead>
                     <TableHead className="hidden xl:table-cell">Phone</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead className="whitespace-nowrap">
+                    <TableHead className="min-w-[180px] whitespace-nowrap">
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <span className="cursor-help border-b border-dotted border-muted-foreground/60">Linked files</span>
+                          <span className="cursor-help border-b border-dotted border-muted-foreground/60">Linked transactions</span>
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-xs">
-                          Number of listings and buyer files in Transactions that use this contact.
+                          Property address of each active listing or buyer file for this contact. Click to open the deal.
                         </TooltipContent>
                       </Tooltip>
                     </TableHead>
@@ -469,15 +537,14 @@ export default function ClientsPage() {
                       <TableCell>
                         <StatusBadge status={client.status} type="client" />
                       </TableCell>
-                      <TableCell
-                        className="tabular-nums font-medium"
-                        title={
-                          client.projectCount === 1
-                            ? "1 listing or buyer file linked to this contact."
-                            : `${client.projectCount} listings and buyer files linked to this contact.`
-                        }
-                      >
-                        {client.projectCount}
+                      <TableCell className="align-top">
+                        {canViewProjects ? (
+                          <LinkedTransactionsCell transactions={linkedTransactionsFor(client.id)} />
+                        ) : (
+                          <span className="text-sm text-muted-foreground" title="No permission to view transactions">
+                            —
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell className="text-right">{renderRowActions(client)}</TableCell>
                     </TableRow>
@@ -490,6 +557,7 @@ export default function ClientsPage() {
         )}
         </div>
       </div>
+      <ConfirmDialogHost />
     </div>
   );
 }

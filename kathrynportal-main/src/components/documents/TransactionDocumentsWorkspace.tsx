@@ -53,6 +53,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/com
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { hasPermission } from "@/lib/permissions";
 import EsignDraftSheet from "@/components/documents/EsignDraftSheet";
+import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import {
   deleteEsignDocumentApi,
   deleteEsignDraftsByFileApi,
@@ -145,6 +146,7 @@ export default function TransactionDocumentsWorkspace({
   const hydrateProjectFilePoolStore = useAppStore((s) => s.hydrateProjectFilePool);
   const appendProjectAttachmentsStore = useAppStore((s) => s.appendProjectAttachments);
   const upsertProject = useAppStore((s) => s.upsertProject);
+  const { confirm, ConfirmDialogHost } = useConfirmDialog();
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [newDocName, setNewDocName] = useState("");
@@ -506,12 +508,20 @@ export default function TransactionDocumentsWorkspace({
       });
   };
 
-  const removeChecklistDoc = (doc: DocRow) => {
+  const removeChecklistDoc = async (doc: DocRow) => {
     if (doc.required) {
       toast.error("Required checklist rows cannot be deleted.");
       return;
     }
-    if (!window.confirm(`Delete checklist row "${doc.name}"?`)) return;
+    if (
+      !(await confirm({
+        title: "Delete checklist row",
+        description: `Delete checklist row "${doc.name}"?`,
+        confirmLabel: "Delete",
+      }))
+    ) {
+      return;
+    }
     if (!getApiBaseUrl()) {
       toast.message("Delete is only available with API enabled.");
       return;
@@ -538,9 +548,11 @@ export default function TransactionDocumentsWorkspace({
       return;
     }
     if (
-      !window.confirm(
-        `Delete folder “${folder.name}”? It must be empty (no files, no subfolders).`
-      )
+      !(await confirm({
+        title: "Delete folder",
+        description: `Delete folder “${folder.name}”? It must be empty (no files, no subfolders).`,
+        confirmLabel: "Delete",
+      }))
     ) {
       return;
     }
@@ -787,9 +799,12 @@ export default function TransactionDocumentsWorkspace({
         return;
       } catch (err) {
         if (err instanceof ApiRequestError && err.status === 409) {
-          const shouldDeleteDrafts = window.confirm(
-            "This file is linked to an eSign template. Delete linked template(s) and then delete this file?"
-          );
+          const shouldDeleteDrafts = await confirm({
+            title: "Delete linked templates",
+            description:
+              "This file is linked to an eSign template. Delete linked template(s) and then delete this file?",
+            confirmLabel: "Delete templates & file",
+          });
           if (shouldDeleteDrafts) {
             try {
               const deletedCount = await deleteEsignDraftsByFileApi(project.id, file.id);
@@ -1065,7 +1080,19 @@ export default function TransactionDocumentsWorkspace({
       : "All pool files are already linked, or the pool is empty. Upload on the Stored Documents tab first.";
 
   const removeEsignTemplate = async (draft: EsignDocumentDto) => {
-    if (!window.confirm(`Delete template "${draft.title}"?`)) return;
+    if (draft.status === "sent" || draft.status === "completed") {
+      toast.error("Sent or completed templates cannot be deleted.");
+      return;
+    }
+    if (
+      !(await confirm({
+        title: "Delete template",
+        description: `Delete template "${draft.title}"?`,
+        confirmLabel: "Delete",
+      }))
+    ) {
+      return;
+    }
     try {
       await deleteEsignDocumentApi(project.id, draft.id);
       setEsignDrafts((prev) => prev.filter((x) => x.id !== draft.id));
@@ -1096,7 +1123,14 @@ export default function TransactionDocumentsWorkspace({
   };
 
   const openEsignTemplate = (draftId: string) => {
+    setEsignPrefill(null);
     setOpenDraftId(draftId);
+    setEsignOpen(true);
+  };
+
+  const openEsignBuilderForCreate = () => {
+    setOpenDraftId(null);
+    setEsignPrefill(null);
     setEsignOpen(true);
   };
 
@@ -1975,7 +2009,7 @@ export default function TransactionDocumentsWorkspace({
           <Button
             size="sm"
             variant="secondary"
-            onClick={() => setEsignOpen(true)}
+            onClick={openEsignBuilderForCreate}
             className="h-8 text-xs gap-1 bg-background/10 border border-background/20"
           >
             <Pencil className="w-3 h-3" /> Prepare eSign Template
@@ -2026,7 +2060,7 @@ export default function TransactionDocumentsWorkspace({
       )}
       {view === "checklist-only" && checklistSection}
       <div className="mt-3">
-        <Button type="button" variant="outline" size="sm" onClick={() => setEsignOpen(true)} className="gap-1">
+        <Button type="button" variant="outline" size="sm" onClick={openEsignBuilderForCreate} className="gap-1">
           <Pencil className="w-3.5 h-3.5" /> Open eSign Template Builder
         </Button>
       </div>
@@ -2176,6 +2210,7 @@ export default function TransactionDocumentsWorkspace({
           setEsignOpen(open);
           if (!open) {
             setOpenDraftId(null);
+            setEsignPrefill(null);
             void loadMergedEsignDrafts().then((merged) => setEsignDrafts(merged));
           }
         }}
@@ -2192,6 +2227,7 @@ export default function TransactionDocumentsWorkspace({
             .catch(() => {});
         }}
       />
+      <ConfirmDialogHost />
     </>
   );
 }

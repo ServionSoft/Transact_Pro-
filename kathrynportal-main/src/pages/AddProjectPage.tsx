@@ -24,6 +24,8 @@ import type { Client } from "@/types/domain";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import PageHeader from "@/components/shared/PageHeader";
+import FieldLabelHelp from "@/components/shared/FieldLabelHelp";
+import { TX_FIELD_HELP, type TransactionFieldHelp } from "@/lib/transactionFieldHelp";
 import { toast } from "sonner";
 
 type TxType = "Listing" | "Buyer File";
@@ -53,6 +55,94 @@ function sanitizeDecimal(value: string): string {
 
 function sanitizePercent(value: string): string {
   return sanitizeDecimal(value).replace(/^(\d+(\.\d{0,2})?).*$/, "$1");
+}
+
+type TransactionFormValidationInput = {
+  type: TxType;
+  clientId: string;
+  propertyAddress: string;
+  nextStep: string;
+  purchasePrice: string;
+  property: {
+    zip: string;
+    yearBuilt: string;
+    squareFeet: string;
+    lotSize: string;
+    mlsNumber: string;
+  };
+  transaction: { purchasePrice: string; spbbPct: string; ftcAmount: string };
+  escrow: { phone: string };
+  emailsToValidate: string[];
+  textFields: string[];
+};
+
+type RequiredFormItem = { key: string; label: string; valid: boolean; step: WorkflowStep; message: string };
+
+function getTransactionFormValidation(input: TransactionFormValidationInput): {
+  requiredItems: RequiredFormItem[];
+  missingRequired: RequiredFormItem[];
+  formatErrors: string[];
+  canSubmit: boolean;
+} {
+  const requiredItems: RequiredFormItem[] = [
+    { key: "type", label: "Transaction Type", valid: Boolean(input.type), step: "core", message: "Transaction type is required." },
+    {
+      key: "contact",
+      label: "Primary Contact",
+      valid: /^\d+$/.test(input.clientId.trim()),
+      step: "core",
+      message: "Primary contact is required.",
+    },
+    {
+      key: "address",
+      label: "Property Address",
+      valid: Boolean(input.propertyAddress.trim()),
+      step: "core",
+      message: "Property address is required.",
+    },
+    {
+      key: "next-step",
+      label: "Next Step",
+      valid: Boolean(input.nextStep.trim()),
+      step: "core",
+      message: "Next step is required.",
+    },
+    {
+      key: "price",
+      label: "Purchase Price",
+      valid: Boolean(input.purchasePrice.trim()) && /^\d+(\.\d+)?$/.test(input.purchasePrice.trim()),
+      step: "core",
+      message: "Purchase price is required and must be a valid number.",
+    },
+  ];
+  const missingRequired = requiredItems.filter((item) => !item.valid);
+
+  const formatErrors: string[] = [];
+  const { property, transaction, escrow } = input;
+  if (property.zip && !/^\d+$/.test(property.zip)) formatErrors.push("ZIP must contain numbers only.");
+  if (property.yearBuilt && !/^\d+$/.test(property.yearBuilt)) formatErrors.push("Year Built must contain numbers only.");
+  if (property.squareFeet && !/^\d+$/.test(property.squareFeet)) formatErrors.push("Square Feet must contain numbers only.");
+  if (property.lotSize && !/^\d+(\.\d+)?$/.test(property.lotSize)) formatErrors.push("Lot Size must be a valid number.");
+  if (property.mlsNumber && !/^\d+$/.test(property.mlsNumber)) formatErrors.push("MLS # must contain numbers only.");
+  if (transaction.purchasePrice.trim() && !/^\d+(\.\d+)?$/.test(transaction.purchasePrice.trim())) {
+    formatErrors.push("Purchase Price must be a valid number.");
+  }
+  if (transaction.spbbPct && !/^\d+(\.\d{1,2})?$/.test(transaction.spbbPct)) formatErrors.push("SPBB % must be a valid percentage.");
+  if (transaction.ftcAmount && !/^\d+(\.\d+)?$/.test(transaction.ftcAmount)) formatErrors.push("FTC Amount must be a valid number.");
+  if (escrow.phone && !/^\d+$/.test(escrow.phone)) formatErrors.push("Escrow phone must contain numbers only.");
+  if (input.emailsToValidate.some((email) => !isValidEmail(email))) {
+    formatErrors.push("One or more email addresses are invalid.");
+  }
+  if (input.textFields.some((text) => text.trim() && /^\d+$/.test(text.trim()))) {
+    formatErrors.push("Text fields cannot be numbers only.");
+  }
+
+  return {
+    requiredItems,
+    missingRequired,
+    formatErrors,
+    canSubmit: missingRequired.length === 0 && formatErrors.length === 0,
+  };
 }
 
 /** Rules use "Yes" / "No"; unset must not be treated as "No" or conditional rules misfire. */
@@ -347,6 +437,7 @@ export default function AddProjectPage() {
       listingAgents[1]?.contactId
   );
   const [currentStep, setCurrentStep] = useState<WorkflowStep>("core");
+  const [submitAttempted, setSubmitAttempted] = useState(false);
   const stepOrder: WorkflowStep[] = isListing
     ? ["core", "parties", "timeline", "listing", "review"]
     : ["core", "parties", "timeline", "review"];
@@ -357,17 +448,50 @@ export default function AddProjectPage() {
     listing: "Listing Details",
     review: "Review + Save",
   };
-  const requiredItems: Array<{ key: string; label: string; valid: boolean; step: WorkflowStep }> = [
-    { key: "type", label: "Transaction Type", valid: Boolean(type), step: "core" },
-    { key: "contact", label: "Primary Contact", valid: Boolean(clientId), step: "core" },
-    { key: "address", label: "Property Address", valid: Boolean(property.address.trim()), step: "core" },
-    { key: "next-step", label: "Next Step", valid: Boolean(nextStep.trim()), step: "core" },
-    { key: "price", label: "Purchase Price", valid: Boolean(transaction.purchasePrice.trim()), step: "core" },
-  ];
+  const formValidation = getTransactionFormValidation({
+    type,
+    clientId,
+    propertyAddress: property.address,
+    nextStep,
+    purchasePrice: transaction.purchasePrice,
+    property,
+    transaction,
+    escrow,
+    emailsToValidate: [
+      ...buyerAgents.map((a) => a.email),
+      buyerAgent3.email,
+      buyerAgentTC.email,
+      buyerAgentAssistant.email,
+      ...listingAgents.map((a) => a.email),
+      listingAgent3.email,
+      listingAgentTC.email,
+      escrow.email,
+      escrowAssistant.email,
+      ...sellers.map((s) => s.email),
+      ...buyers.map((b) => b.email),
+    ],
+    textFields: [
+      ...buyerAgents.map((a) => a.name),
+      buyerAgent3.name,
+      buyerAgentTC.name,
+      buyerAgentAssistant.name,
+      ...listingAgents.map((a) => a.name),
+      listingAgent3.name,
+      listingAgentTC.name,
+      escrow.name,
+      lender.name,
+      ...sellers.map((s) => s.name),
+      ...buyers.map((b) => b.name),
+      property.city,
+      property.county,
+    ],
+  });
+  const { requiredItems, missingRequired: missingRequiredItems, canSubmit: formCanSubmit } = formValidation;
   const requiredDone = requiredItems.filter((item) => item.valid).length;
   const requiredTotal = requiredItems.length;
-  const missingRequiredItems = requiredItems.filter((item) => !item.valid);
   const linkedPrimaryContact = clientOptions.find((c) => c.id === clientId);
+  const showFieldError = (key: string) =>
+    submitAttempted && missingRequiredItems.some((item) => item.key === key);
 
   useEffect(() => {
     if (hasListingAgent2Data) setShowListingAgent2(true);
@@ -432,7 +556,7 @@ export default function AddProjectPage() {
     }) => {
       setClientId(p.clientId);
       setType((p.type === "Buyer File" ? "Buyer File" : "Listing") as TxType);
-      setNextStep(p.nextStep || "");
+      setNextStep(p.nextStep && p.nextStep !== "Define next step" ? p.nextStep : "");
       setNextStepDate(p.nextStepDate || "");
       const parts = (p.propertyAddress || "").split(",").map((x) => x.trim()).filter(Boolean);
       setProperty((prev) => ({
@@ -444,7 +568,11 @@ export default function AddProjectPage() {
         yearBuilt: p.yearBuilt || "",
         propertyType: p.propertyType || prev.propertyType,
       }));
-      setTransaction((prev) => ({ ...prev, purchasePrice: p.listPrice === "—" ? "" : p.listPrice }));
+      setTransaction((prev) => ({
+        ...prev,
+        purchasePrice:
+          !p.listPrice || p.listPrice === "—" ? "" : sanitizeDecimal(String(p.listPrice)),
+      }));
       setEscrow((prev) => ({ ...prev, name: p.escrowOfficer || "", company: p.escrowCompany || "" }));
       const md = p.metadata ?? {};
       if (md.timeline && typeof md.timeline === "object") {
@@ -528,56 +656,15 @@ export default function AddProjectPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const validationErrors: string[] = [];
-    if (!property.address) {
-      validationErrors.push("Property address is required.");
+    setSubmitAttempted(true);
+    if (formValidation.missingRequired.length > 0) {
+      const labels = formValidation.missingRequired.map((item) => item.label).join(", ");
+      toast.error(`Complete required fields: ${labels}`);
+      setCurrentStep(formValidation.missingRequired[0]!.step);
+      return;
     }
-    if (property.zip && !/^\d+$/.test(property.zip)) validationErrors.push("ZIP must contain numbers only.");
-    if (property.yearBuilt && !/^\d+$/.test(property.yearBuilt)) validationErrors.push("Year Built must contain numbers only.");
-    if (property.squareFeet && !/^\d+$/.test(property.squareFeet)) validationErrors.push("Square Feet must contain numbers only.");
-    if (property.lotSize && !/^\d+(\.\d+)?$/.test(property.lotSize)) validationErrors.push("Lot Size must be a valid number.");
-    if (property.mlsNumber && !/^\d+$/.test(property.mlsNumber)) validationErrors.push("MLS # must contain numbers only.");
-    if (transaction.purchasePrice && !/^\d+(\.\d+)?$/.test(transaction.purchasePrice)) validationErrors.push("Purchase Price must be a valid number.");
-    if (transaction.spbbPct && !/^\d+(\.\d{1,2})?$/.test(transaction.spbbPct)) validationErrors.push("SPBB % must be a valid percentage.");
-    if (transaction.ftcAmount && !/^\d+(\.\d+)?$/.test(transaction.ftcAmount)) validationErrors.push("FTC Amount must be a valid number.");
-    if (escrow.phone && !/^\d+$/.test(escrow.phone)) validationErrors.push("Escrow phone must contain numbers only.");
-
-    const emailsToValidate = [
-      ...buyerAgents.map((a) => a.email),
-      buyerAgent3.email,
-      buyerAgentTC.email,
-      buyerAgentAssistant.email,
-      ...listingAgents.map((a) => a.email),
-      listingAgent3.email,
-      listingAgentTC.email,
-      escrow.email,
-      escrowAssistant.email,
-      ...sellers.map((s) => s.email),
-      ...buyers.map((b) => b.email),
-    ];
-    if (emailsToValidate.some((email) => !isValidEmail(email))) {
-      validationErrors.push("One or more email addresses are invalid.");
-    }
-    const textFields = [
-      ...buyerAgents.map((a) => a.name),
-      buyerAgent3.name,
-      buyerAgentTC.name,
-      buyerAgentAssistant.name,
-      ...listingAgents.map((a) => a.name),
-      listingAgent3.name,
-      listingAgentTC.name,
-      escrow.name,
-      lender.name,
-      ...sellers.map((s) => s.name),
-      ...buyers.map((b) => b.name),
-      property.city,
-      property.county,
-    ];
-    if (textFields.some((text) => text.trim() && /^\d+$/.test(text.trim()))) {
-      validationErrors.push("Text fields cannot be numbers only.");
-    }
-    if (validationErrors.length > 0) {
-      toast.error(validationErrors[0]);
+    if (formValidation.formatErrors.length > 0) {
+      toast.error(formValidation.formatErrors[0]);
       return;
     }
 
@@ -706,18 +793,18 @@ export default function AddProjectPage() {
 
         const payload = {
           name: `${property.address} — ${linkedClient?.name?.split(" ").slice(-1)[0] || "New"} ${type === "Listing" ? "Listing" : "Buyer"}`,
-          clientId: clientId || (linkedClient?.id ?? ""),
+          clientId: clientId.trim(),
           propertyAddress: fullAddress || property.address,
           type,
           stage: initialStage,
-          nextStep: nextStep || "Define next step",
+          nextStep: nextStep.trim(),
           nextStepDate: nextStepDate || "",
           yearBuilt: property.yearBuilt,
           propertyType: property.propertyType,
           representationSide: type === "Listing" ? "Seller" : "Buyer",
           escrowOfficer: escrow.name || "",
           escrowCompany: escrow.company || "TBD",
-          listPrice: transaction.purchasePrice || "—",
+          listPrice: transaction.purchasePrice.trim(),
           city: property.city,
           state: property.state,
           zip: property.zip,
@@ -769,19 +856,19 @@ export default function AddProjectPage() {
         }),
         id,
         name: `${property.address} — ${linkedClient?.name?.split(" ").slice(-1)[0] || "New"} ${type === "Listing" ? "Listing" : "Buyer"}`,
-        clientId: clientId || (linkedClient?.id ?? ""),
+        clientId: clientId.trim(),
         clientName: linkedClient?.name || "Unassigned",
         propertyAddress: fullAddress || property.address,
         type: type as unknown as ProjectType,
         stage: initialStage,
-        nextStep: nextStep || "Define next step",
+        nextStep: nextStep.trim(),
         nextStepDate: nextStepDate || "",
         yearBuilt: property.yearBuilt,
         propertyType: property.propertyType,
         representationSide: type === "Listing" ? "Seller" : "Buyer",
         escrowOfficer: escrow.name || "TBD",
         escrowCompany: escrow.company || "TBD",
-        listPrice: transaction.purchasePrice || "—",
+        listPrice: transaction.purchasePrice.trim(),
         metadata,
         documents: existingProject?.documents ?? documents,
         tasks: existingProject?.tasks ?? [],
@@ -797,19 +884,19 @@ export default function AddProjectPage() {
 
     const created = addProject({
       name: `${property.address} — ${linkedClient?.name?.split(" ").slice(-1)[0] || "New"} ${type === "Listing" ? "Listing" : "Buyer"}`,
-      clientId: clientId || (linkedClient?.id ?? ""),
+      clientId: clientId.trim(),
       clientName: linkedClient?.name || "Unassigned",
       propertyAddress: fullAddress || property.address,
       type: type as unknown as ProjectType,
       stage: initialStage,
-      nextStep: nextStep || "Define next step",
+      nextStep: nextStep.trim(),
       nextStepDate: nextStepDate || "",
       yearBuilt: property.yearBuilt,
       propertyType: property.propertyType,
       representationSide: type === "Listing" ? "Seller" : "Buyer",
       escrowOfficer: escrow.name || "TBD",
       escrowCompany: escrow.company || "TBD",
-      listPrice: transaction.purchasePrice || "—",
+      listPrice: transaction.purchasePrice.trim(),
       metadata,
       documents,
     });
@@ -821,7 +908,8 @@ export default function AddProjectPage() {
   };
 
   return (
-    <div className="p-4 md:p-6 xl:p-8 max-w-[1500px] mx-auto">
+    <div className="mx-auto flex min-h-0 w-full max-w-[1500px] flex-1 flex-col overflow-hidden px-4 py-6 md:px-6 md:py-8 xl:px-8">
+      <div className="shrink-0">
       <button onClick={() => navigate("/projects")} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6 transition-colors">
         <ArrowLeft className="w-4 h-4" /> Back to Transactions
       </button>
@@ -855,14 +943,22 @@ export default function AddProjectPage() {
           })}
         </div>
       </div>
+      </div>
 
-      <form onSubmit={handleSubmit} className="grid grid-cols-1 xl:grid-cols-12 gap-4 xl:gap-6">
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain">
+      <form onSubmit={handleSubmit} className="grid grid-cols-1 xl:grid-cols-12 gap-4 xl:gap-6 pb-4">
         <div className="xl:col-span-8 2xl:col-span-9 space-y-4">
           {/* General */}
           <Section title="General" tone="core" visible={currentStep === "core"} open={open.general} onToggle={() => toggle("general")}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <Field label="Next Step">
-                <Input value={nextStep} onChange={e => setNextStep(e.target.value)} placeholder="e.g. Send disclosure packet to seller" />
+              <Field label="Next Step *" invalid={showFieldError("next-step")}>
+                <Input
+                  value={nextStep}
+                  onChange={e => setNextStep(e.target.value)}
+                  placeholder="e.g. Send disclosure packet to seller"
+                  required
+                  aria-invalid={showFieldError("next-step")}
+                />
               </Field>
               <Field label="Next Step Date">
                 <Input type="date" value={nextStepDate} onChange={e => setNextStepDate(e.target.value)} />
@@ -873,8 +969,21 @@ export default function AddProjectPage() {
           {/* Transaction Details */}
           <Section title="Transaction Details" tone="financial" visible={currentStep === "core"} open={open.transaction} onToggle={() => toggle("transaction")}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <Field label="Purchase Price ($)"><Input value={transaction.purchasePrice} onChange={e => setTransaction(p => ({ ...p, purchasePrice: sanitizeDecimal(e.target.value) }))} placeholder="$1,250,000" /></Field>
-              <YesNoField label="DocuSign?" value={transaction.docuSign} onChange={(v) => setTransaction(p => ({ ...p, docuSign: v }))} />
+              <Field label="Purchase Price ($) *" invalid={showFieldError("price")}>
+                <Input
+                  value={transaction.purchasePrice}
+                  onChange={e => setTransaction(p => ({ ...p, purchasePrice: sanitizeDecimal(e.target.value) }))}
+                  placeholder="$1,250,000"
+                  required
+                  aria-invalid={showFieldError("price")}
+                />
+              </Field>
+              <YesNoField
+                label="DocuSign?"
+                labelHelp={TX_FIELD_HELP.docuSign}
+                value={transaction.docuSign}
+                onChange={(v) => setTransaction(p => ({ ...p, docuSign: v }))}
+              />
               <Field label="Loan Type">
                 <Select value={transaction.loanType} onValueChange={(v) => setTransaction(p => ({ ...p, loanType: v as LoanType }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
@@ -885,12 +994,21 @@ export default function AddProjectPage() {
                   </SelectContent>
                 </Select>
               </Field>
-              <Field label="SPBB %"><Input value={transaction.spbbPct} onChange={e => setTransaction(p => ({ ...p, spbbPct: sanitizePercent(e.target.value) }))} placeholder="2.5%" /></Field>
-              <YesNoField label="FTC?" value={transaction.ftc} onChange={(v) => setTransaction(p => ({ ...p, ftc: v }))} />
+              <Field label="SPBB %" labelHelp={TX_FIELD_HELP.spbbPct}>
+                <Input value={transaction.spbbPct} onChange={e => setTransaction(p => ({ ...p, spbbPct: sanitizePercent(e.target.value) }))} placeholder="2.5%" />
+              </Field>
+              <YesNoField
+                label="FTC?"
+                labelHelp={TX_FIELD_HELP.ftc}
+                value={transaction.ftc}
+                onChange={(v) => setTransaction(p => ({ ...p, ftc: v }))}
+              />
               {transaction.ftc === "yes" && (
                 <>
-                  <Field label="FTC Amount ($)"><Input value={transaction.ftcAmount} onChange={e => setTransaction(p => ({ ...p, ftcAmount: sanitizeDecimal(e.target.value) }))} placeholder="$5,000" /></Field>
-                  <Field label="FTC Paid By">
+                  <Field label="FTC Amount ($)" labelHelp={TX_FIELD_HELP.ftcAmount}>
+                    <Input value={transaction.ftcAmount} onChange={e => setTransaction(p => ({ ...p, ftcAmount: sanitizeDecimal(e.target.value) }))} placeholder="$5,000" />
+                  </Field>
+                  <Field label="FTC Paid By" labelHelp={TX_FIELD_HELP.ftcPaidBy}>
                     <Select value={transaction.ftcPaidBy} onValueChange={(v) => setTransaction(p => ({ ...p, ftcPaidBy: v }))}>
                       <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
                       <SelectContent>
@@ -901,14 +1019,14 @@ export default function AddProjectPage() {
                   </Field>
                 </>
               )}
-              <Field label="RPA Seller" hint="Optional. Seller name/vesting exactly as shown on the RPA.">
+              <Field label="RPA Seller" labelHelp={TX_FIELD_HELP.rpaSeller} hint="Optional. Seller name/vesting exactly as shown on the RPA.">
                 <Input
                   value={transaction.rpaSeller}
                   onChange={e => setTransaction(p => ({ ...p, rpaSeller: e.target.value }))}
                   placeholder="e.g. John Smith and Jane Smith, Trustees..."
                 />
               </Field>
-              <Field label="Prelim Seller" hint="Optional. Seller name/vesting exactly as shown on the Preliminary Title Report.">
+              <Field label="Prelim Seller" labelHelp={TX_FIELD_HELP.prelimSeller} hint="Optional. Seller name/vesting exactly as shown on the Preliminary Title Report.">
                 <Input
                   value={transaction.prelimSeller}
                   onChange={e => setTransaction(p => ({ ...p, prelimSeller: e.target.value }))}
@@ -917,6 +1035,7 @@ export default function AddProjectPage() {
               </Field>
               <Field
                 label="Seller Name Match?"
+                labelHelp={TX_FIELD_HELP.sellerNameMatch}
                 className="md:col-span-2"
                 hint={autoSellerNameMatch
                   ? "Auto-calculated from both names. You can override if needed."
@@ -957,9 +1076,13 @@ export default function AddProjectPage() {
                   />
                 </Field>
               )}
-              <Field label="NHD Details (RPA)" className="md:col-span-2"><Input value={transaction.nhdRpa} onChange={e => setTransaction(p => ({ ...p, nhdRpa: e.target.value }))} placeholder="Company, with/without environmental, who pays" /></Field>
+              <Field label="NHD Details (RPA)" labelHelp={TX_FIELD_HELP.nhdRpa} className="md:col-span-2">
+                <Input value={transaction.nhdRpa} onChange={e => setTransaction(p => ({ ...p, nhdRpa: e.target.value }))} placeholder="Company, with/without environmental, who pays" />
+              </Field>
               <Field label="Home Warranty"><Input value={transaction.homeWarranty} onChange={e => setTransaction(p => ({ ...p, homeWarranty: e.target.value }))} /></Field>
-              <Field label="Escrow #"><Input value={transaction.escrowNumber} onChange={e => setTransaction(p => ({ ...p, escrowNumber: e.target.value }))} /></Field>
+              <Field label="Escrow #" labelHelp={TX_FIELD_HELP.escrowNumber}>
+                <Input value={transaction.escrowNumber} onChange={e => setTransaction(p => ({ ...p, escrowNumber: e.target.value }))} />
+              </Field>
               <Field label="Transaction Notes" className="md:col-span-2">
                 <Textarea value={transaction.notes} onChange={e => setTransaction(p => ({ ...p, notes: e.target.value }))} rows={3} />
               </Field>
@@ -969,7 +1092,9 @@ export default function AddProjectPage() {
           {/* Property Information */}
           <Section title="Property Information" tone="property" visible={currentStep === "core"} open={open.property} onToggle={() => toggle("property")}>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-              <Field label="MLS #" className="xl:col-span-1"><Input value={property.mlsNumber} onChange={e => setProperty(p => ({ ...p, mlsNumber: sanitizeDigits(e.target.value) }))} /></Field>
+              <Field label="MLS #" labelHelp={TX_FIELD_HELP.mlsNumber} className="xl:col-span-1">
+                <Input value={property.mlsNumber} onChange={e => setProperty(p => ({ ...p, mlsNumber: sanitizeDigits(e.target.value) }))} />
+              </Field>
               <Field label="Property Type" className="xl:col-span-1">
                 <Select value={property.propertyType} onValueChange={(v) => setProperty(p => ({ ...p, propertyType: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
@@ -980,7 +1105,14 @@ export default function AddProjectPage() {
                   </SelectContent>
                 </Select>
               </Field>
-              <Field label="Property Address *" className="md:col-span-2 xl:col-span-2"><Input value={property.address} onChange={e => setProperty(p => ({ ...p, address: e.target.value }))} required /></Field>
+              <Field label="Property Address *" className="md:col-span-2 xl:col-span-2" invalid={showFieldError("address")}>
+                <Input
+                  value={property.address}
+                  onChange={e => setProperty(p => ({ ...p, address: e.target.value }))}
+                  required
+                  aria-invalid={showFieldError("address")}
+                />
+              </Field>
               <Field label="City" className="xl:col-span-1"><Input value={property.city} onChange={e => setProperty(p => ({ ...p, city: e.target.value }))} /></Field>
               <Field label="State" className="xl:col-span-1"><Input value={property.state} onChange={e => setProperty(p => ({ ...p, state: e.target.value }))} /></Field>
               <Field label="ZIP" className="xl:col-span-1"><Input value={property.zip} onChange={e => setProperty(p => ({ ...p, zip: sanitizeDigits(e.target.value) }))} /></Field>
@@ -988,16 +1120,18 @@ export default function AddProjectPage() {
               <Field label="Year Built" className="xl:col-span-1"><Input value={property.yearBuilt} onChange={e => setProperty(p => ({ ...p, yearBuilt: sanitizeDigits(e.target.value) }))} /></Field>
               <Field label="Lot Size" className="xl:col-span-1"><Input value={property.lotSize} onChange={e => setProperty(p => ({ ...p, lotSize: sanitizeDecimal(e.target.value) }))} /></Field>
               <Field label="Square Feet (home)" className="xl:col-span-1"><Input value={property.squareFeet} onChange={e => setProperty(p => ({ ...p, squareFeet: sanitizeDigits(e.target.value) }))} /></Field>
-              <Field label="Disclosure Link" className="xl:col-span-2"><Input value={property.disclosureLink} onChange={e => setProperty(p => ({ ...p, disclosureLink: e.target.value }))} placeholder="https://..." /></Field>
+              <Field label="Disclosure Link" labelHelp={TX_FIELD_HELP.disclosureLink} className="xl:col-span-2">
+                <Input value={property.disclosureLink} onChange={e => setProperty(p => ({ ...p, disclosureLink: e.target.value }))} placeholder="https://..." />
+              </Field>
 
-              <YesNoField label="Exempt Seller?" value={property.exemptSeller} onChange={(v) => setProperty(p => ({ ...p, exemptSeller: v }))} />
+              <YesNoField label="Exempt Seller?" labelHelp={TX_FIELD_HELP.exemptSeller} value={property.exemptSeller} onChange={(v) => setProperty(p => ({ ...p, exemptSeller: v }))} />
               <YesNoField label="Solar?" value={property.solar} onChange={(v) => setProperty(p => ({ ...p, solar: v }))} />
               <YesNoField label="Well?" value={property.well} onChange={(v) => setProperty(p => ({ ...p, well: v }))} />
               <YesNoField label="Septic?" value={property.septic} onChange={(v) => setProperty(p => ({ ...p, septic: v }))} />
-              <YesNoField label="HOA?" value={property.hoa} onChange={(v) => setProperty(p => ({ ...p, hoa: v }))} />
+              <YesNoField label="HOA?" labelHelp={TX_FIELD_HELP.hoa} value={property.hoa} onChange={(v) => setProperty(p => ({ ...p, hoa: v }))} />
               <YesNoField label="Tenant Occupied?" value={property.tenantOccupied} onChange={(v) => setProperty(p => ({ ...p, tenantOccupied: v }))} />
               {isListing && property.hoa === "yes" && (
-                <Field label="HOA Order Details" className="md:col-span-2">
+                <Field label="HOA Order Details" labelHelp={TX_FIELD_HELP.hoaOrderDetails} className="md:col-span-2">
                   <Input value={property.hoaOrderDetails} onChange={e => setProperty(p => ({ ...p, hoaOrderDetails: e.target.value }))} placeholder="Listing files only — fill in details" />
                 </Field>
               )}
@@ -1008,14 +1142,35 @@ export default function AddProjectPage() {
           {isListing && (
             <Section title="Listing Details" tone="listing" visible={currentStep === "listing"} open={open.listing} onToggle={() => toggle("listing")} subtitle="Listing files only">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <Field label="Target OMD"><Input value={listing.targetOMD} onChange={e => setListing(p => ({ ...p, targetOMD: e.target.value }))} placeholder="Fill in the blank" /></Field>
-                <Field label="Disclosure Timing"><Input value={listing.disclosureTiming} onChange={e => setListing(p => ({ ...p, disclosureTiming: e.target.value }))} placeholder="Fill in the blank" /></Field>
-                <YesNoField label="Questionnaires Electronically?" value={listing.questionnairesElectronically} onChange={(v) => setListing(p => ({ ...p, questionnairesElectronically: v }))} />
-                <YesNoField label="DocuSign?" value={listing.docuSign} onChange={(v) => setListing(p => ({ ...p, docuSign: v }))} />
-                <Field label="NHD Company"><Input value={listing.nhdCompany} onChange={e => setListing(p => ({ ...p, nhdCompany: e.target.value }))} /></Field>
-                <div className="flex items-end gap-2">
+                <Field label="Target OMD" labelHelp={TX_FIELD_HELP.targetOmd}>
+                  <Input value={listing.targetOMD} onChange={e => setListing(p => ({ ...p, targetOMD: e.target.value }))} placeholder="Fill in the blank" />
+                </Field>
+                <Field label="Disclosure Timing" labelHelp={TX_FIELD_HELP.disclosureTiming}>
+                  <Input value={listing.disclosureTiming} onChange={e => setListing(p => ({ ...p, disclosureTiming: e.target.value }))} placeholder="Fill in the blank" />
+                </Field>
+                <YesNoField
+                  label="Questionnaires Electronically?"
+                  labelHelp={TX_FIELD_HELP.questionnairesElectronically}
+                  value={listing.questionnairesElectronically}
+                  onChange={(v) => setListing(p => ({ ...p, questionnairesElectronically: v }))}
+                />
+                <YesNoField
+                  label="DocuSign?"
+                  labelHelp={TX_FIELD_HELP.docuSign}
+                  value={listing.docuSign}
+                  onChange={(v) => setListing(p => ({ ...p, docuSign: v }))}
+                />
+                <Field label="NHD Company" labelHelp={TX_FIELD_HELP.nhdCompany}>
+                  <Input value={listing.nhdCompany} onChange={e => setListing(p => ({ ...p, nhdCompany: e.target.value }))} />
+                </Field>
+                <div className="flex items-end gap-2 rounded-md border border-border/70 bg-secondary/20 p-2.5">
                   <Checkbox id="env" checked={listing.nhdEnvironmental} onCheckedChange={(v) => setListing(p => ({ ...p, nhdEnvironmental: !!v }))} />
-                  <Label htmlFor="env" className="cursor-pointer mb-2">With Environmental</Label>
+                  <div className="mb-2 flex items-center gap-1">
+                    <Label htmlFor="env" className="cursor-pointer">
+                      With Environmental
+                    </Label>
+                    <FieldLabelHelp help={TX_FIELD_HELP.nhdEnvironmental} label="With Environmental" />
+                  </div>
                 </div>
               </div>
             </Section>
@@ -1034,15 +1189,16 @@ export default function AddProjectPage() {
               disabledHint="Auto N/A — All Cash"
             />
             <DateRow label="Verification of Funds" value={timeline.verificationOfFunds} onChange={v => setTimeline(p => ({ ...p, verificationOfFunds: v }))} />
-            <DateRow label="EMD to Escrow" value={timeline.emdToEscrow} onChange={v => setTimeline(p => ({ ...p, emdToEscrow: v }))} />
-            <DateRow label="Estimated COE" value={timeline.estimatedCOE} onChange={v => setTimeline(p => ({ ...p, estimatedCOE: v }))} />
+            <DateRow label="EMD to Escrow" labelHelp={TX_FIELD_HELP.emdToEscrow} value={timeline.emdToEscrow} onChange={v => setTimeline(p => ({ ...p, emdToEscrow: v }))} />
+            <DateRow label="Estimated COE" labelHelp={TX_FIELD_HELP.estimatedCoe} value={timeline.estimatedCOE} onChange={v => setTimeline(p => ({ ...p, estimatedCOE: v }))} />
             <DateRow label="Seller Disclosures to Buyer" value={timeline.sellerDisclosuresToBuyer} onChange={v => setTimeline(p => ({ ...p, sellerDisclosuresToBuyer: v }))} />
             <DateRow label="Investigation Contingency Removal" value={timeline.investigationContingency} onChange={v => setTimeline(p => ({ ...p, investigationContingency: v }))} />
             <DateRow label="Insurance Contingency Removal" value={timeline.insuranceContingency} onChange={v => setTimeline(p => ({ ...p, insuranceContingency: v }))} />
             <DateRow label="Review of Seller Docs Contingency Removal" value={timeline.reviewSellerDocs} onChange={v => setTimeline(p => ({ ...p, reviewSellerDocs: v }))} />
-            <DateRow label="Review of Prelim Contingency Removal" value={timeline.reviewPrelim} onChange={v => setTimeline(p => ({ ...p, reviewPrelim: v }))} />
+            <DateRow label="Review of Prelim Contingency Removal" labelHelp={TX_FIELD_HELP.reviewPrelim} value={timeline.reviewPrelim} onChange={v => setTimeline(p => ({ ...p, reviewPrelim: v }))} />
             <DateRow
               label="Review of Comm Int Discl Contingency Removal"
+              labelHelp={TX_FIELD_HELP.reviewCommIntDiscl}
               value={timeline.reviewCommIntDiscl}
               onChange={v => setTimeline(p => ({ ...p, reviewCommIntDiscl: v }))}
               disabled={noHOA}
@@ -1074,8 +1230,8 @@ export default function AddProjectPage() {
             </div>
             {showCOP && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-6">
-                <DateRow label="COP — Into Contract" value={cop.intoContract} onChange={v => setCop(p => ({ ...p, intoContract: v }))} />
-                <DateRow label="COP — COE" value={cop.coe} onChange={v => setCop(p => ({ ...p, coe: v }))} />
+                <DateRow label="COP — Into Contract" labelHelp={TX_FIELD_HELP.copIntoContract} value={cop.intoContract} onChange={v => setCop(p => ({ ...p, intoContract: v }))} />
+                <DateRow label="COP — COE" labelHelp={TX_FIELD_HELP.copCoe} value={cop.coe} onChange={v => setCop(p => ({ ...p, coe: v }))} />
               </div>
             )}
             <div className="flex items-center gap-2">
@@ -1086,8 +1242,8 @@ export default function AddProjectPage() {
             </div>
             {showSPRP && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-6">
-                <DateRow label="SPRP — Into Contract" value={sprp.intoContract} onChange={v => setSprp(p => ({ ...p, intoContract: v }))} />
-                <DateRow label="SPRP — COE" value={sprp.coe} onChange={v => setSprp(p => ({ ...p, coe: v }))} />
+                <DateRow label="SPRP — Into Contract" labelHelp={TX_FIELD_HELP.sprpIntoContract} value={sprp.intoContract} onChange={v => setSprp(p => ({ ...p, intoContract: v }))} />
+                <DateRow label="SPRP — COE" labelHelp={TX_FIELD_HELP.sprpCoe} value={sprp.coe} onChange={v => setSprp(p => ({ ...p, coe: v }))} />
               </div>
             )}
             </div>
@@ -1600,9 +1756,16 @@ export default function AddProjectPage() {
               </RadioGroup>
             </div>
 
-            <div className="space-y-2">
-              <Label>Primary contact (optional)</Label>
+            <div
+              className={`space-y-2 rounded-md border p-2 ${
+                showFieldError("contact") ? "border-destructive/60 bg-destructive/5" : "border-transparent"
+              }`}
+            >
+              <Label className="text-sm font-semibold">Primary Contact *</Label>
               <PrimaryContactPicker value={clientId} options={clientOptions} onValueChange={onClientChange} />
+              {showFieldError("contact") ? (
+                <p className="text-xs text-destructive">Select a primary contact before saving.</p>
+              ) : null}
             </div>
 
             <div className="pt-2 border-t border-border space-y-2">
@@ -1662,7 +1825,25 @@ export default function AddProjectPage() {
                 Next
               </Button>
             </div>
-            <Button type="submit" className="w-full border border-primary/80 shadow-sm shadow-primary/20">{isEditMode ? "Update Transaction" : "Create Transaction"}</Button>
+            <Button
+              type="submit"
+              className="w-full border border-primary/80 shadow-sm shadow-primary/20 disabled:opacity-50"
+              disabled={!formCanSubmit || (isEditMode && loadingEditProject)}
+              title={
+                !formCanSubmit && missingRequiredItems.length > 0
+                  ? `Required: ${missingRequiredItems.map((item) => item.label).join(", ")}`
+                  : !formCanSubmit
+                    ? "Fix validation errors before saving"
+                    : undefined
+              }
+            >
+              {isEditMode ? "Update Transaction" : "Create Transaction"}
+            </Button>
+            {!formCanSubmit && missingRequiredItems.length > 0 ? (
+              <p className="text-xs text-muted-foreground text-center">
+                Complete {missingRequiredItems.map((item) => item.label).join(", ")} to save.
+              </p>
+            ) : null}
             <Button
               type="button"
               variant="outline"
@@ -1674,6 +1855,7 @@ export default function AddProjectPage() {
           </div>
         </div>
       </form>
+      </div>
     </div>
   );
 }
@@ -1728,10 +1910,37 @@ function Section({
   );
 }
 
-function Field({ label, hint, children, className = "" }: { label: string; hint?: string; children: React.ReactNode; className?: string }) {
+function FieldLabelRow({ label, labelHelp }: { label: string; labelHelp?: TransactionFieldHelp }) {
   return (
-    <div className={`space-y-1.5 rounded-md border border-border/70 bg-secondary/20 p-2.5 ${className}`}>
+    <div className="flex items-center gap-1">
       <Label className="text-xs font-semibold text-foreground/90">{label}</Label>
+      {labelHelp ? <FieldLabelHelp help={labelHelp} label={label} /> : null}
+    </div>
+  );
+}
+
+function Field({
+  label,
+  hint,
+  labelHelp,
+  children,
+  className = "",
+  invalid = false,
+}: {
+  label: string;
+  hint?: string;
+  labelHelp?: TransactionFieldHelp;
+  children: React.ReactNode;
+  className?: string;
+  invalid?: boolean;
+}) {
+  return (
+    <div
+      className={`space-y-1.5 rounded-md border p-2.5 ${
+        invalid ? "border-destructive/60 bg-destructive/5" : "border-border/70 bg-secondary/20"
+      } ${className}`}
+    >
+      <FieldLabelRow label={label} labelHelp={labelHelp} />
       {children}
       {hint && <p className="text-[10px] text-muted-foreground">{hint}</p>}
     </div>
@@ -1739,12 +1948,24 @@ function Field({ label, hint, children, className = "" }: { label: string; hint?
 }
 
 function DateRow({
-  label, value, onChange, disabled, disabledHint,
-}: { label: string; value: string; onChange: (v: string) => void; disabled?: boolean; disabledHint?: string }) {
+  label,
+  value,
+  onChange,
+  disabled,
+  disabledHint,
+  labelHelp,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+  disabledHint?: string;
+  labelHelp?: TransactionFieldHelp;
+}) {
   return (
     <div className="space-y-1.5 rounded-md border border-border/70 bg-secondary/20 p-2.5">
-      <div className="flex items-center justify-between">
-        <Label className="text-xs font-semibold text-foreground/90">{label}</Label>
+      <div className="flex items-center justify-between gap-2">
+        <FieldLabelRow label={label} labelHelp={labelHelp} />
         {disabled && (
           <span className="text-[10px] inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">
             <Info className="w-2.5 h-2.5" /> N/A
@@ -1757,10 +1978,20 @@ function DateRow({
   );
 }
 
-function YesNoField({ label, value, onChange }: { label: string; value: "yes" | "no" | ""; onChange: (v: "yes" | "no") => void }) {
+function YesNoField({
+  label,
+  value,
+  onChange,
+  labelHelp,
+}: {
+  label: string;
+  value: "yes" | "no" | "";
+  onChange: (v: "yes" | "no") => void;
+  labelHelp?: TransactionFieldHelp;
+}) {
   return (
     <div className="space-y-1.5 rounded-md border border-border/70 bg-secondary/20 p-2.5">
-      <Label className="text-xs font-semibold text-foreground/90">{label}</Label>
+      <FieldLabelRow label={label} labelHelp={labelHelp} />
       <div className="flex gap-2">
         {(["yes", "no"] as const).map(v => (
           <button

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CloudDownload, Download, Plus, Save, Send, ShieldCheck, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { jsPDF } from "jspdf";
@@ -27,6 +27,7 @@ import PdfJsViewer from "@/components/documents/PdfJsViewer";
 import { getSmtpSettingsFromApi, type SmtpSettingsDto } from "@/api/smtpSettings";
 import { parseSignerEmailsFromInput, validateSignerEmailListForDocuSign } from "@/lib/parseClientSignerEmails";
 import type { TransactionRecipientSuggestion } from "@/lib/transactionRecipientSuggestions";
+import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 
 type Props = {
   open: boolean;
@@ -57,6 +58,8 @@ const DEFAULT_FIELD = (sortOrder: number): EsignFieldDto => ({
 
 const CRM_VAULT_SLUG = "crm-doc-vault";
 
+const ESIGN_DELETE_BLOCKED_STATUSES = new Set(["sent", "completed"]);
+
 function isPdfAttachment(file: FileAttachment): boolean {
   const type = (file.type ?? "").toLowerCase();
   const name = (file.name ?? "").toLowerCase();
@@ -75,6 +78,7 @@ export default function EsignDraftSheet({
   recipientEmailSuggestions = [],
   onEnvelopeSent,
 }: Props) {
+  const { confirm, ConfirmDialogHost } = useConfirmDialog();
   const isEditingExistingEntry = Boolean(initialDraftId);
   const [documents, setDocuments] = useState<EsignDocumentDto[]>([]);
   const [loadingList, setLoadingList] = useState(false);
@@ -112,6 +116,8 @@ export default function EsignDraftSheet({
     () => documents.find((item) => item.id === selectedDraftId) ?? null,
     [documents, selectedDraftId]
   );
+  const canDeleteSelectedDraft =
+    Boolean(selectedDraft) && !ESIGN_DELETE_BLOCKED_STATUSES.has(selectedDraft!.status);
   const selectedCreateFile = useMemo(
     () => attachments.find((a) => a.id === storedFileIdDraft) ?? null,
     [attachments, storedFileIdDraft]
@@ -212,14 +218,23 @@ export default function EsignDraftSheet({
     };
   }, [pdfScale]);
 
+  const resetBuilderState = useCallback(() => {
+    setSelectedDraftId("");
+    setTitleDraft("");
+    setStoredFileIdDraft("");
+    setProjectDocumentIdDraft("none");
+    setFields([]);
+    setDirty(false);
+    setPdfBytes(null);
+    setPreviewLoading(false);
+    prefillHandledRef.current.clear();
+  }, []);
+
   const refreshList = async () => {
     setLoadingList(true);
     try {
       const list = await listEsignDocumentsApi(projectId);
       setDocuments(list);
-      if (!selectedDraftId && list.length) {
-        setSelectedDraftId(list[0].id);
-      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not load e-sign drafts.");
     } finally {
@@ -231,11 +246,15 @@ export default function EsignDraftSheet({
   useEffect(() => {
     if (!open) {
       setListReady(false);
+      resetBuilderState();
       return;
+    }
+    if (!initialDraftId && !prefillFromUpload) {
+      resetBuilderState();
     }
     void refreshList();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, projectId]);
+  }, [open, projectId, initialDraftId, prefillFromUpload, resetBuilderState]);
 
   useEffect(() => {
     if (!open) return;
@@ -284,8 +303,13 @@ export default function EsignDraftSheet({
     if (!listReady) return;
     if (prefillHandledRef.current.has(prefillFromUpload.key)) return;
     prefillHandledRef.current.add(prefillFromUpload.key);
-    const exists = documents.some((d) => d.originalFileId === prefillFromUpload.fileId);
-    if (exists) return;
+    const existing = documents.find((d) => d.originalFileId === prefillFromUpload.fileId);
+    if (existing) {
+      setSelectedDraftId(existing.id);
+      setTitleDraft(existing.title);
+      setStoredFileIdDraft(prefillFromUpload.fileId);
+      return;
+    }
     setTitleDraft(prefillFromUpload.title || "New eSign Template");
     setStoredFileIdDraft(prefillFromUpload.fileId);
     setProjectDocumentIdDraft("none");
@@ -574,7 +598,19 @@ export default function EsignDraftSheet({
 
   const deleteSelectedDraft = async () => {
     if (!selectedDraftId) return;
-    if (!window.confirm("Delete this eSign draft?")) return;
+    if (selectedDraft && ESIGN_DELETE_BLOCKED_STATUSES.has(selectedDraft.status)) {
+      toast.error("Sent or completed templates cannot be deleted.");
+      return;
+    }
+    if (
+      !(await confirm({
+        title: "Delete eSign draft",
+        description: "Delete this eSign draft?",
+        confirmLabel: "Delete",
+      }))
+    ) {
+      return;
+    }
     try {
       await deleteEsignDocumentApi(projectId, selectedDraftId);
       setDocuments((prev) => prev.filter((d) => d.id !== selectedDraftId));
@@ -596,6 +632,7 @@ export default function EsignDraftSheet({
   const saveStateLabel = dirty ? "Unsaved changes" : "Saved";
 
   return (
+    <>
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full sm:max-w-[980px] overflow-y-auto">
         <SheetHeader>
@@ -611,7 +648,10 @@ export default function EsignDraftSheet({
               <div className="text-sm font-medium">Create New Template</div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <Input value={titleDraft} onChange={(e) => setTitleDraft(e.target.value)} placeholder="Template title" />
-                <Select value={storedFileIdDraft} onValueChange={setStoredFileIdDraft}>
+                <Select
+                  value={storedFileIdDraft || undefined}
+                  onValueChange={setStoredFileIdDraft}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Select uploaded file" />
                   </SelectTrigger>
@@ -648,7 +688,10 @@ export default function EsignDraftSheet({
               <div className="text-sm font-medium">Open Existing Template</div>
               <div className="text-xs text-muted-foreground">{loadingList ? "Loading..." : `${documents.length} template(s)`}</div>
             </div>
-            <Select value={selectedDraftId} onValueChange={setSelectedDraftId}>
+            <Select
+              value={selectedDraftId || undefined}
+              onValueChange={setSelectedDraftId}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Select template" />
               </SelectTrigger>
@@ -661,6 +704,11 @@ export default function EsignDraftSheet({
               </SelectContent>
             </Select>
             <div className="text-xs text-muted-foreground">{saveStateLabel}</div>
+            {!selectedDraftId && !loadingList ? (
+              <p className="text-xs text-muted-foreground">
+                No template selected. Create a new template above or pick one from the list.
+              </p>
+            ) : null}
           </div>
 
           {selectedDraft && (
@@ -1013,12 +1061,23 @@ export default function EsignDraftSheet({
             <Button onClick={markReady} disabled={!selectedDraftId}>
               <ShieldCheck className="w-4 h-4 mr-1" /> Mark Ready
             </Button>
-            <Button variant="destructive" onClick={deleteSelectedDraft} disabled={!selectedDraftId}>
+            <Button
+              variant="destructive"
+              onClick={deleteSelectedDraft}
+              disabled={!canDeleteSelectedDraft}
+              title={
+                selectedDraft && ESIGN_DELETE_BLOCKED_STATUSES.has(selectedDraft.status)
+                  ? "Sent or completed templates cannot be deleted."
+                  : undefined
+              }
+            >
               <Trash2 className="w-4 h-4 mr-1" /> Delete Template
             </Button>
           </div>
         </SheetFooter>
       </SheetContent>
     </Sheet>
+    <ConfirmDialogHost />
+    </>
   );
 }

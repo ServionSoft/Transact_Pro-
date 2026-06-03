@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 
 const DEFAULT_DESIGNATIONS = ["Admin", "Employee", "Editor", "Coordinator", "Manager"] as const;
 
@@ -48,6 +49,7 @@ export default function TeamMemberEditPage() {
   const [saving, setSaving] = useState(false);
   const [inviteEmailStatus, setInviteEmailStatus] = useState<"pending" | "sent" | "failed" | null>(null);
   const [inviteEmailError, setInviteEmailError] = useState<string | null>(null);
+  const { confirm, ConfirmDialogHost } = useConfirmDialog();
   const [inviteEmailSentAt, setInviteEmailSentAt] = useState<string | null>(null);
 
   useEffect(() => {
@@ -184,7 +186,15 @@ export default function TeamMemberEditPage() {
       toast.error("You cannot deactivate your own account here.");
       return;
     }
-    if (!window.confirm("Deactivate this user? They will no longer be able to sign in.")) return;
+    if (
+      !(await confirm({
+        title: "Deactivate user",
+        description: "Deactivate this user? They will no longer be able to sign in.",
+        confirmLabel: "Deactivate",
+      }))
+    ) {
+      return;
+    }
     setSaving(true);
     try {
       await deactivateTeamMemberApi(id);
@@ -408,6 +418,7 @@ export default function TeamMemberEditPage() {
           )}
         </div>
       )}
+      <ConfirmDialogHost />
     </div>
   );
 }

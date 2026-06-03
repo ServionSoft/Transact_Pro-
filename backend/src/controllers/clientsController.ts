@@ -36,7 +36,7 @@ export function createClientsController(pool: Pool, config: AppConfig) {
     async list(req: Request, res: Response): Promise<void> {
       try {
         const archived = String(req.query.archived ?? "").toLowerCase() === "true";
-        const clients = await listClients(pool, archived);
+        const clients = await listClients(pool, archived, config.crmVaultProjectId);
         res.json({ success: true, data: { clients }, message: "" });
       } catch {
         res.status(500).json({
@@ -48,7 +48,7 @@ export function createClientsController(pool: Pool, config: AppConfig) {
 
     async getById(req: Request, res: Response): Promise<void> {
       try {
-        const client = await getClientById(pool, req.params.id);
+        const client = await getClientById(pool, req.params.id, config.crmVaultProjectId);
         if (!client) {
           res.status(404).json({
             success: false,
@@ -125,7 +125,7 @@ export function createClientsController(pool: Pool, config: AppConfig) {
 
     async archive(req: Request, res: Response): Promise<void> {
       try {
-        const result = await archiveClient(pool, req.params.id);
+        const result = await archiveClient(pool, req.params.id, config.crmVaultProjectId);
         if ("error" in result) {
           res.status(result.error.status).json({
             success: false,
@@ -163,7 +163,7 @@ export function createClientsController(pool: Pool, config: AppConfig) {
 
     async permanentDelete(req: Request, res: Response): Promise<void> {
       try {
-        const result = await permanentlyDeleteClient(pool, req.params.id);
+        const result = await permanentlyDeleteClient(pool, req.params.id, config.crmVaultProjectId);
         if ("error" in result) {
           res.status(result.error.status).json({
             success: false,

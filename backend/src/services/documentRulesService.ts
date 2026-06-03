@@ -433,6 +433,23 @@ export async function deleteDocumentRule(
   if (!/^\d+$/.test(id)) {
     return { error: { status: 404, code: "RULE_NOT_FOUND", message: "Rule not found." } };
   }
+  const { rows: inUse } = await pool.query<{ n: string }>(
+    `SELECT 1::text AS n
+     FROM public.project_documents
+     WHERE source_rule_id = $1::bigint
+       AND deleted_at IS NULL
+     LIMIT 1`,
+    [id]
+  );
+  if (inUse.length > 0) {
+    return {
+      error: {
+        status: 409,
+        code: "RULE_IN_USE",
+        message: "This rule is linked to checklist rows on active transactions. Remove those rows first.",
+      },
+    };
+  }
   const { rowCount } = await pool.query(`DELETE FROM public.conditional_rules WHERE id = $1::bigint`, [id]);
   if (!rowCount) {
     return { error: { status: 404, code: "RULE_NOT_FOUND", message: "Rule not found." } };

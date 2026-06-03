@@ -709,10 +709,56 @@ export async function markEsignDraftReady(
   }
 }
 
+async function esignDeleteBlockedReason(
+  pool: Pool,
+  projectId: number,
+  esignDocumentId: number
+): Promise<string | null> {
+  const { rows } = await pool.query<{ status: string }>(
+    `SELECT status
+     FROM public.esign_documents
+     WHERE id = $1::bigint
+       AND project_id = $2::bigint
+     LIMIT 1`,
+    [esignDocumentId, projectId]
+  );
+  const status = rows[0]?.status;
+  if (!status) return null;
+  if (status === "sent" || status === "completed") {
+    return "This eSign template was sent or completed and cannot be deleted.";
+  }
+  const { rows: envelopeRows } = await pool.query<{ n: string }>(
+    `SELECT 1::text AS n
+     FROM public.docusign_envelopes
+     WHERE esign_document_id = $1::bigint
+       AND status IN (
+         'sent'::public.docusign_envelope_status,
+         'delivered'::public.docusign_envelope_status,
+         'completed'::public.docusign_envelope_status
+       )
+     LIMIT 1`,
+    [esignDocumentId]
+  );
+  if (envelopeRows.length > 0) {
+    return "This template has an active DocuSign envelope. Void or complete the envelope before deleting.";
+  }
+  return null;
+}
+
 export async function deleteEsignDraft(
   pool: Pool,
   args: { projectId: number; esignDocumentId: number }
 ): Promise<{ ok: true } | { error: ServiceError }> {
+  const blockReason = await esignDeleteBlockedReason(pool, args.projectId, args.esignDocumentId);
+  if (blockReason) {
+    return {
+      error: {
+        status: 409,
+        code: "ESIGN_DELETE_BLOCKED",
+        message: blockReason,
+      },
+    };
+  }
   const { rowCount } = await pool.query(
     `DELETE FROM public.esign_documents
      WHERE id = $1::bigint
@@ -752,7 +798,26 @@ export async function patchEsignDraftTitle(
 export async function deleteEsignDraftsByFile(
   pool: Pool,
   args: { projectId: number; storedFileId: number }
-): Promise<{ deletedCount: number }> {
+): Promise<{ deletedCount: number } | { error: ServiceError }> {
+  const { rows: draftIds } = await pool.query<{ id: string }>(
+    `SELECT id::text
+     FROM public.esign_documents
+     WHERE project_id = $1::bigint
+       AND original_file_id = $2::bigint`,
+    [args.projectId, args.storedFileId]
+  );
+  for (const row of draftIds) {
+    const blockReason = await esignDeleteBlockedReason(pool, args.projectId, Number(row.id));
+    if (blockReason) {
+      return {
+        error: {
+          status: 409,
+          code: "ESIGN_DELETE_BLOCKED",
+          message: blockReason,
+        },
+      };
+    }
+  }
   const result = await pool.query(
     `DELETE FROM public.esign_documents
      WHERE project_id = $1::bigint

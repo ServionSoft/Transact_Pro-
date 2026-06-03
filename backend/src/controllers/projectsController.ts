@@ -5,6 +5,10 @@ import {
   listAssignableProjectUsers,
   createProjectDocumentNote,
   createProjectNote,
+  updateProjectNote,
+  deleteProjectNote,
+  updateProjectDeadlineDate,
+  deleteProjectDeadline,
   createProjectDeadline,
   createReminderDraft,
   createProjectDocument,
@@ -13,10 +17,15 @@ import {
   deleteProjectEmail,
   listCalendarEvents,
   listRecentProjectEmails,
+  getNavBadgeCounts as getNavBadgeCountsService,
   sendReminderDraft as sendReminderDraftService,
   createProjectTask,
+  updateProjectTask,
+  deleteProjectTask,
   createProject,
   deleteProject,
+  permanentlyDeleteArchivedProject,
+  restoreProject,
   deleteProjectDocument,
   getProjectById,
   getProjectDeletedSnapshot,
@@ -99,6 +108,26 @@ export function createProjectsController(pool: Pool, config: AppConfig) {
         res.status(500).json({
           success: false,
           error: { code: "PROJECT_LIST_FAILED", message: "Could not load projects." },
+        });
+      }
+    },
+
+    async getNavBadgeCounts(req: Request, res: Response): Promise<void> {
+      try {
+        const user = currentUser(req);
+        if (!user) {
+          res.status(401).json({
+            success: false,
+            error: { code: "UNAUTHORIZED", message: "Authentication required." },
+          });
+          return;
+        }
+        const counts = await getNavBadgeCountsService(pool, config, user);
+        res.json({ success: true, data: { counts }, message: "" });
+      } catch {
+        res.status(500).json({
+          success: false,
+          error: { code: "NAV_BADGE_COUNTS_FAILED", message: "Could not load navigation badge counts." },
         });
       }
     },
@@ -406,6 +435,44 @@ export function createProjectsController(pool: Pool, config: AppConfig) {
       }
     },
 
+    async restore(req: Request, res: Response): Promise<void> {
+      try {
+        const result = await restoreProject(pool, req.params.id);
+        if ("error" in result) {
+          res.status(result.error.status).json({
+            success: false,
+            error: { code: result.error.code, message: result.error.message },
+          });
+          return;
+        }
+        res.json({ success: true, data: {}, message: "Transaction restored." });
+      } catch {
+        res.status(500).json({
+          success: false,
+          error: { code: "PROJECT_RESTORE_FAILED", message: "Could not restore transaction." },
+        });
+      }
+    },
+
+    async permanentDelete(req: Request, res: Response): Promise<void> {
+      try {
+        const result = await permanentlyDeleteArchivedProject(pool, req.params.id);
+        if ("error" in result) {
+          res.status(result.error.status).json({
+            success: false,
+            error: { code: result.error.code, message: result.error.message },
+          });
+          return;
+        }
+        res.json({ success: true, data: {}, message: "Transaction permanently removed." });
+      } catch {
+        res.status(500).json({
+          success: false,
+          error: { code: "PROJECT_PERMANENT_DELETE_FAILED", message: "Could not permanently remove transaction." },
+        });
+      }
+    },
+
     async createTask(req: Request, res: Response): Promise<void> {
       const body = req.body as { title?: unknown; stage?: unknown; status?: unknown; dueDate?: unknown };
       const title = typeof body?.title === "string" ? body.title : "";
@@ -424,18 +491,35 @@ export function createProjectsController(pool: Pool, config: AppConfig) {
       }
     },
 
-    async patchTaskStatus(req: Request, res: Response): Promise<void> {
-      const body = req.body as { status?: unknown };
-      const status = typeof body?.status === "string" ? body.status : "";
+    async patchTask(req: Request, res: Response): Promise<void> {
+      const body = req.body as { status?: unknown; title?: unknown; stage?: unknown; dueDate?: unknown };
+      const input: { title?: string; stage?: string; status?: string; dueDate?: string } = {};
+      if (typeof body?.title === "string") input.title = body.title;
+      if (typeof body?.stage === "string") input.stage = body.stage;
+      if (typeof body?.status === "string") input.status = body.status;
+      if (typeof body?.dueDate === "string") input.dueDate = body.dueDate;
       try {
-        const result = await patchProjectTaskStatus(pool, req.params.id, req.params.taskId, status);
+        const result = await updateProjectTask(pool, req.params.id, req.params.taskId, input);
         if ("error" in result) {
           res.status(result.error.status).json({ success: false, error: { code: result.error.code, message: result.error.message } });
           return;
         }
         res.json({ success: true, data: { project: result.project }, message: "" });
       } catch {
-        res.status(500).json({ success: false, error: { code: "PROJECT_TASK_STATUS_UPDATE_FAILED", message: "Could not update project task." } });
+        res.status(500).json({ success: false, error: { code: "PROJECT_TASK_UPDATE_FAILED", message: "Could not update project task." } });
+      }
+    },
+
+    async deleteTask(req: Request, res: Response): Promise<void> {
+      try {
+        const result = await deleteProjectTask(pool, req.params.id, req.params.taskId);
+        if ("error" in result) {
+          res.status(result.error.status).json({ success: false, error: { code: result.error.code, message: result.error.message } });
+          return;
+        }
+        res.json({ success: true, data: { project: result.project }, message: "" });
+      } catch {
+        res.status(500).json({ success: false, error: { code: "PROJECT_TASK_DELETE_FAILED", message: "Could not delete project task." } });
       }
     },
 
@@ -572,6 +656,62 @@ export function createProjectsController(pool: Pool, config: AppConfig) {
         res.status(201).json({ success: true, data: { project: result.project }, message: "" });
       } catch {
         res.status(500).json({ success: false, error: { code: "PROJECT_NOTE_CREATE_FAILED", message: "Could not create project note." } });
+      }
+    },
+
+    async updateNote(req: Request, res: Response): Promise<void> {
+      const body = req.body as { body?: unknown };
+      const noteBody = typeof body?.body === "string" ? body.body : "";
+      try {
+        const result = await updateProjectNote(pool, req.params.id, req.params.noteId, noteBody);
+        if ("error" in result) {
+          res.status(result.error.status).json({ success: false, error: { code: result.error.code, message: result.error.message } });
+          return;
+        }
+        res.json({ success: true, data: { project: result.project }, message: "" });
+      } catch {
+        res.status(500).json({ success: false, error: { code: "PROJECT_NOTE_UPDATE_FAILED", message: "Could not update project note." } });
+      }
+    },
+
+    async deleteNote(req: Request, res: Response): Promise<void> {
+      try {
+        const result = await deleteProjectNote(pool, req.params.id, req.params.noteId);
+        if ("error" in result) {
+          res.status(result.error.status).json({ success: false, error: { code: result.error.code, message: result.error.message } });
+          return;
+        }
+        res.json({ success: true, data: { project: result.project }, message: "" });
+      } catch {
+        res.status(500).json({ success: false, error: { code: "PROJECT_NOTE_DELETE_FAILED", message: "Could not delete project note." } });
+      }
+    },
+
+    async patchDeadline(req: Request, res: Response): Promise<void> {
+      const body = req.body as { date?: unknown };
+      const date = typeof body?.date === "string" ? body.date : "";
+      try {
+        const result = await updateProjectDeadlineDate(pool, req.params.id, req.params.deadlineId, date);
+        if ("error" in result) {
+          res.status(result.error.status).json({ success: false, error: { code: result.error.code, message: result.error.message } });
+          return;
+        }
+        res.json({ success: true, data: { project: result.project }, message: "" });
+      } catch {
+        res.status(500).json({ success: false, error: { code: "PROJECT_DEADLINE_UPDATE_FAILED", message: "Could not update deadline." } });
+      }
+    },
+
+    async deleteDeadline(req: Request, res: Response): Promise<void> {
+      try {
+        const result = await deleteProjectDeadline(pool, req.params.id, req.params.deadlineId);
+        if ("error" in result) {
+          res.status(result.error.status).json({ success: false, error: { code: result.error.code, message: result.error.message } });
+          return;
+        }
+        res.json({ success: true, data: { project: result.project }, message: "" });
+      } catch {
+        res.status(500).json({ success: false, error: { code: "PROJECT_DEADLINE_DELETE_FAILED", message: "Could not delete deadline." } });
       }
     },
 

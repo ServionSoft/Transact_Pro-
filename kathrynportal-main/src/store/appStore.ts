@@ -23,6 +23,12 @@ import {
 const uid = (prefix: string) =>
   `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
+function notifyNavBadgeRefresh(): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("transactpro:refresh-nav-badges"));
+  }
+}
+
 const formatFileSize = (bytes: number) => {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -102,10 +108,20 @@ interface AppState {
   // ---- Tasks ----
   addProjectTask: (projectId: string, task: Omit<ProjectTask, "id">) => void;
   setTaskStatus: (projectId: string, taskId: string, status: TaskStatus) => void;
+  updateProjectTask: (
+    projectId: string,
+    taskId: string,
+    patch: Partial<Pick<ProjectTask, "title" | "stage" | "status" | "dueDate">>
+  ) => void;
+  deleteProjectTask: (projectId: string, taskId: string) => void;
 
   // ---- Calendar / deadlines ----
   addCalendarEvent: (e: Omit<CalendarEvent, "id">) => void;
   addProjectDeadline: (projectId: string, title: string, date: string, type: "deadline" | "reminder") => void;
+  updateProjectNote: (projectId: string, noteId: string, body: string) => void;
+  deleteProjectNote: (projectId: string, noteId: string) => void;
+  updateProjectDeadlineDate: (projectId: string, deadlineId: string, date: string) => void;
+  deleteProjectDeadline: (projectId: string, deadlineId: string) => void;
 
   // ---- Reminders ----
   dismissReminder: (id: string) => void;
@@ -182,34 +198,39 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
     return newProject;
   },
-  setProjects: (projects) =>
+  setProjects: (projects) => {
     set((s) => {
       const vault = s.projects.find((p) => p.isCrmDocumentVault || p.id === CRM_DOCUMENT_VAULT_PROJECT_ID);
       if (!vault) return { projects };
       const alreadyIncluded = projects.some((p) => p.id === vault.id);
       if (alreadyIncluded) return { projects };
       return { projects: [...projects, vault] };
-    }),
-  upsertProject: (project) =>
+    });
+    notifyNavBadgeRefresh();
+  },
+  upsertProject: (project) => {
     set((s) => {
       const exists = s.projects.some((p) => p.id === project.id);
       if (exists) {
         return { projects: s.projects.map((p) => (p.id === project.id ? project : p)) };
       }
       return { projects: [project, ...s.projects] };
-    }),
+    });
+    notifyNavBadgeRefresh();
+  },
   updateProject: (id, patch) =>
     set((s) => ({ projects: s.projects.map((p) => (p.id === id ? { ...p, ...patch } : p)) })),
   deleteProject: (id) => {
     if (id === CRM_DOCUMENT_VAULT_PROJECT_ID) return;
     set((s) => ({ projects: s.projects.filter((p) => p.id !== id) }));
+    notifyNavBadgeRefresh();
   },
   setProjectStage: (id, stage) =>
     set((s) => ({ projects: s.projects.map((p) => (p.id === id ? { ...p, stage } : p)) })),
   setNextStep: (id, nextStep, nextStepDate) =>
     set((s) => ({ projects: s.projects.map((p) => (p.id === id ? { ...p, nextStep, nextStepDate } : p)) })),
 
-  setDocStatus: (projectId, docId, status, customStatus) =>
+  setDocStatus: (projectId, docId, status, customStatus) => {
     set((s) => ({
       projects: s.projects.map((p) =>
         p.id !== projectId
@@ -221,7 +242,9 @@ export const useAppStore = create<AppState>((set, get) => ({
               ),
             }
       ),
-    })),
+    }));
+    notifyNavBadgeRefresh();
+  },
   addProjectDocument: (projectId, name) =>
     set((s) => ({
       projects: s.projects.map((p) =>
@@ -446,7 +469,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         p.id !== projectId ? p : { ...p, tasks: [...p.tasks, { ...task, id: uid("t") }] }
       ),
     })),
-  setTaskStatus: (projectId, taskId, status) =>
+  setTaskStatus: (projectId, taskId, status) => {
     set((s) => ({
       projects: s.projects.map((p) =>
         p.id !== projectId
@@ -460,7 +483,49 @@ export const useAppStore = create<AppState>((set, get) => ({
               ),
             }
       ),
-    })),
+    }));
+    notifyNavBadgeRefresh();
+  },
+
+  updateProjectTask: (projectId, taskId, patch) => {
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id !== projectId
+          ? p
+          : {
+              ...p,
+              tasks: p.tasks.map((t) => {
+                if (t.id !== taskId) return t;
+                const status = patch.status ?? t.status;
+                return {
+                  ...t,
+                  ...patch,
+                  status,
+                  completedDate:
+                    status === "Complete"
+                      ? t.completedDate ?? new Date().toISOString().split("T")[0]
+                      : patch.status !== undefined
+                        ? undefined
+                        : t.completedDate,
+                };
+              }),
+            }
+      ),
+    }));
+    notifyNavBadgeRefresh();
+  },
+
+  deleteProjectTask: (projectId, taskId) => {
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id !== projectId ? p : { ...p, tasks: p.tasks.filter((t) => t.id !== taskId) }
+      ),
+      calendarEvents: s.calendarEvents.filter(
+        (e) => !(e.projectId === projectId && e.id === taskId)
+      ),
+    }));
+    notifyNavBadgeRefresh();
+  },
 
   addCalendarEvent: (e) =>
     set((s) => ({ calendarEvents: [...s.calendarEvents, { ...e, id: uid("ce") }] })),
@@ -489,8 +554,58 @@ export const useAppStore = create<AppState>((set, get) => ({
       })(),
     })),
 
-  dismissReminder: (id) =>
-    set((s) => ({ reminderDrafts: s.reminderDrafts.filter((r) => r.id !== id) })),
+  updateProjectNote: (projectId, noteId, body) =>
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id !== projectId
+          ? p
+          : {
+              ...p,
+              notes: (p.notes ?? []).map((n) =>
+                n.id === noteId
+                  ? { ...n, body, updatedAt: new Date().toISOString().split("T")[0] }
+                  : n
+              ),
+            }
+      ),
+    })),
+
+  deleteProjectNote: (projectId, noteId) =>
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id !== projectId ? p : { ...p, notes: (p.notes ?? []).filter((n) => n.id !== noteId) }
+      ),
+    })),
+
+  updateProjectDeadlineDate: (projectId, deadlineId, date) =>
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id !== projectId
+          ? p
+          : {
+              ...p,
+              deadlines: p.deadlines.map((d) => (d.id === deadlineId ? { ...d, date } : d)),
+            }
+      ),
+      calendarEvents: s.calendarEvents.map((e) =>
+        e.projectId === projectId && e.id === deadlineId ? { ...e, date } : e
+      ),
+    })),
+
+  deleteProjectDeadline: (projectId, deadlineId) =>
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id !== projectId ? p : { ...p, deadlines: p.deadlines.filter((d) => d.id !== deadlineId) }
+      ),
+      calendarEvents: s.calendarEvents.filter(
+        (e) => !(e.projectId === projectId && e.id === deadlineId)
+      ),
+    })),
+
+  dismissReminder: (id) => {
+    set((s) => ({ reminderDrafts: s.reminderDrafts.filter((r) => r.id !== id) }));
+    notifyNavBadgeRefresh();
+  },
   sendReminder: (id) =>
     set((s) => {
       const r = s.reminderDrafts.find((x) => x.id === id);
@@ -570,12 +685,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
   },
 
-  removeProjectEmail: (projectId, emailId) =>
+  removeProjectEmail: (projectId, emailId) => {
     set((s) => ({
       projects: s.projects.map((p) =>
         p.id !== projectId ? p : { ...p, emails: p.emails.filter((e) => e.id !== emailId) }
       ),
-    })),
+    }));
+    notifyNavBadgeRefresh();
+  },
 
   addEmailTemplate: (t) =>
     set((s) => ({ emailTemplates: [...s.emailTemplates, { ...t, id: uid("et") }] })),

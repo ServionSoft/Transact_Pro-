@@ -148,9 +148,9 @@ export interface Project {
   documents: ProjectDocument[];
   tasks: ProjectTask[];
   emails: EmailThread[];
-  notes?: { id: string; body: string; author: string; createdAt: string }[];
+  notes?: { id: string; body: string; author: string; createdAt: string; updatedAt?: string }[];
   assignees?: { userId: string; name: string; email: string; designation?: string | null }[];
-  deadlines: { id: string; title: string; date: string; type: string }[];
+  deadlines: { id: string; title: string; date: string; type: string; formManaged?: boolean }[];
   attachments: FileAttachment[];
   fileFolders: ProjectFolder[];
   metadata?: Record<string, unknown>;

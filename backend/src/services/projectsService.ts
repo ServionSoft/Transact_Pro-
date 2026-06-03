@@ -46,13 +46,6 @@ export type ProjectTaskApi = {
   completedDate?: string;
 };
 
-export type ProjectDeadlineApi = {
-  id: string;
-  title: string;
-  date: string;
-  type: string;
-};
-
 export type ProjectEmailApi = {
   id: string;
   subject: string;
@@ -70,6 +63,15 @@ export type ProjectNoteApi = {
   body: string;
   author: string;
   createdAt: string;
+  updatedAt?: string;
+};
+
+export type ProjectDeadlineApi = {
+  id: string;
+  title: string;
+  date: string;
+  type: string;
+  formManaged: boolean;
 };
 
 export type ProjectAssigneeApi = {
@@ -341,6 +343,90 @@ function collectDeadlineRowsFromProjectMetadata(metadata: unknown): { title: str
   return out;
 }
 
+const FORM_DEADLINE_TITLE_TO_FIELD: Record<
+  string,
+  { scope: "timeline" | "cop" | "sprp"; field: string }
+> = {
+  "Contract Date": { scope: "timeline", field: "contractDate" },
+  "Acceptance Date": { scope: "timeline", field: "acceptanceDate" },
+  "Preapproval": { scope: "timeline", field: "preapproval" },
+  "Verification of Funds": { scope: "timeline", field: "verificationOfFunds" },
+  "EMD to Escrow": { scope: "timeline", field: "emdToEscrow" },
+  "Seller Disclosures to Buyer": { scope: "timeline", field: "sellerDisclosuresToBuyer" },
+  "Investigation Contingency Removal": { scope: "timeline", field: "investigationContingency" },
+  "Insurance Contingency Removal": { scope: "timeline", field: "insuranceContingency" },
+  "Review of Seller Docs Contingency Removal": { scope: "timeline", field: "reviewSellerDocs" },
+  "Review of Prelim Contingency Removal": { scope: "timeline", field: "reviewPrelim" },
+  "Review of Comm Int Discl Contingency Removal": { scope: "timeline", field: "reviewCommIntDiscl" },
+  "Appraisal Contingency Removal": { scope: "timeline", field: "appraisalContingency" },
+  "Loan Contingency Removal": { scope: "timeline", field: "loanContingency" },
+  "Estimated COE": { scope: "timeline", field: "estimatedCOE" },
+  "COP — Into Contract": { scope: "cop", field: "intoContract" },
+  "COP — COE": { scope: "cop", field: "coe" },
+  "SPRP — Into Contract": { scope: "sprp", field: "intoContract" },
+  "SPRP — COE": { scope: "sprp", field: "coe" },
+};
+
+function isFormManagedDeadlineTitle(title: string): boolean {
+  return (MANAGED_FORM_DEADLINE_TITLES as readonly string[]).includes(title);
+}
+
+function applyFormDeadlineDateToMetadata(
+  metadata: unknown,
+  title: string,
+  dateValue: string
+): Record<string, unknown> {
+  const mapping = FORM_DEADLINE_TITLE_TO_FIELD[title];
+  const md =
+    metadata && typeof metadata === "object" && !Array.isArray(metadata)
+      ? { ...(metadata as Record<string, unknown>) }
+      : {};
+  if (!mapping) return md;
+
+  if (mapping.scope === "timeline") {
+    const timeline =
+      md.timeline && typeof md.timeline === "object" && !Array.isArray(md.timeline)
+        ? { ...(md.timeline as Record<string, unknown>) }
+        : {};
+    timeline[mapping.field] = dateValue;
+    return { ...md, timeline };
+  }
+  if (mapping.scope === "cop") {
+    const cop =
+      md.cop && typeof md.cop === "object" && !Array.isArray(md.cop)
+        ? { ...(md.cop as Record<string, unknown>) }
+        : {};
+    cop[mapping.field] = dateValue;
+    return { ...md, showCOP: true, cop };
+  }
+  const sprp =
+    md.sprp && typeof md.sprp === "object" && !Array.isArray(md.sprp)
+      ? { ...(md.sprp as Record<string, unknown>) }
+      : {};
+  sprp[mapping.field] = dateValue;
+  return { ...md, showSPRP: true, sprp };
+}
+
+async function loadProjectMetadata(pool: Pool, projectId: string): Promise<unknown | null> {
+  const { rows } = await pool.query<{ metadata_json: unknown }>(
+    `SELECT metadata_json FROM public.projects WHERE id = $1::bigint AND deleted_at IS NULL LIMIT 1`,
+    [projectId]
+  );
+  return rows[0]?.metadata_json ?? null;
+}
+
+async function saveProjectMetadataAndSyncDeadlines(
+  pool: Pool,
+  projectId: string,
+  metadata: Record<string, unknown>
+): Promise<void> {
+  await pool.query(
+    `UPDATE public.projects SET metadata_json = $1::jsonb, updated_at = now() WHERE id = $2::bigint AND deleted_at IS NULL`,
+    [JSON.stringify(metadata), projectId]
+  );
+  await syncProjectDeadlinesFromFormMetadata(pool, projectId, metadata);
+}
+
 /** Replaces only form-managed deadline rows; leaves ad-hoc deadlines (other titles) intact. */
 async function syncProjectDeadlinesFromFormMetadata(
   pool: Pool,
@@ -378,6 +464,12 @@ function validateCreateInput(input: ProjectCreateInput): ServiceError | null {
   }
   if (!mapTypeToDb(input.type)) {
     return { status: 400, code: "PROJECT_TYPE_INVALID", message: "Project type must be Listing or Buyer File." };
+  }
+  if (!normalizeText(input.nextStep)) {
+    return { status: 400, code: "PROJECT_NEXT_STEP_REQUIRED", message: "Next step is required." };
+  }
+  if (parseMoneyToNumber(input.listPrice) == null) {
+    return { status: 400, code: "PROJECT_PRICE_REQUIRED", message: "Purchase price is required and must be a valid number." };
   }
   if (input.stage && !mapStageToDb(input.stage)) {
     return { status: 400, code: "PROJECT_STAGE_INVALID", message: "Project stage is invalid." };
@@ -815,7 +907,14 @@ async function getProjectDeadlines(pool: Pool, projectId: string): Promise<Proje
      ORDER BY due_date ASC`,
     [projectId]
   );
-  return rows.map((r) => ({ id: r.id, title: r.title, date: r.due_date, type: r.type }));
+  const managed = new Set<string>(MANAGED_FORM_DEADLINE_TITLES);
+  return rows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    date: r.due_date,
+    type: r.type,
+    formManaged: managed.has(r.title),
+  }));
 }
 
 function mapDeliveryStatus(s: string | null | undefined): "pending" | "sent" | "failed" {
@@ -914,6 +1013,98 @@ export async function listRecentProjectEmails(
   }));
 }
 
+export type NavBadgeCountsApi = {
+  documents: number;
+  tasksUrgent: number;
+  calendarReminderDrafts: number;
+  emailFailures: number;
+};
+
+function userHasGlobalProjectAccess(user: AuthUser): boolean {
+  return (
+    user.role === "super_admin" ||
+    user.permissions.includes("project_access.global") ||
+    user.permissions.includes("projects.view_all")
+  );
+}
+
+function buildActiveProjectAccessSql(
+  user: AuthUser,
+  config: AppConfig,
+  tableAlias = "p"
+): { whereSql: string; params: unknown[] } {
+  const params: unknown[] = [config.crmVaultProjectId];
+  const where: string[] = [`${tableAlias}.deleted_at IS NULL`, `${tableAlias}.id <> $1::bigint`];
+  if (!userHasGlobalProjectAccess(user)) {
+    params.push(user.id);
+    where.push(
+      `EXISTS (SELECT 1 FROM public.project_assignments pa WHERE pa.project_id = ${tableAlias}.id AND pa.user_id = $${params.length}::bigint)`
+    );
+  }
+  return { whereSql: where.join(" AND "), params };
+}
+
+/** Scope for nav badges — matches project list visibility (all active transactions, not assignment-only). */
+function buildNavBadgeProjectScope(config: AppConfig): { whereSql: string; params: unknown[] } {
+  const params: unknown[] = [config.crmVaultProjectId];
+  const where: string[] = ["p.deleted_at IS NULL", `p.id <> $1::bigint`];
+  return { whereSql: where.join(" AND "), params };
+}
+
+/** Sidebar nav badges — aggregated from DB (not client project cache). */
+export async function getNavBadgeCounts(
+  pool: Pool,
+  config: AppConfig,
+  user: AuthUser
+): Promise<NavBadgeCountsApi> {
+  const { whereSql, params } = buildNavBadgeProjectScope(config);
+
+  const [documentsRow, tasksRow, emailRow, reminderEvents] = await Promise.all([
+    pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+       FROM public.project_documents pd
+       JOIN public.projects p ON p.id = pd.project_id
+       WHERE ${whereSql}
+         AND pd.deleted_at IS NULL
+         AND pd.required = true
+         AND pd.status <> 'completed'::public.document_status
+         AND COALESCE(btrim(pd.custom_status_text), '') <> 'N/A'`,
+      params
+    ),
+    pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+       FROM public.project_tasks pt
+       JOIN public.projects p ON p.id = pt.project_id
+       WHERE ${whereSql}
+         AND pt.status <> 'complete'::public.task_status
+         AND pt.due_date IS NOT NULL
+         AND pt.due_date <= CURRENT_DATE`,
+      params
+    ),
+    pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+       FROM (
+         SELECT e.delivery_status
+         FROM public.emails e
+         JOIN public.projects p ON p.id = e.project_id
+         WHERE ${whereSql}
+         ORDER BY COALESCE(e.sent_at, e.created_at) DESC
+         LIMIT 50
+       ) recent
+       WHERE recent.delivery_status = 'failed'::public.email_delivery_status`,
+      params
+    ),
+    listCalendarEvents(pool, { user, kinds: ["reminder"] }),
+  ]);
+
+  return {
+    documents: Number(documentsRow.rows[0]?.count ?? 0),
+    tasksUrgent: Number(tasksRow.rows[0]?.count ?? 0),
+    calendarReminderDrafts: reminderEvents.length,
+    emailFailures: Number(emailRow.rows[0]?.count ?? 0),
+  };
+}
+
 async function getProjectEmails(pool: Pool, projectId: string): Promise<ProjectEmailApi[]> {
   const { rows } = await pool.query<{
     id: string;
@@ -952,12 +1143,14 @@ async function getProjectNotes(pool: Pool, projectId: string): Promise<ProjectNo
     id: string;
     body: string;
     created_at: Date;
+    updated_at: Date;
     author_name: string | null;
   }>(
     `SELECT
        pn.id::text,
        pn.body,
        pn.created_at,
+       pn.updated_at,
        u.name AS author_name
      FROM public.project_notes pn
      LEFT JOIN public.users u ON u.id = pn.author_user_id
@@ -970,6 +1163,7 @@ async function getProjectNotes(pool: Pool, projectId: string): Promise<ProjectNo
     body: r.body,
     author: r.author_name ?? "Unknown",
     createdAt: r.created_at.toISOString().split("T")[0],
+    updatedAt: r.updated_at.toISOString().split("T")[0],
   }));
 }
 
@@ -1535,6 +1729,33 @@ export async function createProjectDocument(
   return { project };
 }
 
+async function projectDeleteBlockedReason(pool: Pool, projectId: string): Promise<string | null> {
+  const { rows: esignRows } = await pool.query<{ n: string }>(
+    `SELECT 1::text AS n
+     FROM public.esign_documents
+     WHERE project_id = $1::bigint
+       AND deleted_at IS NULL
+       AND status IN ('sent', 'completed')
+     LIMIT 1`,
+    [projectId]
+  );
+  if (esignRows.length > 0) {
+    return "This transaction has an eSign template with a sent or completed envelope. Wait for signing to finish or void the envelope before deleting.";
+  }
+  const { rows: envelopeRows } = await pool.query<{ n: string }>(
+    `SELECT 1::text AS n
+     FROM public.docusign_envelopes
+     WHERE project_id = $1::bigint
+       AND status IN ('sent'::public.docusign_envelope_status, 'delivered'::public.docusign_envelope_status, 'completed'::public.docusign_envelope_status)
+     LIMIT 1`,
+    [projectId]
+  );
+  if (envelopeRows.length > 0) {
+    return "This transaction has an in-progress DocuSign envelope. Complete or void it before deleting the transaction.";
+  }
+  return null;
+}
+
 export async function deleteProjectDocument(
   pool: Pool,
   projectId: string,
@@ -1542,6 +1763,27 @@ export async function deleteProjectDocument(
 ): Promise<{ project: ProjectDetailApi } | { error: ServiceError }> {
   if (!/^\d+$/.test(projectId) || !/^\d+$/.test(documentId)) {
     return { error: { status: 404, code: "PROJECT_DOCUMENT_NOT_FOUND", message: "Project document not found." } };
+  }
+  const requiredCheck = await pool.query<{ required: boolean }>(
+    `SELECT required
+     FROM public.project_documents
+     WHERE id = $1::bigint
+       AND project_id = $2::bigint
+       AND deleted_at IS NULL
+     LIMIT 1`,
+    [documentId, projectId]
+  );
+  if (requiredCheck.rows.length === 0) {
+    return { error: { status: 404, code: "PROJECT_DOCUMENT_NOT_FOUND", message: "Project document not found." } };
+  }
+  if (requiredCheck.rows[0]!.required) {
+    return {
+      error: {
+        status: 409,
+        code: "PROJECT_DOCUMENT_REQUIRED",
+        message: "Required checklist documents cannot be deleted.",
+      },
+    };
   }
   const { rowCount } = await pool.query(
     `UPDATE public.project_documents
@@ -1568,6 +1810,16 @@ export async function deleteProject(
   if (!/^\d+$/.test(projectId)) {
     return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
   }
+  const blockReason = await projectDeleteBlockedReason(pool, projectId);
+  if (blockReason) {
+    return {
+      error: {
+        status: 409,
+        code: "PROJECT_DELETE_BLOCKED",
+        message: blockReason,
+      },
+    };
+  }
   const { rowCount } = await pool.query(
     `UPDATE public.projects
      SET deleted_at = now(), updated_at = now()
@@ -1577,6 +1829,76 @@ export async function deleteProject(
   );
   if (!rowCount) {
     return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
+  }
+  return { ok: true };
+}
+
+export async function restoreProject(
+  pool: Pool,
+  projectId: string
+): Promise<{ ok: true } | { error: ServiceError }> {
+  if (!/^\d+$/.test(projectId)) {
+    return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
+  }
+  const { rows: archived } = await pool.query<{ client_id: string }>(
+    `SELECT client_id::text
+     FROM public.projects
+     WHERE id = $1::bigint
+       AND deleted_at IS NOT NULL
+     LIMIT 1`,
+    [projectId]
+  );
+  if (!archived[0]) {
+    return { error: { status: 404, code: "PROJECT_NOT_ARCHIVED", message: "Archived transaction not found." } };
+  }
+  const clientCheck = await pool.query<{ ok: string }>(
+    `SELECT 1::text AS ok FROM public.contacts WHERE id = $1::bigint AND deleted_at IS NULL LIMIT 1`,
+    [archived[0].client_id]
+  );
+  if (clientCheck.rows.length === 0) {
+    return {
+      error: {
+        status: 409,
+        code: "PROJECT_CLIENT_ARCHIVED",
+        message: "Restore the primary contact before restoring this transaction.",
+      },
+    };
+  }
+  const { rowCount } = await pool.query(
+    `UPDATE public.projects
+     SET deleted_at = NULL, updated_at = now()
+     WHERE id = $1::bigint
+       AND deleted_at IS NOT NULL`,
+    [projectId]
+  );
+  if (!rowCount) {
+    return { error: { status: 404, code: "PROJECT_NOT_ARCHIVED", message: "Archived transaction not found." } };
+  }
+  return { ok: true };
+}
+
+/** Hard-delete a soft-archived transaction row (frees the contact for permanent delete). */
+export async function permanentlyDeleteArchivedProject(
+  pool: Pool,
+  projectId: string
+): Promise<{ ok: true } | { error: ServiceError }> {
+  if (!/^\d+$/.test(projectId)) {
+    return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
+  }
+  const { rowCount } = await pool.query(
+    `DELETE FROM public.projects
+     WHERE id = $1::bigint
+       AND deleted_at IS NOT NULL`,
+    [projectId]
+  );
+  if (!rowCount) {
+    return {
+      error: {
+        status: 404,
+        code: "PROJECT_NOT_ARCHIVED",
+        message: "Only archived transactions can be permanently removed.",
+      },
+    };
   }
   return { ok: true };
 }
@@ -1617,31 +1939,108 @@ export async function createProjectTask(
   return { project };
 }
 
+function mapTaskStatusToDb(status: string): "pending" | "in_progress" | "complete" | null {
+  if (status === "In Progress") return "in_progress";
+  if (status === "Complete") return "complete";
+  if (status === "Pending") return "pending";
+  return null;
+}
+
+export async function updateProjectTask(
+  pool: Pool,
+  projectId: string,
+  taskId: string,
+  input: { title?: string; stage?: string; status?: string; dueDate?: string }
+): Promise<{ project: ProjectDetailApi } | { error: ServiceError }> {
+  if (!/^\d+$/.test(projectId) || !/^\d+$/.test(taskId)) {
+    return { error: { status: 404, code: "PROJECT_TASK_NOT_FOUND", message: "Project task not found." } };
+  }
+  const hasTitle = input.title !== undefined;
+  const hasStage = input.stage !== undefined;
+  const hasStatus = input.status !== undefined;
+  const hasDueDate = input.dueDate !== undefined;
+  if (!hasTitle && !hasStage && !hasStatus && !hasDueDate) {
+    return {
+      error: { status: 400, code: "PROJECT_TASK_NOTHING_TO_UPDATE", message: "No task fields to update." },
+    };
+  }
+
+  const sets: string[] = ["updated_at = now()"];
+  const params: unknown[] = [];
+  let idx = 1;
+
+  if (hasTitle) {
+    const title = normalizeText(input.title);
+    if (!title) {
+      return { error: { status: 400, code: "PROJECT_TASK_TITLE_REQUIRED", message: "Task title is required." } };
+    }
+    sets.push(`title = $${idx++}`);
+    params.push(title);
+  }
+
+  if (hasStage) {
+    const stageDb = mapStageToDb(input.stage ?? "");
+    if (!stageDb) {
+      return { error: { status: 400, code: "PROJECT_STAGE_INVALID", message: "Project stage is invalid." } };
+    }
+    sets.push(`stage = $${idx++}::public.project_stage`);
+    params.push(stageDb);
+  }
+
+  if (hasStatus) {
+    const statusDb = mapTaskStatusToDb(input.status ?? "");
+    if (!statusDb) {
+      return { error: { status: 400, code: "PROJECT_TASK_STATUS_INVALID", message: "Task status is invalid." } };
+    }
+    const statusParamIdx = idx;
+    sets.push(`status = $${idx++}::public.task_status`);
+    params.push(statusDb);
+    sets.push(
+      `completed_at = CASE WHEN $${statusParamIdx}::public.task_status = 'complete'::public.task_status THEN now() ELSE NULL END`
+    );
+  }
+
+  if (hasDueDate) {
+    sets.push(`due_date = $${idx++}::date`);
+    params.push(parseDateString(input.dueDate));
+  }
+
+  params.push(taskId, projectId);
+  const { rowCount } = await pool.query(
+    `UPDATE public.project_tasks
+     SET ${sets.join(", ")}
+     WHERE id = $${idx++}::bigint
+       AND project_id = $${idx}::bigint`,
+    params
+  );
+  if (!rowCount) {
+    return { error: { status: 404, code: "PROJECT_TASK_NOT_FOUND", message: "Project task not found." } };
+  }
+  const project = await getProjectById(pool, projectId);
+  if (!project) return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
+  return { project };
+}
+
 export async function patchProjectTaskStatus(
   pool: Pool,
   projectId: string,
   taskId: string,
   status: string
 ): Promise<{ project: ProjectDetailApi } | { error: ServiceError }> {
+  return updateProjectTask(pool, projectId, taskId, { status });
+}
+
+export async function deleteProjectTask(
+  pool: Pool,
+  projectId: string,
+  taskId: string
+): Promise<{ project: ProjectDetailApi } | { error: ServiceError }> {
   if (!/^\d+$/.test(projectId) || !/^\d+$/.test(taskId)) {
     return { error: { status: 404, code: "PROJECT_TASK_NOT_FOUND", message: "Project task not found." } };
   }
-  const statusDb =
-    status === "In Progress" ? "in_progress" :
-      status === "Complete" ? "complete" :
-        status === "Pending" ? "pending" :
-          null;
-  if (!statusDb) {
-    return { error: { status: 400, code: "PROJECT_TASK_STATUS_INVALID", message: "Task status is invalid." } };
-  }
   const { rowCount } = await pool.query(
-    `UPDATE public.project_tasks
-     SET status = $1::public.task_status,
-         completed_at = CASE WHEN $1::public.task_status = 'complete'::public.task_status THEN now() ELSE NULL END,
-         updated_at = now()
-     WHERE id = $2::bigint
-       AND project_id = $3::bigint`,
-    [statusDb, taskId, projectId]
+    `DELETE FROM public.project_tasks WHERE id = $1::bigint AND project_id = $2::bigint`,
+    [taskId, projectId]
   );
   if (!rowCount) {
     return { error: { status: 404, code: "PROJECT_TASK_NOT_FOUND", message: "Project task not found." } };
@@ -1917,6 +2316,133 @@ export async function createProjectNote(
      )`,
     [projectId, authorUserId && /^\d+$/.test(authorUserId) ? authorUserId : null, trimmed]
   );
+  const project = await getProjectById(pool, projectId);
+  if (!project) return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
+  return { project };
+}
+
+export async function updateProjectNote(
+  pool: Pool,
+  projectId: string,
+  noteId: string,
+  body: string
+): Promise<{ project: ProjectDetailApi } | { error: ServiceError }> {
+  if (!/^\d+$/.test(projectId) || !/^\d+$/.test(noteId)) {
+    return { error: { status: 404, code: "PROJECT_NOTE_NOT_FOUND", message: "Note not found." } };
+  }
+  const trimmed = normalizeText(body);
+  if (!trimmed) {
+    return { error: { status: 400, code: "PROJECT_NOTE_BODY_REQUIRED", message: "Note text is required." } };
+  }
+  const { rowCount } = await pool.query(
+    `UPDATE public.project_notes
+     SET body = $1, updated_at = now()
+     WHERE id = $2::bigint AND project_id = $3::bigint`,
+    [trimmed, noteId, projectId]
+  );
+  if (!rowCount) {
+    return { error: { status: 404, code: "PROJECT_NOTE_NOT_FOUND", message: "Note not found." } };
+  }
+  const project = await getProjectById(pool, projectId);
+  if (!project) return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
+  return { project };
+}
+
+export async function deleteProjectNote(
+  pool: Pool,
+  projectId: string,
+  noteId: string
+): Promise<{ project: ProjectDetailApi } | { error: ServiceError }> {
+  if (!/^\d+$/.test(projectId) || !/^\d+$/.test(noteId)) {
+    return { error: { status: 404, code: "PROJECT_NOTE_NOT_FOUND", message: "Note not found." } };
+  }
+  const { rowCount } = await pool.query(
+    `DELETE FROM public.project_notes WHERE id = $1::bigint AND project_id = $2::bigint`,
+    [noteId, projectId]
+  );
+  if (!rowCount) {
+    return { error: { status: 404, code: "PROJECT_NOTE_NOT_FOUND", message: "Note not found." } };
+  }
+  const project = await getProjectById(pool, projectId);
+  if (!project) return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
+  return { project };
+}
+
+export async function updateProjectDeadlineDate(
+  pool: Pool,
+  projectId: string,
+  deadlineId: string,
+  date: string
+): Promise<{ project: ProjectDetailApi } | { error: ServiceError }> {
+  if (!/^\d+$/.test(projectId) || !/^\d+$/.test(deadlineId)) {
+    return { error: { status: 404, code: "PROJECT_DEADLINE_NOT_FOUND", message: "Deadline not found." } };
+  }
+  const dueDate = parseDateString(date);
+  if (!dueDate) {
+    return { error: { status: 400, code: "PROJECT_DEADLINE_INVALID", message: "Deadline date is required." } };
+  }
+  const dlRow = await pool.query<{ title: string }>(
+    `SELECT title FROM public.project_deadlines WHERE id = $1::bigint AND project_id = $2::bigint LIMIT 1`,
+    [deadlineId, projectId]
+  );
+  const title = dlRow.rows[0]?.title;
+  if (!title) {
+    return { error: { status: 404, code: "PROJECT_DEADLINE_NOT_FOUND", message: "Deadline not found." } };
+  }
+
+  if (isFormManagedDeadlineTitle(title)) {
+    const metadata = await loadProjectMetadata(pool, projectId);
+    if (metadata === null && !(await pool.query(`SELECT 1 FROM public.projects WHERE id = $1::bigint AND deleted_at IS NULL`, [projectId])).rows[0]) {
+      return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
+    }
+    const nextMeta = applyFormDeadlineDateToMetadata(metadata, title, date.trim());
+    await saveProjectMetadataAndSyncDeadlines(pool, projectId, nextMeta);
+  } else {
+    const { rowCount } = await pool.query(
+      `UPDATE public.project_deadlines SET due_date = $1::date, updated_at = now() WHERE id = $2::bigint AND project_id = $3::bigint`,
+      [dueDate, deadlineId, projectId]
+    );
+    if (!rowCount) {
+      return { error: { status: 404, code: "PROJECT_DEADLINE_NOT_FOUND", message: "Deadline not found." } };
+    }
+  }
+
+  const project = await getProjectById(pool, projectId);
+  if (!project) return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
+  return { project };
+}
+
+export async function deleteProjectDeadline(
+  pool: Pool,
+  projectId: string,
+  deadlineId: string
+): Promise<{ project: ProjectDetailApi } | { error: ServiceError }> {
+  if (!/^\d+$/.test(projectId) || !/^\d+$/.test(deadlineId)) {
+    return { error: { status: 404, code: "PROJECT_DEADLINE_NOT_FOUND", message: "Deadline not found." } };
+  }
+  const dlRow = await pool.query<{ title: string }>(
+    `SELECT title FROM public.project_deadlines WHERE id = $1::bigint AND project_id = $2::bigint LIMIT 1`,
+    [deadlineId, projectId]
+  );
+  const title = dlRow.rows[0]?.title;
+  if (!title) {
+    return { error: { status: 404, code: "PROJECT_DEADLINE_NOT_FOUND", message: "Deadline not found." } };
+  }
+
+  if (isFormManagedDeadlineTitle(title)) {
+    const metadata = await loadProjectMetadata(pool, projectId);
+    const nextMeta = applyFormDeadlineDateToMetadata(metadata, title, "");
+    await saveProjectMetadataAndSyncDeadlines(pool, projectId, nextMeta);
+  } else {
+    const { rowCount } = await pool.query(
+      `DELETE FROM public.project_deadlines WHERE id = $1::bigint AND project_id = $2::bigint`,
+      [deadlineId, projectId]
+    );
+    if (!rowCount) {
+      return { error: { status: 404, code: "PROJECT_DEADLINE_NOT_FOUND", message: "Deadline not found." } };
+    }
+  }
+
   const project = await getProjectById(pool, projectId);
   if (!project) return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
   return { project };

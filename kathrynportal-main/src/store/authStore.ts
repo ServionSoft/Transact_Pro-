@@ -68,6 +68,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         refreshToken: snapshot.refreshToken,
       });
       set({ user, isBootstrapping: false });
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("transactpro:refresh-nav-badges"));
+      }
     } catch {
       try {
         const refreshed = await refreshApi(snapshot.refreshToken);
@@ -83,6 +86,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           refreshToken: refreshed.refreshToken,
           isBootstrapping: false,
         });
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("transactpro:refresh-nav-badges"));
+        }
       } catch {
         clearStoredSession();
         set({ user: null, accessToken: null, refreshToken: null, isBootstrapping: false });
@@ -103,6 +109,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       refreshToken: result.refreshToken,
       isBootstrapping: false,
     });
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("transactpro:refresh-nav-badges"));
+    }
   },
 
   logout: async () => {

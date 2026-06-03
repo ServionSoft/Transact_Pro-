@@ -8,11 +8,12 @@ import { listClientsFromApi } from "@/api/clients";
 import { useAppStore } from "@/store/appStore";
 import { useAuthStore } from "@/store/authStore";
 
-/** Routes that fill the main pane and scroll inside their own card/content area. */
+/** Routes that scroll inside the page shell (not the main layout wrapper). */
 function usesInnerScroll(pathname: string): boolean {
   if (
     pathname === "/" ||
     pathname === "/projects" ||
+    pathname === "/projects/new" ||
     pathname === "/clients" ||
     pathname === "/tasks" ||
     pathname === "/calendar" ||
@@ -20,11 +21,10 @@ function usesInnerScroll(pathname: string): boolean {
   ) {
     return true;
   }
-  // Project detail only — not long forms like /projects/new or /projects/:id/edit
-  if (pathname === "/projects/new" || /\/edit$/.test(pathname)) {
-    return false;
-  }
-  return /^\/projects\/[^/]+$/.test(pathname);
+  if (/\/edit$/.test(pathname)) return true;
+  if (/^\/projects\/[^/]+$/.test(pathname)) return true;
+  if (/^\/clients\/[^/]+$/.test(pathname) && pathname !== "/clients/new") return true;
+  return false;
 }
 
 export default function AppLayout() {
@@ -54,10 +54,8 @@ export default function AppLayout() {
       <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <div
           className={cn(
-            "min-h-0 flex-1",
-            innerScroll
-              ? "flex flex-col overflow-hidden"
-              : "overflow-y-auto overflow-x-hidden",
+            "flex min-h-0 min-w-0 flex-1 flex-col",
+            innerScroll ? "overflow-hidden" : "overflow-y-auto overflow-x-hidden overscroll-contain",
           )}
         >
           <Outlet />
