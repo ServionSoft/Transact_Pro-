@@ -45,6 +45,27 @@ import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 
 const STATUS_TABS = ["All", "Active", "Inactive", "Prospect"] as const;
 
+const LINKED_TRANSACTIONS_TOOLTIP =
+  "Property address of each active listing or buyer file for this contact. Click to open the deal.";
+
+function LinkedTransactionsTableHeader() {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="cursor-help border-b border-dotted border-muted-foreground/60">Linked transactions</span>
+      </TooltipTrigger>
+      <TooltipContent
+        side="top"
+        align="end"
+        collisionPadding={16}
+        className="max-w-[min(20rem,calc(100vw-2rem))] whitespace-normal text-left leading-snug"
+      >
+        {LINKED_TRANSACTIONS_TOOLTIP}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 function initialsFromName(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";
@@ -424,14 +445,7 @@ export default function ClientsPage() {
                     <TableHead className="hidden xl:table-cell">Phone</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="min-w-[180px] whitespace-nowrap">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="cursor-help border-b border-dotted border-muted-foreground/60">Linked transactions</span>
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="max-w-xs">
-                          Property address of each active listing or buyer file for this contact. Click to open the deal.
-                        </TooltipContent>
-                      </Tooltip>
+                      <LinkedTransactionsTableHeader />
                     </TableHead>
                     <TableHead className="w-12 text-right">
                       <span className="sr-only">Actions</span>
@@ -487,14 +501,7 @@ export default function ClientsPage() {
                     <TableHead className="hidden xl:table-cell">Phone</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="min-w-[180px] whitespace-nowrap">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="cursor-help border-b border-dotted border-muted-foreground/60">Linked transactions</span>
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="max-w-xs">
-                          Property address of each active listing or buyer file for this contact. Click to open the deal.
-                        </TooltipContent>
-                      </Tooltip>
+                      <LinkedTransactionsTableHeader />
                     </TableHead>
                     <TableHead className="w-12 text-right">
                       <span className="sr-only">Actions</span>
