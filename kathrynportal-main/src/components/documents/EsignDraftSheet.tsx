@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CloudDownload, Download, Plus, Save, Send, ShieldCheck, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { toast as appToast } from "@/hooks/use-toast";
 import { jsPDF } from "jspdf";
 import { getDocument } from "pdfjs-dist";
 import type { FileAttachment, ProjectDocument } from "@/data/mockData";
@@ -27,7 +28,7 @@ import PdfJsViewer from "@/components/documents/PdfJsViewer";
 import { getSmtpSettingsFromApi, type SmtpSettingsDto } from "@/api/smtpSettings";
 import { parseSignerEmailsFromInput, validateSignerEmailListForDocuSign } from "@/lib/parseClientSignerEmails";
 import type { TransactionRecipientSuggestion } from "@/lib/transactionRecipientSuggestions";
-import { useConfirmDialog } from "@/hooks/useConfirmDialog";
+import { deleteTemplateConfirmOptions, useConfirmDialog } from "@/hooks/useConfirmDialog";
 
 type Props = {
   open: boolean;
@@ -602,27 +603,22 @@ export default function EsignDraftSheet({
       toast.error("Sent or completed templates cannot be deleted.");
       return;
     }
-    if (
-      !(await confirm({
-        title: "Delete eSign draft",
-        description: "Delete this eSign draft?",
-        confirmLabel: "Delete",
-      }))
-    ) {
+    if (!(await confirm(deleteTemplateConfirmOptions(selectedDraft?.title ?? "")))) {
       return;
     }
+    const draftId = selectedDraftId;
+    const ownerProjectId = selectedDraft?.projectId ?? projectId;
+    setSelectedDraftId("");
+    setFields([]);
+    setPdfBytes(null);
     try {
-      await deleteEsignDocumentApi(projectId, selectedDraftId);
-      setDocuments((prev) => prev.filter((d) => d.id !== selectedDraftId));
-      setSelectedDraftId("");
-      setFields([]);
-      toast.success("Template deleted.");
+      await deleteEsignDocumentApi(ownerProjectId, draftId);
+      setDocuments((prev) => prev.filter((d) => d.id !== draftId));
+      appToast({ title: "Template deleted." });
     } catch (error) {
       if (isNotFoundError(error)) {
-        setDocuments((prev) => prev.filter((d) => d.id !== selectedDraftId));
-        setSelectedDraftId("");
-        setFields([]);
-        toast.success("Template already removed.");
+        setDocuments((prev) => prev.filter((d) => d.id !== draftId));
+        appToast({ title: "Template already removed." });
         return;
       }
       toast.error(error instanceof Error ? error.message : "Could not delete template.");

@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
+import { toast as appToast } from "@/hooks/use-toast";
 import { DOC_STATUS_PRESETS, CRM_DOCUMENT_VAULT_PROJECT_ID, type DocumentStatus, type FileAttachment } from "@/data/mockData";
 import { useAppStore } from "@/store/appStore";
 import { useAuthStore } from "@/store/authStore";
@@ -53,7 +54,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/com
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { hasPermission } from "@/lib/permissions";
 import EsignDraftSheet from "@/components/documents/EsignDraftSheet";
-import { useConfirmDialog } from "@/hooks/useConfirmDialog";
+import { deleteTemplateConfirmOptions, useConfirmDialog } from "@/hooks/useConfirmDialog";
 import {
   deleteEsignDocumentApi,
   deleteEsignDraftsByFileApi,
@@ -1084,20 +1085,14 @@ export default function TransactionDocumentsWorkspace({
       toast.error("Sent or completed templates cannot be deleted.");
       return;
     }
-    if (
-      !(await confirm({
-        title: "Delete template",
-        description: `Delete template "${draft.title}"?`,
-        confirmLabel: "Delete",
-      }))
-    ) {
+    if (!(await confirm(deleteTemplateConfirmOptions(draft.title)))) {
       return;
     }
     try {
-      await deleteEsignDocumentApi(project.id, draft.id);
+      await deleteEsignDocumentApi(draft.projectId, draft.id);
       setEsignDrafts((prev) => prev.filter((x) => x.id !== draft.id));
       if (openDraftId === draft.id) setOpenDraftId(null);
-      toast.success("Template deleted.");
+      appToast({ title: "Template deleted." });
     } catch (error) {
       if (
         error instanceof Error &&
@@ -1105,7 +1100,7 @@ export default function TransactionDocumentsWorkspace({
       ) {
         setEsignDrafts((prev) => prev.filter((x) => x.id !== draft.id));
         if (openDraftId === draft.id) setOpenDraftId(null);
-        toast.success("Template already removed.");
+        appToast({ title: "Template already removed." });
         return;
       }
       toast.error(error instanceof Error ? error.message : "Could not delete template.");

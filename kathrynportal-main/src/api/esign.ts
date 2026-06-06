@@ -178,9 +178,18 @@ export async function syncDocusignCompletionApi(
 }
 
 export async function deleteEsignDocumentApi(projectId: string, documentId: string): Promise<void> {
-  await request<unknown>(`/api/projects/${encodeURIComponent(projectId)}/esign-documents/${encodeURIComponent(documentId)}`, {
-    method: "DELETE",
-  });
+  const base = requireBaseUrl();
+  const response = await authFetch(
+    `${base}/api/projects/${encodeURIComponent(projectId)}/esign-documents/${encodeURIComponent(documentId)}`,
+    { method: "DELETE" }
+  );
+  if (response.status === 204 || response.status === 200) return;
+  const payload = await parseJson<unknown>(response);
+  if (!response.ok) {
+    const code = payload?.error?.code;
+    const message = payload?.error?.message ?? `Request failed (${response.status})`;
+    throw new Error(code ? `${code}: ${message}` : message);
+  }
 }
 
 export async function patchEsignDocumentTitleApi(

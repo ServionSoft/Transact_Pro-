@@ -20,6 +20,15 @@ export type ConfirmDialogOptions = {
   destructive?: boolean;
 };
 
+export function deleteTemplateConfirmOptions(templateTitle: string): ConfirmDialogOptions {
+  const label = templateTitle.trim() || "this template";
+  return {
+    title: "Delete template",
+    description: `Delete template "${label}"? This cannot be undone.`,
+    confirmLabel: "Delete",
+  };
+}
+
 /** Promise-based CRM confirm dialog (replaces window.confirm). */
 export function useConfirmDialog() {
   const resolveRef = useRef<((value: boolean) => void) | null>(null);
