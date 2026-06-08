@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { useTheme } from "next-themes";
 import type { LucideIcon } from "lucide-react";
 import {
   LayoutDashboard,
@@ -13,6 +14,8 @@ import {
   ChevronRight,
   CheckSquare,
   LogOut,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isTransactionProject } from "@/data/mockData";
@@ -57,6 +60,8 @@ function formatBadgeCollapsed(n: number): string {
 
 export default function AppSidebar() {
   const [collapsed, setCollapsed] = useState(false);
+  const [themeMounted, setThemeMounted] = useState(false);
+  const { theme, setTheme } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
   const logout = useAuthStore((s) => s.logout);
@@ -124,6 +129,10 @@ export default function AppSidebar() {
   }, [apiOn, user, accessToken]);
 
   useEffect(() => {
+    setThemeMounted(true);
+  }, []);
+
+  useEffect(() => {
     if (!apiOn || !user || !accessToken || isBootstrapping) return;
     let cancelled = false;
     const run = async () => {
@@ -174,6 +183,62 @@ export default function AppSidebar() {
   const handleLogout = async () => {
     await logout();
     navigate("/login", { replace: true });
+  };
+
+  const isDarkMode = theme === "dark";
+
+  const toggleTheme = () => {
+    setTheme(isDarkMode ? "light" : "dark");
+  };
+
+  const themeToggleLabel = isDarkMode ? "Light mode" : "Dark mode";
+  const ThemeIcon = isDarkMode ? Sun : Moon;
+
+  const renderThemeToggle = () => {
+    const buttonClass =
+      "flex w-full items-center rounded-xl text-sidebar-muted transition-colors hover:bg-sidebar-accent/45 hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar";
+
+    if (!themeMounted) {
+      return (
+        <div
+          className={cn(buttonClass, collapsed ? "justify-center p-2.5" : "gap-3 px-3 py-2.5")}
+          aria-hidden
+        >
+          <Moon className="h-5 w-5 shrink-0 opacity-40" />
+          {!collapsed ? <span className="text-sm opacity-40">Appearance</span> : null}
+        </div>
+      );
+    }
+
+    if (collapsed) {
+      return (
+        <Tooltip delayDuration={200}>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className={cn(buttonClass, "justify-center p-2.5")}
+              aria-label={themeToggleLabel}
+            >
+              <ThemeIcon className="h-5 w-5 shrink-0" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">{themeToggleLabel}</TooltipContent>
+        </Tooltip>
+      );
+    }
+
+    return (
+      <button
+        type="button"
+        onClick={toggleTheme}
+        className={cn(buttonClass, "gap-3 px-3 py-2.5 text-left text-sm")}
+        aria-label={themeToggleLabel}
+      >
+        <ThemeIcon className="h-5 w-5 shrink-0" />
+        <span>{themeToggleLabel}</span>
+      </button>
+    );
   };
 
   const badgeTone = (to: string) =>
@@ -345,6 +410,8 @@ export default function AppSidebar() {
         )}
 
         <div className="flex flex-col gap-0.5">
+          {renderThemeToggle()}
+
           {collapsed ? (
             <Tooltip delayDuration={200}>
               <TooltipTrigger asChild>
