@@ -60,6 +60,12 @@ export function registerProjectsRoutes(app: Express, config: AppConfig, pool: Po
   router.post("/projects/:id/documents/:documentId/notes", requirePool(pool), auth, edit, (req, res) => {
     void ctrl.createDocumentNote(req, res);
   });
+  router.patch("/projects/:id/documents/:documentId/notes/:noteId", requirePool(pool), auth, edit, (req, res) => {
+    void ctrl.updateDocumentNote(req, res);
+  });
+  router.delete("/projects/:id/documents/:documentId/notes/:noteId", requirePool(pool), auth, edit, (req, res) => {
+    void ctrl.deleteDocumentNote(req, res);
+  });
   router.post("/projects/:id/documents", requirePool(pool), auth, edit, (req, res) => {
     void ctrl.createDocument(req, res);
   });

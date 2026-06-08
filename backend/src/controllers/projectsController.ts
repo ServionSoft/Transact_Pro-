@@ -4,6 +4,8 @@ import type { AppConfig } from "../config/env.js";
 import {
   listAssignableProjectUsers,
   createProjectDocumentNote,
+  updateProjectDocumentNote,
+  deleteProjectDocumentNote,
   createProjectNote,
   updateProjectNote,
   deleteProjectNote,
@@ -728,6 +730,40 @@ export function createProjectsController(pool: Pool, config: AppConfig) {
         res.status(201).json({ success: true, data: { project: result.project }, message: "" });
       } catch {
         res.status(500).json({ success: false, error: { code: "PROJECT_DOCUMENT_NOTE_CREATE_FAILED", message: "Could not create document note." } });
+      }
+    },
+
+    async updateDocumentNote(req: Request, res: Response): Promise<void> {
+      const body = req.body as { body?: unknown };
+      const noteBody = typeof body?.body === "string" ? body.body : "";
+      try {
+        const result = await updateProjectDocumentNote(
+          pool,
+          req.params.id,
+          req.params.documentId,
+          req.params.noteId,
+          noteBody
+        );
+        if ("error" in result) {
+          res.status(result.error.status).json({ success: false, error: { code: result.error.code, message: result.error.message } });
+          return;
+        }
+        res.json({ success: true, data: { project: result.project }, message: "" });
+      } catch {
+        res.status(500).json({ success: false, error: { code: "PROJECT_DOCUMENT_NOTE_UPDATE_FAILED", message: "Could not update document note." } });
+      }
+    },
+
+    async deleteDocumentNote(req: Request, res: Response): Promise<void> {
+      try {
+        const result = await deleteProjectDocumentNote(pool, req.params.id, req.params.documentId, req.params.noteId);
+        if ("error" in result) {
+          res.status(result.error.status).json({ success: false, error: { code: result.error.code, message: result.error.message } });
+          return;
+        }
+        res.json({ success: true, data: { project: result.project }, message: "" });
+      } catch {
+        res.status(500).json({ success: false, error: { code: "PROJECT_DOCUMENT_NOTE_DELETE_FAILED", message: "Could not delete document note." } });
       }
     },
 

@@ -77,7 +77,7 @@ export interface ProjectDocument {
   required: boolean;
   uploadedFile?: string;
   attachedFileIds: string[];
-  notes: { date: string; text: string; author: string }[];
+  notes: { id: string; date: string; text: string; author: string; updatedAt?: string }[];
   customStatus?: string;
   sourceRuleId?: string;
   sourceRuleActionId?: string;

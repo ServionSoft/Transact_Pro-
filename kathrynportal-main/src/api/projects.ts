@@ -35,7 +35,7 @@ type ProjectDetailApiRow = Omit<ProjectListItem, "documentsCompleteCount" | "doc
     status: ProjectDocument["status"];
     customStatus?: string;
     required: boolean;
-    notes: Array<{ id?: string; body?: string; createdAt?: string; author?: string; date?: string; text?: string }>;
+    notes: Array<{ id?: string; body?: string; createdAt?: string; updatedAt?: string; author?: string; date?: string; text?: string }>;
     attachedFileIds: string[];
     sourceRuleId?: string;
     sourceRuleActionId?: string;
@@ -208,10 +208,12 @@ function mapDetailRowToProject(row: ProjectDetailApiRow): Project {
     createdAt: row.createdAt,
     documents: (row.documents ?? []).map((doc) => ({
       ...doc,
-      notes: (doc.notes ?? []).map((n) => ({
+      notes: (doc.notes ?? []).map((n, index) => ({
+        id: n.id ?? `legacy-${doc.id}-${index}`,
         date: n.createdAt ?? n.date ?? "",
         text: n.body ?? n.text ?? "",
         author: n.author ?? "Unknown",
+        ...(n.updatedAt ? { updatedAt: n.updatedAt } : {}),
       })),
     })),
     tasks: row.tasks ?? [],
@@ -339,6 +341,43 @@ export async function createProjectDocumentNoteApi(
   const row = (json as { data?: { project?: unknown } }).data?.project;
   if (!row || typeof row !== "object") {
     throw new ApiRequestError("Invalid document note create response", 500, "");
+  }
+  return mapDetailRowToProject(row as ProjectDetailApiRow);
+}
+
+export async function updateProjectDocumentNoteApi(
+  projectId: string,
+  documentId: string,
+  noteId: string,
+  body: string
+): Promise<Project> {
+  const json = await apiCall(
+    `/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(documentId)}/notes/${encodeURIComponent(noteId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body }),
+    }
+  );
+  const row = (json as { data?: { project?: unknown } }).data?.project;
+  if (!row || typeof row !== "object") {
+    throw new ApiRequestError("Invalid document note update response", 500, "");
+  }
+  return mapDetailRowToProject(row as ProjectDetailApiRow);
+}
+
+export async function deleteProjectDocumentNoteApi(
+  projectId: string,
+  documentId: string,
+  noteId: string
+): Promise<Project> {
+  const json = await apiCall(
+    `/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(documentId)}/notes/${encodeURIComponent(noteId)}`,
+    { method: "DELETE" }
+  );
+  const row = (json as { data?: { project?: unknown } }).data?.project;
+  if (!row || typeof row !== "object") {
+    throw new ApiRequestError("Invalid document note delete response", 500, "");
   }
   return mapDetailRowToProject(row as ProjectDetailApiRow);
 }

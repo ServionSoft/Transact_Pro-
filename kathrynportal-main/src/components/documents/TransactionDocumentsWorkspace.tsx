@@ -36,6 +36,8 @@ import {
 } from "@/api/storedFiles";
 import {
   createProjectDocumentNoteApi,
+  updateProjectDocumentNoteApi,
+  deleteProjectDocumentNoteApi,
   createProjectDocumentApi,
   deleteProjectDocumentApi,
   getProjectFromApi,
@@ -105,7 +107,7 @@ interface DocRow {
   /** Vault `esign_documents.id` when checklist row is linked to a library layout */
   esignDocumentId?: string;
   notesCount: number;
-  notes: { date: string; text: string; author: string }[];
+  notes: { id: string; date: string; text: string; author: string; updatedAt?: string }[];
   attachedFileIds: string[];
 }
 
@@ -181,6 +183,9 @@ export default function TransactionDocumentsWorkspace({
   const [pullingEsignForDocId, setPullingEsignForDocId] = useState<string | null>(null);
   const [docNoteDrafts, setDocNoteDrafts] = useState<Record<string, string>>({});
   const [savingDocNoteId, setSavingDocNoteId] = useState<string | null>(null);
+  const [editingDocNote, setEditingDocNote] = useState<{ docId: string; noteId: string } | null>(null);
+  const [editDocNoteBody, setEditDocNoteBody] = useState("");
+  const [docNoteActionKey, setDocNoteActionKey] = useState<string | null>(null);
   const [poolAccessDenied, setPoolAccessDenied] = useState(false);
   const [renamingFileId, setRenamingFileId] = useState<string | null>(null);
   const [renamingTemplateId, setRenamingTemplateId] = useState<string | null>(null);
@@ -205,7 +210,13 @@ export default function TransactionDocumentsWorkspace({
         sourceRuleActionId: (d as { sourceRuleActionId?: string }).sourceRuleActionId,
         esignDocumentId: (d as { esignDocumentId?: string }).esignDocumentId,
         notesCount: (d.notes ?? []).length,
-        notes: d.notes ?? [],
+        notes: (d.notes ?? []).map((n, index) => ({
+          id: n.id ?? `legacy-${d.id}-${index}`,
+          date: n.date,
+          text: n.text,
+          author: n.author,
+          ...(n.updatedAt ? { updatedAt: n.updatedAt } : {}),
+        })),
         attachedFileIds: d.attachedFileIds ?? [],
       })),
     [project]
@@ -442,6 +453,7 @@ export default function TransactionDocumentsWorkspace({
     }
     if (!getApiBaseUrl()) {
       const localNote = {
+        id: `n-${Date.now()}`,
         date: new Date().toISOString().split("T")[0],
         text: body,
         author: user?.name ?? "Kathryn",
@@ -465,6 +477,92 @@ export default function TransactionDocumentsWorkspace({
         toast.error(e instanceof Error ? e.message : "Could not add note.");
       })
       .finally(() => setSavingDocNoteId(null));
+  };
+
+  const cancelEditDocumentNote = () => {
+    setEditingDocNote(null);
+    setEditDocNoteBody("");
+  };
+
+  const startEditDocumentNote = (docId: string, note: DocRow["notes"][number]) => {
+    setEditingDocNote({ docId, noteId: note.id });
+    setEditDocNoteBody(note.text);
+  };
+
+  const updateDocumentNote = (doc: DocRow, noteId: string) => {
+    const body = editDocNoteBody.trim();
+    if (!body) {
+      toast.error("Note text is required.");
+      return;
+    }
+    const actionKey = `edit:${doc.id}:${noteId}`;
+    setDocNoteActionKey(actionKey);
+    if (!getApiBaseUrl()) {
+      const today = new Date().toISOString().split("T")[0];
+      const nextDocuments = (project?.documents ?? []).map((d) =>
+        d.id === doc.id
+          ? {
+              ...d,
+              notes: (d.notes ?? []).map((n) =>
+                n.id === noteId ? { ...n, text: body, updatedAt: today } : n
+              ),
+            }
+          : d
+      );
+      if (project) upsertProject({ ...project, documents: nextDocuments });
+      cancelEditDocumentNote();
+      toast.success("Note updated.");
+      setDocNoteActionKey(null);
+      return;
+    }
+    void updateProjectDocumentNoteApi(project!.id, doc.id, noteId, body)
+      .then((updated) => {
+        upsertProject(updated);
+        cancelEditDocumentNote();
+        toast.success("Note updated.");
+      })
+      .catch((e) => {
+        toast.error(e instanceof Error ? e.message : "Could not update note.");
+      })
+      .finally(() => setDocNoteActionKey(null));
+  };
+
+  const deleteDocumentNote = async (doc: DocRow, noteId: string) => {
+    if (
+      !(await confirm({
+        title: "Delete note",
+        description: "Delete this note? This cannot be undone.",
+        confirmLabel: "Delete",
+      }))
+    ) {
+      return;
+    }
+    const actionKey = `delete:${doc.id}:${noteId}`;
+    setDocNoteActionKey(actionKey);
+    if (!getApiBaseUrl()) {
+      const nextDocuments = (project?.documents ?? []).map((d) =>
+        d.id === doc.id ? { ...d, notes: (d.notes ?? []).filter((n) => n.id !== noteId) } : d
+      );
+      if (project) upsertProject({ ...project, documents: nextDocuments });
+      if (editingDocNote?.docId === doc.id && editingDocNote.noteId === noteId) {
+        cancelEditDocumentNote();
+      }
+      toast.success("Note deleted.");
+      setDocNoteActionKey(null);
+      return;
+    }
+    void deleteProjectDocumentNoteApi(project!.id, doc.id, noteId)
+      .then((updated) => {
+        upsertProject(updated);
+        if (editingDocNote?.docId === doc.id && editingDocNote.noteId === noteId) {
+          cancelEditDocumentNote();
+        }
+        toast.success("Note deleted.");
+      })
+      .catch((e) => {
+        toast.error(e instanceof Error ? e.message : "Could not delete note.");
+      })
+      .finally(() => setDocNoteActionKey(null));
   };
 
   const toggleSelect = (docId: string) => {
@@ -1818,18 +1916,88 @@ export default function TransactionDocumentsWorkspace({
                           )}
                         </button>
                       </PopoverTrigger>
-                      <PopoverContent className="w-72" align="end">
+                      <PopoverContent className="w-80" align="end">
                         <p className="text-xs font-semibold mb-2">Notes — {doc.name}</p>
-                        <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                        <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                           {doc.notes.length === 0 ? (
                             <p className="text-xs text-muted-foreground">No notes yet.</p>
                           ) : (
-                            doc.notes.map((n, idx) => (
-                              <div key={`${doc.id}-note-${idx}`} className="rounded border border-border bg-secondary/20 p-2">
-                                <p className="text-[10px] text-muted-foreground">{n.date} · {n.author}</p>
-                                <p className="text-xs text-foreground">{n.text}</p>
-                              </div>
-                            ))
+                            doc.notes.map((n) => {
+                              const isEditing = editingDocNote?.docId === doc.id && editingDocNote.noteId === n.id;
+                              const editLoading = docNoteActionKey === `edit:${doc.id}:${n.id}`;
+                              const deleteLoading = docNoteActionKey === `delete:${doc.id}:${n.id}`;
+                              return (
+                                <div key={n.id} className="rounded border border-border bg-secondary/20 p-2">
+                                  <div className="flex items-start justify-between gap-1">
+                                    <p className="text-[10px] text-muted-foreground">
+                                      {n.date}
+                                      {n.updatedAt && n.updatedAt !== n.date ? (
+                                        <span className="italic"> · edited {n.updatedAt}</span>
+                                      ) : null}
+                                      <span> · {n.author}</span>
+                                    </p>
+                                    {!isEditing ? (
+                                      <div className="flex shrink-0 gap-0.5">
+                                        <button
+                                          type="button"
+                                          className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                                          aria-label="Edit note"
+                                          disabled={Boolean(docNoteActionKey)}
+                                          onClick={() => startEditDocumentNote(doc.id, n)}
+                                        >
+                                          <Pencil className="h-3 w-3" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="inline-flex h-6 w-6 items-center justify-center rounded text-destructive hover:bg-destructive/10"
+                                          aria-label="Delete note"
+                                          disabled={Boolean(docNoteActionKey)}
+                                          onClick={() => void deleteDocumentNote(doc, n.id)}
+                                        >
+                                          <Trash2 className="h-3 w-3" />
+                                        </button>
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                  {isEditing ? (
+                                    <div className="mt-1.5 space-y-1.5">
+                                      <Textarea
+                                        rows={3}
+                                        className="text-xs"
+                                        value={editDocNoteBody}
+                                        onChange={(e) => setEditDocNoteBody(e.target.value)}
+                                      />
+                                      <div className="flex justify-end gap-1">
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-7 px-2 text-xs"
+                                          onClick={cancelEditDocumentNote}
+                                          disabled={editLoading}
+                                        >
+                                          Cancel
+                                        </Button>
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          className="h-7 px-2 text-xs"
+                                          onClick={() => updateDocumentNote(doc, n.id)}
+                                          disabled={editLoading || !editDocNoteBody.trim()}
+                                        >
+                                          {editLoading ? "Saving..." : "Save"}
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <p className="mt-1 whitespace-pre-wrap text-xs text-foreground">{n.text}</p>
+                                  )}
+                                  {deleteLoading ? (
+                                    <p className="mt-1 text-[10px] text-muted-foreground">Deleting...</p>
+                                  ) : null}
+                                </div>
+                              );
+                            })
                           )}
                         </div>
                         <Textarea
