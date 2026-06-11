@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import CalendarKindLegend from "@/components/calendar/CalendarKindLegend";
 import { calendarDateClass, calendarRowAccentClass } from "@/lib/calendarEventUtils";
 import { propertyStreet } from "@/lib/transactionListUtils";
+import { listPageBodyClass, listPagePanelClass } from "@/lib/listPageLayout";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -27,7 +28,7 @@ export default function CalendarRemindersPanel({
   onDismiss,
 }: Props) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+    <div className={listPagePanelClass}>
       <div className="shrink-0 border-b border-border bg-amber-500/10 px-4 py-3 sm:px-5">
         <div className="flex items-start gap-3">
           <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
@@ -44,7 +45,7 @@ export default function CalendarRemindersPanel({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5">
+      <div className={cn(listPageBodyClass, "p-4 sm:p-5")}>
         {loading ? (
           <div className="space-y-3">
             {Array.from({ length: 4 }).map((_, i) => (

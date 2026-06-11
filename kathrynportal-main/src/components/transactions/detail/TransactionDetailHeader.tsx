@@ -54,11 +54,11 @@ export default function TransactionDetailHeader({ project, canDelete, deleting, 
             {project.listPrice || "—"}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap">
           <Button
             size="sm"
             variant="outline"
-            className="h-8 gap-1.5"
+            className="h-10 gap-1.5 sm:h-8"
             type="button"
             onClick={() => onOpenEmail?.()}
           >
@@ -67,7 +67,7 @@ export default function TransactionDetailHeader({ project, canDelete, deleting, 
           <Button
             size="sm"
             variant="outline"
-            className="h-8 gap-1.5"
+            className="h-10 gap-1.5 sm:h-8"
             onClick={() => navigate(`/projects/${project.id}/edit`)}
           >
             <PenLine className="h-3.5 w-3.5" /> Update
@@ -76,7 +76,7 @@ export default function TransactionDetailHeader({ project, canDelete, deleting, 
             <Button
               size="sm"
               variant="outline"
-              className="h-8 gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10"
+              className="col-span-2 h-10 gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10 sm:col-span-1 sm:h-8"
               onClick={onDelete}
               disabled={deleting}
             >

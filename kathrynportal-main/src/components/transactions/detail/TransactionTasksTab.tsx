@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { listPageBodyClass, transactionTabCardClass } from "@/lib/listPageLayout";
 import { cn } from "@/lib/utils";
 import { dueDateBucket, dueDateClass } from "@/lib/transactionListUtils";
 
@@ -115,7 +116,7 @@ export default function TransactionTasksTab({
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+    <div className={transactionTabCardClass}>
       <div className="shrink-0 space-y-3 border-b border-border p-4 sm:p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -186,7 +187,7 @@ export default function TransactionTasksTab({
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+      <div className={listPageBodyClass}>
         {tasks.length === 0 ? (
           <div className="flex flex-col items-center justify-center px-6 py-12 text-center">
             <p className="text-sm font-medium text-foreground">No tasks match this filter</p>

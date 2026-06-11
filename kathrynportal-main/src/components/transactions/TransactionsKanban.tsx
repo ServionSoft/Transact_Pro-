@@ -1,4 +1,6 @@
+import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { ChevronRight } from "lucide-react";
 import type { ProjectListItem } from "@/api/projects";
 import type { ProjectStage } from "@/data/mockData";
 import { cn } from "@/lib/utils";
@@ -19,28 +21,48 @@ type Props = {
   loading?: boolean;
 };
 
+const COLUMN_CLASS = "flex w-[min(72vw,240px)] shrink-0 flex-col sm:w-[min(68vw,260px)] lg:w-[280px]";
+
+function KanbanBoard({ children }: { children: ReactNode }) {
+  return (
+    <div className="relative min-w-0">
+      <p className="mb-2 flex items-center gap-1 text-[11px] text-muted-foreground lg:hidden">
+        <ChevronRight className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        Swipe sideways to see all stages
+      </p>
+      <div className="-mx-1 flex min-h-0 gap-3 overflow-x-auto overscroll-x-contain px-1 pb-3 snap-x snap-mandatory scroll-px-2 lg:gap-4 lg:pb-2">
+        {children}
+      </div>
+      <div
+        className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-card to-transparent lg:hidden"
+        aria-hidden
+      />
+    </div>
+  );
+}
+
 export default function TransactionsKanban({ rows, search, loading }: Props) {
   if (loading) {
     return (
-      <div className="flex gap-4 overflow-x-auto pb-2">
+      <KanbanBoard>
         {KANBAN_STAGES.map((stage) => (
-          <div key={stage} className="w-[280px] shrink-0 space-y-3">
+          <div key={stage} className={cn(COLUMN_CLASS, "snap-start space-y-3")}>
             <Skeleton className="h-6 w-32 rounded-full" />
             <Skeleton className="h-24 w-full rounded-lg" />
             <Skeleton className="h-24 w-full rounded-lg" />
           </div>
         ))}
-      </div>
+      </KanbanBoard>
     );
   }
 
   return (
-    <div className="flex min-h-0 gap-4 overflow-x-auto pb-2">
+    <KanbanBoard>
       {KANBAN_STAGES.map((stage) => {
         const stageProjects = filterTransactions(rows, search, stage);
         const listingOnly = stage === "Listing Prep" || stage === "Listing Complete";
         return (
-          <div key={stage} className="flex w-[280px] shrink-0 flex-col">
+          <div key={stage} className={cn(COLUMN_CLASS, "snap-start")}>
             <div className="mb-3 flex items-center gap-2 px-1">
               <span
                 className={cn(
@@ -106,6 +128,6 @@ export default function TransactionsKanban({ rows, search, loading }: Props) {
           </div>
         );
       })}
-    </div>
+    </KanbanBoard>
   );
 }

@@ -9,14 +9,16 @@ import {
   Trash2,
   ExternalLink,
   X,
-  MessageSquare,
-  Pencil,
   CloudDownload,
   Folder,
+  MoreHorizontal,
+  Pencil,
 } from "lucide-react";
+import DocumentChecklistNotesPopover from "@/components/documents/DocumentChecklistNotesPopover";
+import DocumentChecklistRowCard from "@/components/documents/DocumentChecklistRowCard";
+import type { DocumentChecklistRow } from "@/components/documents/documentChecklistTypes";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { toast as appToast } from "@/hooks/use-toast";
 import { DOC_STATUS_PRESETS, CRM_DOCUMENT_VAULT_PROJECT_ID, type DocumentStatus, type FileAttachment } from "@/data/mockData";
 import { useAppStore } from "@/store/appStore";
 import { useAuthStore } from "@/store/authStore";
@@ -47,13 +49,26 @@ import StatusBadge from "@/components/shared/StatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { documentChecklistSummary, documentRowAccentClass } from "@/lib/documentChecklistUtils";
+import {
+  embeddedTabBodyClass,
+  embeddedTabFillClass,
+  embeddedTabOverflowHiddenClass,
+  embeddedTabScrollClass,
+  embeddedTabShellClass,
+  transactionDetailTabShellClass,
+} from "@/lib/listPageLayout";
 import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
-import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { hasPermission } from "@/lib/permissions";
 import EsignDraftSheet from "@/components/documents/EsignDraftSheet";
 import { deleteTemplateConfirmOptions, useConfirmDialog } from "@/hooks/useConfirmDialog";
@@ -96,20 +111,7 @@ function esignStatusLabel(status: EsignDocumentDto["status"]): string {
   }
 }
 
-interface DocRow {
-  id: string;
-  name: string;
-  status: DocumentStatus;
-  customStatus?: string;
-  required: boolean;
-  sourceRuleId?: string;
-  sourceRuleActionId?: string;
-  /** Vault `esign_documents.id` when checklist row is linked to a library layout */
-  esignDocumentId?: string;
-  notesCount: number;
-  notes: { id: string; date: string; text: string; author: string; updatedAt?: string }[];
-  attachedFileIds: string[];
-}
+type DocRow = DocumentChecklistRow;
 
 export interface TransactionDocumentsWorkspaceProps {
   projectId: string;
@@ -1190,7 +1192,7 @@ export default function TransactionDocumentsWorkspace({
       await deleteEsignDocumentApi(draft.projectId, draft.id);
       setEsignDrafts((prev) => prev.filter((x) => x.id !== draft.id));
       if (openDraftId === draft.id) setOpenDraftId(null);
-      appToast({ title: "Template deleted." });
+      toast.success("Template deleted.");
     } catch (error) {
       if (
         error instanceof Error &&
@@ -1198,7 +1200,7 @@ export default function TransactionDocumentsWorkspace({
       ) {
         setEsignDrafts((prev) => prev.filter((x) => x.id !== draft.id));
         if (openDraftId === draft.id) setOpenDraftId(null);
-        appToast({ title: "Template already removed." });
+        toast.success("Template already removed.");
         return;
       }
       toast.error(error instanceof Error ? error.message : "Could not delete template.");
@@ -1276,18 +1278,23 @@ export default function TransactionDocumentsWorkspace({
       animate={{ opacity: 1 }}
       className={cn(
         "bg-card border border-border rounded-lg overflow-hidden",
-        embeddedInTransactionTab && "flex min-h-0 flex-1 flex-col",
+        embeddedInTransactionTab && embeddedTabShellClass,
       )}
     >
       <div
         className={cn(
-          "grid grid-cols-1 md:grid-cols-[220px_1fr]",
-          embeddedInTransactionTab ? "min-h-0 flex-1" : "min-h-[360px]",
+          "grid grid-cols-1 lg:grid-cols-[minmax(180px,220px)_1fr]",
+          embeddedInTransactionTab ? embeddedTabFillClass : "lg:min-h-[360px]",
         )}
       >
-        <div className="border-r border-border bg-secondary/20 p-3 flex min-h-0 flex-col">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 px-2 shrink-0">Folders</p>
-          <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto overscroll-contain pr-0.5">
+        <div className="flex max-h-[min(40vh,280px)] min-h-0 flex-col border-b border-border bg-secondary/20 p-3 lg:max-h-none lg:border-b-0 lg:border-r">
+          <p className="mb-2 shrink-0 px-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Folders</p>
+          <div
+            className={cn(
+              "min-h-0 flex-1 space-y-0.5 overflow-y-auto overscroll-contain pr-0.5",
+              embeddedInTransactionTab && embeddedTabScrollClass,
+            )}
+          >
             <button
               type="button"
               onClick={() => setStorageScope("all")}
@@ -1421,7 +1428,7 @@ export default function TransactionDocumentsWorkspace({
         <div
           className={cn(
             "m-2 flex min-h-0 flex-col rounded-lg border-2 border-dashed border-transparent p-4 transition-colors hover:border-border/80",
-            embeddedInTransactionTab && "overflow-hidden",
+            embeddedInTransactionTab && embeddedTabOverflowHiddenClass,
           )}
           onDragOver={(e) => e.preventDefault()}
           onDrop={allowPoolUpload && canUploadDocs ? onPoolDrop : undefined}
@@ -1435,8 +1442,8 @@ export default function TransactionDocumentsWorkspace({
               onChange={onPoolFilesPicked}
             />
           ) : null}
-          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-            <h3 className="font-display font-semibold text-foreground text-sm">
+          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+            <h3 className="font-display text-sm font-semibold text-foreground">
               {storageScope === "all"
                 ? poolListsTemplates
                   ? "All templates"
@@ -1447,7 +1454,13 @@ export default function TransactionDocumentsWorkspace({
               · {poolScopeCount} shown
             </h3>
             {allowPoolUpload ? (
-              <Button size="sm" className="gap-1" type="button" onClick={triggerPoolUpload} disabled={!canUploadDocs}>
+              <Button
+                size="sm"
+                className="w-full shrink-0 gap-1 sm:w-auto"
+                type="button"
+                onClick={triggerPoolUpload}
+                disabled={!canUploadDocs}
+              >
                 <Upload className="w-3 h-3" /> {poolListsTemplates ? "Upload & create template" : "Upload"}
               </Button>
             ) : null}
@@ -1467,8 +1480,8 @@ export default function TransactionDocumentsWorkspace({
             filteredEsignDrafts.length > 0 ? (
               <div
                 className={cn(
-                  "space-y-1",
-                  embeddedInTransactionTab && "min-h-0 flex-1 overflow-y-auto overscroll-contain pr-0.5",
+                  "space-y-2 sm:space-y-1",
+                  embeddedInTransactionTab && cn(embeddedTabScrollClass, "pr-0.5"),
                 )}
               >
                 {filteredEsignDrafts.map((draft) => {
@@ -1478,137 +1491,149 @@ export default function TransactionDocumentsWorkspace({
                   return (
                     <div
                       key={draft.id}
-                      className="flex flex-wrap items-center gap-2 px-3 py-2 rounded hover:bg-secondary/40 transition-colors"
-                    >
-                      <FileText className="w-4 h-4 text-destructive shrink-0" />
-                      {!isRenaming && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 w-7 p-0 shrink-0 text-muted-foreground hover:text-foreground"
-                          disabled={!canMoveDocs}
-                          title={canMoveDocs ? "Rename template" : "No permission to rename templates"}
-                          onClick={() => {
-                            setRenamingTemplateId(draft.id);
-                            setRenamingFileId(null);
-                            setRenameDraft(draft.title);
-                          }}
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                        </Button>
+                      className={cn(
+                        "space-y-2.5 rounded-lg border border-border/60 bg-muted/10 p-3 transition-colors hover:bg-secondary/40",
+                        "sm:space-y-0 sm:rounded sm:border-0 sm:bg-transparent sm:p-2 sm:flex sm:flex-wrap sm:items-center sm:gap-2",
                       )}
-                      <div className="flex-1 min-w-0">
-                        {isRenaming ? (
-                          <div className="space-y-1.5">
-                            <Input
-                              value={renameDraft}
-                              onChange={(e) => setRenameDraft(e.target.value)}
-                              className="h-8 text-xs"
-                              maxLength={512}
-                              autoFocus
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  void commitRenameTemplate(draft);
-                                }
-                                if (e.key === "Escape") {
-                                  e.preventDefault();
-                                  cancelRenamePoolFile();
-                                }
-                              }}
-                            />
-                            <div className="flex gap-1.5">
-                              <Button
-                                type="button"
-                                size="sm"
-                                className="h-7 text-xs px-2"
-                                onClick={() => void commitRenameTemplate(draft)}
-                              >
-                                Save
-                              </Button>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                className="h-7 text-xs px-2"
-                                onClick={cancelRenamePoolFile}
-                              >
-                                Cancel
-                              </Button>
-                            </div>
-                          </div>
-                        ) : (
-                          <>
-                            <p className="text-sm font-medium text-foreground truncate">{draft.title}</p>
-                            <p className="text-[11px] text-muted-foreground">
-                              {linkedFile
-                                ? `${linkedFile.size}${linkedFile.uploadedAt ? ` · ${linkedFile.uploadedAt}` : ""}`
-                                : "Source file processing…"}
-                            </p>
-                          </>
+                    >
+                      <div className="flex min-w-0 items-start gap-2 sm:min-w-[12rem] sm:flex-1">
+                        <FileText className="h-4 w-4 shrink-0 text-destructive" />
+                        {!isRenaming && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 shrink-0 p-0 text-muted-foreground hover:text-foreground"
+                            disabled={!canMoveDocs}
+                            title={canMoveDocs ? "Rename template" : "No permission to rename templates"}
+                            onClick={() => {
+                              setRenamingTemplateId(draft.id);
+                              setRenamingFileId(null);
+                              setRenameDraft(draft.title);
+                            }}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
                         )}
+                        <div className="min-w-0 flex-1">
+                          {isRenaming ? (
+                            <div className="space-y-1.5">
+                              <Input
+                                value={renameDraft}
+                                onChange={(e) => setRenameDraft(e.target.value)}
+                                className="h-8 text-xs"
+                                maxLength={512}
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    void commitRenameTemplate(draft);
+                                  }
+                                  if (e.key === "Escape") {
+                                    e.preventDefault();
+                                    cancelRenamePoolFile();
+                                  }
+                                }}
+                              />
+                              <div className="flex gap-1.5">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={() => void commitRenameTemplate(draft)}
+                                >
+                                  Save
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={cancelRenamePoolFile}
+                                >
+                                  Cancel
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <p className="truncate text-sm font-medium text-foreground">{draft.title}</p>
+                              <p className="text-[11px] text-muted-foreground">
+                                {linkedFile
+                                  ? `${linkedFile.size}${linkedFile.uploadedAt ? ` · ${linkedFile.uploadedAt}` : ""}`
+                                  : "Source file processing…"}
+                              </p>
+                            </>
+                          )}
+                        </div>
                       </div>
-                      <Badge
-                        variant={draft.status === "ready_for_send" ? "default" : "secondary"}
-                        className="text-[10px] shrink-0"
-                      >
-                        {esignStatusLabel(draft.status)}
-                      </Badge>
-                      <Select
-                        value={folderId ?? "__inbox__"}
-                        onValueChange={(v) => {
-                          if (!linkedFile) return;
-                          void movePoolFileToFolder(linkedFile, v === "__inbox__" ? null : v);
-                        }}
-                        disabled={!canMoveDocs || !linkedFile || isRenaming}
-                      >
-                        <SelectTrigger className="h-7 w-[140px] text-xs shrink-0">
-                          <SelectValue placeholder="Folder" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__inbox__" className="text-xs">
-                            Inbox (unfiled)
-                          </SelectItem>
-                          {folders.map((f) => (
-                            <SelectItem key={f.id} value={f.id} className="text-xs">
-                              {f.parentId ? `↳ ${f.name}` : f.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 px-2 text-xs shrink-0"
-                        type="button"
-                        disabled={isRenaming}
-                        onClick={() => openEsignTemplate(draft.id)}
-                      >
-                        Open
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={!canDownloadDocs || isRenaming}
-                        className="h-7 w-7 p-0"
-                        type="button"
-                        onClick={() => downloadEsignTemplate(draft)}
-                        title="Download PDF"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={!canDeleteDocs || isRenaming}
-                        className="h-7 w-7 p-0 text-destructive"
-                        type="button"
-                        onClick={() => void removeEsignTemplate(draft)}
-                        title="Delete template"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
+                      {!isRenaming ? (
+                        <div className="flex flex-col gap-2 sm:contents">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge
+                              variant={draft.status === "ready_for_send" ? "default" : "secondary"}
+                              className="shrink-0 text-[10px]"
+                            >
+                              {esignStatusLabel(draft.status)}
+                            </Badge>
+                            <Select
+                              value={folderId ?? "__inbox__"}
+                              onValueChange={(v) => {
+                                if (!linkedFile) return;
+                                void movePoolFileToFolder(linkedFile, v === "__inbox__" ? null : v);
+                              }}
+                              disabled={!canMoveDocs || !linkedFile}
+                            >
+                              <SelectTrigger className="h-7 w-full min-w-0 text-xs sm:w-[140px] sm:shrink-0">
+                                <SelectValue placeholder="Folder" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__inbox__" className="text-xs">
+                                  Inbox (unfiled)
+                                </SelectItem>
+                                {folders.map((f) => (
+                                  <SelectItem key={f.id} value={f.id} className="text-xs">
+                                    {f.parentId ? `↳ ${f.name}` : f.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="flex items-center justify-end gap-1 sm:shrink-0">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs"
+                              type="button"
+                              onClick={() => openEsignTemplate(draft.id)}
+                            >
+                              Open
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={!canDownloadDocs}
+                              className="h-7 w-7 p-0"
+                              type="button"
+                              onClick={() => downloadEsignTemplate(draft)}
+                              title="Download PDF"
+                            >
+                              <Download className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={!canDeleteDocs}
+                              className="h-7 w-7 p-0 text-destructive"
+                              type="button"
+                              onClick={() => void removeEsignTemplate(draft)}
+                              title="Delete template"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   );
                 })}
@@ -1625,135 +1650,149 @@ export default function TransactionDocumentsWorkspace({
           ) : filteredPoolFiles.length > 0 ? (
             <div
               className={cn(
-                "space-y-1",
-                embeddedInTransactionTab && "min-h-0 flex-1 overflow-y-auto overscroll-contain pr-0.5",
+                "space-y-2 sm:space-y-1",
+                embeddedInTransactionTab && cn(embeddedTabScrollClass, "pr-0.5"),
               )}
             >
-              {filteredPoolFiles.map((file) => (
+              {filteredPoolFiles.map((file) => {
+                const isRenaming = renamingFileId === file.id;
+                return (
                 <div
                   key={file.id}
-                  className="flex flex-wrap items-center gap-2 px-3 py-2 rounded hover:bg-secondary/40 transition-colors"
-                >
-                  <FileText className="w-4 h-4 text-destructive shrink-0" />
-                  {renamingFileId !== file.id && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 w-7 p-0 shrink-0 text-muted-foreground hover:text-foreground"
-                      disabled={!canMoveDocs}
-                      title={canMoveDocs ? "Rename file" : "No permission to rename files"}
-                      onClick={() => {
-                        setRenamingFileId(file.id);
-                        setRenamingTemplateId(null);
-                        setRenameDraft(file.name);
-                      }}
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </Button>
+                  className={cn(
+                    "space-y-2.5 rounded-lg border border-border/60 bg-muted/10 p-3 transition-colors hover:bg-secondary/40",
+                    "sm:space-y-0 sm:rounded sm:border-0 sm:bg-transparent sm:p-2 sm:flex sm:flex-wrap sm:items-center sm:gap-2",
                   )}
-                  <div className="flex-1 min-w-0">
-                    {renamingFileId === file.id ? (
-                      <div className="space-y-1.5">
-                        <Input
-                          value={renameDraft}
-                          onChange={(e) => setRenameDraft(e.target.value)}
-                          className="h-8 text-xs"
-                          maxLength={512}
-                          autoFocus
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              void commitRenamePoolFile(file);
-                            }
-                            if (e.key === "Escape") {
-                              e.preventDefault();
-                              cancelRenamePoolFile();
-                            }
-                          }}
-                        />
-                        <div className="flex gap-1.5">
-                          <Button
-                            type="button"
-                            size="sm"
-                            className="h-7 text-xs px-2"
-                            onClick={() => void commitRenamePoolFile(file)}
-                          >
-                            Save
-                          </Button>
-                          <Button type="button" size="sm" variant="outline" className="h-7 text-xs px-2" onClick={cancelRenamePoolFile}>
-                            Cancel
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <p className="text-sm font-medium text-foreground truncate">{file.name}</p>
-                        <p className="text-[11px] text-muted-foreground">
-                          {file.size} • {file.uploadedAt} • {file.uploadedBy}
-                        </p>
-                      </>
+                >
+                  <div className="flex min-w-0 items-start gap-2 sm:min-w-[12rem] sm:flex-1">
+                    <FileText className="h-4 w-4 shrink-0 text-destructive" />
+                    {!isRenaming && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 shrink-0 p-0 text-muted-foreground hover:text-foreground"
+                        disabled={!canMoveDocs}
+                        title={canMoveDocs ? "Rename file" : "No permission to rename files"}
+                        onClick={() => {
+                          setRenamingFileId(file.id);
+                          setRenamingTemplateId(null);
+                          setRenameDraft(file.name);
+                        }}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
                     )}
+                    <div className="min-w-0 flex-1">
+                      {isRenaming ? (
+                        <div className="space-y-1.5">
+                          <Input
+                            value={renameDraft}
+                            onChange={(e) => setRenameDraft(e.target.value)}
+                            className="h-8 text-xs"
+                            maxLength={512}
+                            autoFocus
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                void commitRenamePoolFile(file);
+                              }
+                              if (e.key === "Escape") {
+                                e.preventDefault();
+                                cancelRenamePoolFile();
+                              }
+                            }}
+                          />
+                          <div className="flex gap-1.5">
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              onClick={() => void commitRenamePoolFile(file)}
+                            >
+                              Save
+                            </Button>
+                            <Button type="button" size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={cancelRenamePoolFile}>
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <p className="truncate text-sm font-medium text-foreground">{file.name}</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            {file.size} • {file.uploadedAt} • {file.uploadedBy}
+                          </p>
+                        </>
+                      )}
+                    </div>
                   </div>
-                  <Select
-                    value={file.folderId ?? "__inbox__"}
-                    onValueChange={(v) => {
-                      void movePoolFileToFolder(file, v === "__inbox__" ? null : v);
-                    }}
-                    disabled={!canMoveDocs || renamingFileId === file.id}
-                  >
-                    <SelectTrigger className="h-7 w-[140px] text-xs shrink-0">
-                      <SelectValue placeholder="Folder" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__inbox__" className="text-xs">
-                        Inbox (unfiled)
-                      </SelectItem>
-                      {folders.map((f) => (
-                        <SelectItem key={f.id} value={f.id} className="text-xs">
-                          {f.parentId ? `↳ ${f.name}` : f.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled
-                    title={
-                      view === "full"
-                        ? "Link this file to a checklist row, then use DocuSign from that row."
-                        : "Send this file with DocuSign — coming soon."
-                    }
-                    className="h-7 px-2 text-xs gap-1 opacity-50 cursor-not-allowed"
-                    type="button"
-                  >
-                    <ExternalLink className="w-3 h-3" /> DocuSign
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={!canDownloadDocs || renamingFileId === file.id}
-                    className="h-7 w-7 p-0"
-                    type="button"
-                    onClick={() => void downloadPoolFile(file)}
-                    title="Download"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={!canDeleteDocs || renamingFileId === file.id}
-                    className="h-7 w-7 p-0 text-destructive"
-                    type="button"
-                    onClick={() => removePoolFile(file)}
-                    title="Remove from pool"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
+                  {!isRenaming ? (
+                    <div className="flex flex-col gap-2 sm:contents">
+                      <Select
+                        value={file.folderId ?? "__inbox__"}
+                        onValueChange={(v) => {
+                          void movePoolFileToFolder(file, v === "__inbox__" ? null : v);
+                        }}
+                        disabled={!canMoveDocs}
+                      >
+                        <SelectTrigger className="h-7 w-full min-w-0 text-xs sm:w-[140px] sm:shrink-0">
+                          <SelectValue placeholder="Folder" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__inbox__" className="text-xs">
+                            Inbox (unfiled)
+                          </SelectItem>
+                          {folders.map((f) => (
+                            <SelectItem key={f.id} value={f.id} className="text-xs">
+                              {f.parentId ? `↳ ${f.name}` : f.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <div className="flex flex-wrap items-center justify-end gap-1 sm:shrink-0">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled
+                          title={
+                            view === "full"
+                              ? "Link this file to a checklist row, then use DocuSign from that row."
+                              : "Send this file with DocuSign — coming soon."
+                          }
+                          className="h-7 cursor-not-allowed gap-1 px-2 text-xs opacity-50"
+                          type="button"
+                        >
+                          <ExternalLink className="h-3 w-3" /> DocuSign
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={!canDownloadDocs}
+                          className="h-7 w-7 p-0"
+                          type="button"
+                          onClick={() => void downloadPoolFile(file)}
+                          title="Download"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={!canDeleteDocs}
+                          className="h-7 w-7 p-0 text-destructive"
+                          type="button"
+                          onClick={() => removePoolFile(file)}
+                          title="Remove from pool"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
-              ))}
+              );
+              })}
             </div>
           ) : (
             <div className="px-6 py-12 text-center">
@@ -1772,13 +1811,17 @@ export default function TransactionDocumentsWorkspace({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       className={cn(
-        embeddedInTransactionTab ? "flex min-h-0 flex-1 flex-col overflow-hidden" : view === "full" ? "pb-8" : "pb-24",
+        embeddedInTransactionTab
+          ? cn(embeddedTabShellClass, embeddedTabOverflowHiddenClass)
+          : view === "full"
+            ? "pb-8"
+            : "pb-24",
       )}
     >
       <div
         className={cn(
-          "bg-card border border-border rounded-lg overflow-hidden",
-          embeddedInTransactionTab && "flex min-h-0 flex-1 flex-col",
+          "bg-card border border-border rounded-lg overflow-x-hidden lg:overflow-hidden",
+          embeddedInTransactionTab && embeddedTabShellClass,
         )}
       >
         <div className="shrink-0 space-y-2 border-b border-border px-4 py-3">
@@ -1811,18 +1854,93 @@ export default function TransactionDocumentsWorkspace({
         </div>
         <div
           className={cn(
-            embeddedInTransactionTab ? "min-h-0 flex-1 overflow-y-auto overscroll-contain" : "overflow-x-auto",
+            embeddedInTransactionTab
+              ? embeddedTabBodyClass
+              : "overflow-x-hidden overflow-y-auto overscroll-contain",
           )}
         >
+          <div className="space-y-3 p-3 touch-pan-y xl:hidden">
+            <label className="flex items-center gap-2 border-b border-border/60 pb-2 text-xs text-muted-foreground">
+              <Checkbox
+                checked={selected.size === docs.length && docs.length > 0}
+                onCheckedChange={toggleSelectAll}
+                aria-label="Select all documents"
+              />
+              Select all
+            </label>
+            {docs.map((doc) => (
+              <DocumentChecklistRowCard
+                key={doc.id}
+                doc={doc}
+                attachments={project.attachments ?? []}
+                selected={selected.has(doc.id)}
+                onToggleSelect={() => toggleSelect(doc.id)}
+                onStatusChange={(status, customStatus) => updateDocStatus(doc.id, status, customStatus)}
+                onDetachFile={(fid) => detachStoredFileFromDocumentStore(project.id, doc.id, fid)}
+                onAttach={() => openAttachSheet(doc.id)}
+                onDocuSignSend={() => openDocuSignSingle(doc)}
+                onDocuSignPull={
+                  getApiBaseUrl() && doc.esignDocumentId?.trim()
+                    ? () => void pullDocuSignImportForRow(doc)
+                    : undefined
+                }
+                pullingDocuSign={pullingEsignForDocId === doc.id}
+                showDocuSignPull={Boolean(getApiBaseUrl() && doc.esignDocumentId?.trim())}
+                onUpload={() => openChecklistFilePicker(doc.id)}
+                onDownload={() => downloadDocFirst(doc)}
+                onDelete={() => removeChecklistDoc(doc)}
+                canUpload={canUploadDocs}
+                canDownload={canDownloadDocs}
+                docNoteDrafts={docNoteDrafts}
+                onDocNoteDraftChange={(docId, value) =>
+                  setDocNoteDrafts((prev) => ({ ...prev, [docId]: value }))
+                }
+                editingDocNote={editingDocNote}
+                editDocNoteBody={editDocNoteBody}
+                onEditDocNoteBodyChange={setEditDocNoteBody}
+                docNoteActionKey={docNoteActionKey}
+                savingDocNoteId={savingDocNoteId}
+                onStartEditNote={startEditDocumentNote}
+                onCancelEditNote={cancelEditDocumentNote}
+                onUpdateNote={updateDocumentNote}
+                onDeleteNote={deleteDocumentNote}
+                onSaveNote={saveDocumentNote}
+              />
+            ))}
+            <div className="space-y-2 rounded-lg border border-border/60 bg-secondary/20 p-3">
+              <Input
+                value={newDocName}
+                onChange={(e) => setNewDocName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") addCustomDoc();
+                }}
+                placeholder="+ Add custom document to this checklist..."
+                className="h-8 text-xs"
+              />
+              <Button size="sm" onClick={addCustomDoc} className="h-8 w-full gap-1 text-xs sm:w-auto">
+                <Plus className="h-3 w-3" /> Add
+              </Button>
+            </div>
+          </div>
+
+          <div className="hidden overflow-x-hidden xl:block">
           <table className="w-full text-sm">
+            <colgroup>
+              <col className="w-10" />
+              <col className="w-[min(28%,16rem)]" />
+              <col className="w-[11rem]" />
+              <col />
+              <col className="w-[8.5rem]" />
+              <col className="w-[5.25rem]" />
+            </colgroup>
             <thead
               className={cn(
                 "bg-secondary/40 text-xs text-muted-foreground uppercase tracking-wider",
-                embeddedInTransactionTab && "sticky top-0 z-10 bg-secondary/95 backdrop-blur-sm",
+                embeddedInTransactionTab && "lg:sticky lg:top-0 lg:z-10 lg:bg-secondary/95 lg:backdrop-blur-sm",
               )}
             >
               <tr>
-                <th className="px-3 py-2 w-8">
+                <th className="px-3 py-2">
                   <Checkbox
                     checked={selected.size === docs.length && docs.length > 0}
                     onCheckedChange={toggleSelectAll}
@@ -1830,13 +1948,10 @@ export default function TransactionDocumentsWorkspace({
                   />
                 </th>
                 <th className="px-3 py-2 text-left font-medium">Document</th>
-                <th className="px-3 py-2 text-left font-medium w-[200px]">Status</th>
-                <th className="px-3 py-2 text-center font-medium w-12">Notes</th>
-                <th className="px-3 py-2 text-left font-medium min-w-[180px]">Pool files</th>
-                <th className="px-3 py-2 text-center font-medium w-28">DocuSign</th>
-                <th className="px-3 py-2 text-center font-medium w-12">Upload</th>
-                <th className="px-3 py-2 text-center font-medium w-12">Download</th>
-                <th className="px-3 py-2 text-center font-medium w-12">Delete</th>
+                <th className="px-3 py-2 text-left font-medium">Status</th>
+                <th className="px-3 py-2 text-left font-medium">Pool files</th>
+                <th className="px-3 py-2 text-center font-medium">DocuSign</th>
+                <th className="px-2 py-2 text-center font-medium">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -1857,30 +1972,32 @@ export default function TransactionDocumentsWorkspace({
                     />
                   </td>
                   <td className="px-3 py-1.5">
-                    <div className="flex items-center gap-2">
-                      <span className="text-foreground font-medium truncate">{doc.name}</span>
-                      {doc.required ? (
-                        <Badge variant="destructive" className="h-4 px-1 text-[9px] font-semibold uppercase tracking-wide">
-                          Req
-                        </Badge>
-                      ) : null}
-                      {doc.sourceRuleId ? (
-                        <Badge variant="secondary" className="h-4 px-1 text-[9px] font-semibold">
-                          rule #{doc.sourceRuleId}
-                        </Badge>
-                      ) : null}
-                      {embeddedInTransactionTab ? (
-                        <StatusBadge status={doc.status} className="hidden text-[10px] sm:inline-flex sm:px-1.5 sm:py-0" />
-                      ) : null}
+                    <div className="min-w-0 space-y-1">
+                      <p className="truncate font-medium text-foreground" title={doc.name}>
+                        {doc.name}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-1">
+                        {doc.required ? (
+                          <Badge variant="destructive" className="h-4 px-1 text-[9px] font-semibold uppercase tracking-wide">
+                            Req
+                          </Badge>
+                        ) : null}
+                        {doc.sourceRuleId ? (
+                          <Badge variant="secondary" className="h-4 px-1 text-[9px] font-semibold">
+                            rule #{doc.sourceRuleId}
+                          </Badge>
+                        ) : null}
+                        <StatusBadge status={doc.status} className="text-[10px] sm:px-1.5 sm:py-0" />
+                      </div>
                     </div>
                   </td>
                   <td className="px-3 py-1.5">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex flex-col gap-1.5">
                       <Select
                         value={doc.status}
                         onValueChange={(v) => updateDocStatus(doc.id, v as DocumentStatus, doc.customStatus)}
                       >
-                        <SelectTrigger className="h-7 text-xs">
+                        <SelectTrigger className="h-7 w-full max-w-[10rem] text-xs">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -1901,125 +2018,8 @@ export default function TransactionDocumentsWorkspace({
                       )}
                     </div>
                   </td>
-                  <td className="px-3 py-1.5 text-center">
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <button
-                          type="button"
-                          className="relative inline-flex items-center justify-center w-7 h-7 rounded hover:bg-muted transition-colors"
-                        >
-                          <MessageSquare className="w-3.5 h-3.5 text-muted-foreground" />
-                          {doc.notesCount > 0 && (
-                            <span className="absolute -top-1 -right-1 text-[9px] bg-accent text-accent-foreground rounded-full w-4 h-4 flex items-center justify-center font-bold">
-                              {doc.notesCount}
-                            </span>
-                          )}
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-80" align="end">
-                        <p className="text-xs font-semibold mb-2">Notes — {doc.name}</p>
-                        <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                          {doc.notes.length === 0 ? (
-                            <p className="text-xs text-muted-foreground">No notes yet.</p>
-                          ) : (
-                            doc.notes.map((n) => {
-                              const isEditing = editingDocNote?.docId === doc.id && editingDocNote.noteId === n.id;
-                              const editLoading = docNoteActionKey === `edit:${doc.id}:${n.id}`;
-                              const deleteLoading = docNoteActionKey === `delete:${doc.id}:${n.id}`;
-                              return (
-                                <div key={n.id} className="rounded border border-border bg-secondary/20 p-2">
-                                  <div className="flex items-start justify-between gap-1">
-                                    <p className="text-[10px] text-muted-foreground">
-                                      {n.date}
-                                      {n.updatedAt && n.updatedAt !== n.date ? (
-                                        <span className="italic"> · edited {n.updatedAt}</span>
-                                      ) : null}
-                                      <span> · {n.author}</span>
-                                    </p>
-                                    {!isEditing ? (
-                                      <div className="flex shrink-0 gap-0.5">
-                                        <button
-                                          type="button"
-                                          className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-                                          aria-label="Edit note"
-                                          disabled={Boolean(docNoteActionKey)}
-                                          onClick={() => startEditDocumentNote(doc.id, n)}
-                                        >
-                                          <Pencil className="h-3 w-3" />
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className="inline-flex h-6 w-6 items-center justify-center rounded text-destructive hover:bg-destructive/10"
-                                          aria-label="Delete note"
-                                          disabled={Boolean(docNoteActionKey)}
-                                          onClick={() => void deleteDocumentNote(doc, n.id)}
-                                        >
-                                          <Trash2 className="h-3 w-3" />
-                                        </button>
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                  {isEditing ? (
-                                    <div className="mt-1.5 space-y-1.5">
-                                      <Textarea
-                                        rows={3}
-                                        className="text-xs"
-                                        value={editDocNoteBody}
-                                        onChange={(e) => setEditDocNoteBody(e.target.value)}
-                                      />
-                                      <div className="flex justify-end gap-1">
-                                        <Button
-                                          type="button"
-                                          size="sm"
-                                          variant="outline"
-                                          className="h-7 px-2 text-xs"
-                                          onClick={cancelEditDocumentNote}
-                                          disabled={editLoading}
-                                        >
-                                          Cancel
-                                        </Button>
-                                        <Button
-                                          type="button"
-                                          size="sm"
-                                          className="h-7 px-2 text-xs"
-                                          onClick={() => updateDocumentNote(doc, n.id)}
-                                          disabled={editLoading || !editDocNoteBody.trim()}
-                                        >
-                                          {editLoading ? "Saving..." : "Save"}
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <p className="mt-1 whitespace-pre-wrap text-xs text-foreground">{n.text}</p>
-                                  )}
-                                  {deleteLoading ? (
-                                    <p className="mt-1 text-[10px] text-muted-foreground">Deleting...</p>
-                                  ) : null}
-                                </div>
-                              );
-                            })
-                          )}
-                        </div>
-                        <Textarea
-                          placeholder="Add a note..."
-                          rows={3}
-                          className="text-xs mt-2"
-                          value={docNoteDrafts[doc.id] ?? ""}
-                          onChange={(e) => setDocNoteDrafts((prev) => ({ ...prev, [doc.id]: e.target.value }))}
-                        />
-                        <Button
-                          size="sm"
-                          className="mt-2 w-full"
-                          onClick={() => saveDocumentNote(doc)}
-                          disabled={savingDocNoteId === doc.id}
-                        >
-                          Save Note
-                        </Button>
-                      </PopoverContent>
-                    </Popover>
-                  </td>
                   <td className="px-3 py-1.5 align-top">
-                    <div className="flex flex-wrap gap-1 items-center max-w-[240px]">
+                    <div className="flex flex-wrap items-center gap-1">
                       {doc.attachedFileIds.map((fid) => {
                         const f = project.attachments.find((a) => a.id === fid);
                         return (
@@ -2052,76 +2052,87 @@ export default function TransactionDocumentsWorkspace({
                     </div>
                   </td>
                   <td className="px-3 py-1.5 text-center">
-                    <div className="flex flex-col items-center gap-1">
+                    <div className="flex flex-wrap items-center justify-center gap-0.5">
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-7 px-2 text-xs gap-1 text-primary hover:bg-primary/10"
+                        className="h-7 gap-1 px-2 text-xs text-primary hover:bg-primary/10"
                         type="button"
                         onClick={() => openDocuSignSingle(doc)}
                       >
-                        <ExternalLink className="w-3 h-3" /> Send
+                        <ExternalLink className="h-3 w-3 shrink-0" /> Send
                       </Button>
                       {getApiBaseUrl() && doc.esignDocumentId?.trim() ? (
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-7 px-1.5 text-[10px] gap-0.5 text-muted-foreground hover:text-foreground"
+                          className="h-7 gap-0.5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground"
                           type="button"
                           disabled={pullingEsignForDocId === doc.id}
                           title="Import signed PDF from DocuSign (use when Connect cannot reach your API, e.g. localhost)"
                           onClick={() => void pullDocuSignImportForRow(doc)}
                         >
-                          <CloudDownload className="w-3 h-3 shrink-0" />
+                          <CloudDownload className="h-3 w-3 shrink-0" />
                           {pullingEsignForDocId === doc.id ? "…" : "Pull"}
                         </Button>
                       ) : null}
                     </div>
                   </td>
-                  <td className="px-3 py-1.5 text-center">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={!canUploadDocs}
-                      className="h-7 w-7 p-0"
-                      type="button"
-                      onClick={() => openChecklistFilePicker(doc.id)}
-                      title="Upload PDF or Word and link to this row"
-                    >
-                      <Upload className="w-3.5 h-3.5" />
-                    </Button>
-                  </td>
-                  <td className="px-3 py-1.5 text-center">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 w-7 p-0"
-                      type="button"
-                      onClick={() => downloadDocFirst(doc)}
-                      disabled={!canDownloadDocs || doc.attachedFileIds.length === 0}
-                      title="Download first linked file"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                    </Button>
-                  </td>
-                  <td className="px-3 py-1.5 text-center">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 w-7 p-0 text-destructive"
-                      type="button"
-                      disabled={doc.required}
-                      onClick={() => removeChecklistDoc(doc)}
-                      title={doc.required ? "Required rows cannot be deleted" : "Delete checklist row"}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
+                  <td className="px-2 py-1.5 text-center">
+                    <div className="flex items-center justify-center gap-0.5">
+                      <DocumentChecklistNotesPopover
+                        doc={doc}
+                        docNoteDrafts={docNoteDrafts}
+                        onDocNoteDraftChange={(docId, value) =>
+                          setDocNoteDrafts((prev) => ({ ...prev, [docId]: value }))
+                        }
+                        editingDocNote={editingDocNote}
+                        editDocNoteBody={editDocNoteBody}
+                        onEditDocNoteBodyChange={setEditDocNoteBody}
+                        docNoteActionKey={docNoteActionKey}
+                        savingDocNoteId={savingDocNoteId}
+                        onStartEdit={startEditDocumentNote}
+                        onCancelEdit={cancelEditDocumentNote}
+                        onUpdateNote={updateDocumentNote}
+                        onDeleteNote={deleteDocumentNote}
+                        onSaveNote={saveDocumentNote}
+                      />
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" aria-label="More actions">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-44">
+                          <DropdownMenuItem
+                            disabled={!canUploadDocs}
+                            onClick={() => openChecklistFilePicker(doc.id)}
+                          >
+                            Upload file
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={!canDownloadDocs || doc.attachedFileIds.length === 0}
+                            onClick={() => downloadDocFirst(doc)}
+                          >
+                            Download file
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            disabled={doc.required}
+                            className="text-destructive focus:text-destructive"
+                            onClick={() => removeChecklistDoc(doc)}
+                          >
+                            Delete row
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   </td>
                 </tr>
               ))}
               <tr className="bg-secondary/20">
                 <td className="px-3 py-2" />
-                <td className="px-3 py-2" colSpan={8}>
+                <td className="px-3 py-2" colSpan={5}>
                   <div className="flex items-center gap-2">
                     <Input
                       value={newDocName}
@@ -2140,6 +2151,7 @@ export default function TransactionDocumentsWorkspace({
               </tr>
             </tbody>
           </table>
+          </div>
         </div>
       </div>
 
@@ -2147,7 +2159,7 @@ export default function TransactionDocumentsWorkspace({
         <motion.div
           initial={{ y: 60, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-foreground text-background shadow-2xl rounded-xl px-4 py-3 flex items-center gap-3 z-50 border border-border max-w-[95vw] flex-wrap"
+          className="fixed bottom-[max(1.5rem,env(safe-area-inset-bottom,0px))] left-1/2 z-50 flex max-w-[95vw] -translate-x-1/2 flex-wrap items-center gap-3 rounded-xl border border-border bg-foreground px-4 py-3 text-background shadow-2xl"
         >
           <span className="text-sm font-semibold whitespace-nowrap">
             {selected.size} document{selected.size > 1 ? "s" : ""} selected
@@ -2211,7 +2223,7 @@ export default function TransactionDocumentsWorkspace({
       )}
       {view === "pool-only" && (
         embeddedInTransactionTab ? (
-          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden" aria-label="eSign templates">
+          <div className={cn(transactionDetailTabShellClass, "gap-3")} aria-label="eSign templates">
             {poolSection}
           </div>
         ) : (

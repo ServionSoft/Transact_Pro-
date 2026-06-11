@@ -29,6 +29,7 @@ import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { changePasswordApi } from "@/api/auth";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 export default function SettingsPage() {
   const location = useLocation();
@@ -72,7 +73,9 @@ export default function SettingsPage() {
     (s) => s.user?.role === "super_admin" || s.user?.permissions?.includes("team_members.invite")
   );
   const [activeTab, setActiveTab] = useState("templates");
+  const isMobile = useIsMobile();
   const apiOn = Boolean(getApiBaseUrl());
+  const activeSettingsTab = settingsTabs.find((tab) => tab.id === activeTab);
 
   useEffect(() => {
     const tab = (location.state as { activeTab?: string } | null)?.activeTab;
@@ -277,43 +280,58 @@ export default function SettingsPage() {
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="mx-auto flex min-h-0 flex-1 w-full max-w-6xl flex-col overflow-hidden p-6 sm:p-8"
+      className="page-padding mx-auto w-full max-w-6xl pb-8"
     >
       <div className="shrink-0 space-y-4">
         <PageHeader title="Settings" subtitle="Manage templates, team members, and account preferences." />
 
-        <div className="-mx-1 flex gap-1 overflow-x-auto border-b border-border pb-px">
-          {settingsTabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={cn(
-                "flex shrink-0 items-center gap-2 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors sm:px-4",
-                activeTab === tab.id
-                  ? "border-accent text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <tab.icon className="h-4 w-4 shrink-0" />
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        {isMobile ? (
+          <Select value={activeTab} onValueChange={setActiveTab}>
+            <SelectTrigger className="h-11 w-full" aria-label="Settings section">
+              <SelectValue>
+                {activeSettingsTab ? (
+                  <span className="flex items-center gap-2">
+                    <activeSettingsTab.icon className="h-4 w-4 shrink-0" />
+                    {activeSettingsTab.label}
+                  </span>
+                ) : null}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {settingsTabs.map((tab) => (
+                <SelectItem key={tab.id} value={tab.id}>
+                  <span className="flex items-center gap-2">
+                    <tab.icon className="h-4 w-4 shrink-0" />
+                    {tab.label}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <div className="-mx-1 flex gap-1 overflow-x-auto border-b border-border pb-px">
+            {settingsTabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={cn(
+                  "flex shrink-0 items-center gap-2 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors sm:px-4",
+                  activeTab === tab.id
+                    ? "border-accent text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <tab.icon className="h-4 w-4 shrink-0" />
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
-      <div
-        className={cn(
-          "mt-4 flex min-h-0 min-w-0 flex-1 flex-col rounded-xl border border-border bg-card shadow-sm",
-          activeTab === "formatting" ? "overflow-hidden" : "overflow-x-hidden overflow-y-auto overscroll-contain",
-        )}
-      >
-        <div
-          className={cn(
-            "min-w-0 p-4 sm:p-5",
-            activeTab === "formatting" ? "flex min-h-0 flex-1 flex-col overflow-hidden" : "",
-          )}
-        >
+      <div className="mt-4 min-w-0 rounded-xl border border-border bg-card shadow-sm">
+        <div className="min-w-0 p-4 sm:p-5">
       {/* Email Templates Tab */}
       {activeTab === "templates" && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>

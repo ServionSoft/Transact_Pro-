@@ -54,16 +54,17 @@ export default function TransactionsTable({ rows, clientEmailById, loading }: Pr
   const navigate = useNavigate();
 
   return (
+    <div className="min-w-0 overflow-x-auto">
     <Table>
       <TableHeader>
         <TableRow className="hover:bg-transparent">
-          <TableHead className="min-w-[200px]">Property</TableHead>
-          <TableHead>Contact</TableHead>
-          <TableHead>Type</TableHead>
+          <TableHead className="min-w-[160px]">Property</TableHead>
+          <TableHead className="hidden md:table-cell">Contact</TableHead>
+          <TableHead className="hidden lg:table-cell">Type</TableHead>
           <TableHead>Stage</TableHead>
-          <TableHead className="hidden lg:table-cell">List price</TableHead>
-          <TableHead className="min-w-[120px]">Documents</TableHead>
-          <TableHead className="min-w-[140px]">Next step</TableHead>
+          <TableHead className="hidden xl:table-cell">List price</TableHead>
+          <TableHead className="hidden lg:table-cell min-w-[100px]">Documents</TableHead>
+          <TableHead className="hidden xl:table-cell min-w-[120px]">Next step</TableHead>
           <TableHead className="w-12 text-right">
             <span className="sr-only">Actions</span>
           </TableHead>
@@ -88,23 +89,23 @@ export default function TransactionsTable({ rows, clientEmailById, loading }: Pr
                     <p className="text-xs text-muted-foreground">{propertySubline(project.propertyAddress)}</p>
                   ) : null}
                 </TableCell>
-                <TableCell className="text-sm text-foreground">{project.clientName}</TableCell>
-                <TableCell className="text-sm text-muted-foreground">{project.type}</TableCell>
+                <TableCell className="hidden text-sm text-foreground md:table-cell">{project.clientName}</TableCell>
+                <TableCell className="hidden text-sm text-muted-foreground lg:table-cell">{project.type}</TableCell>
                 <TableCell>
                   <StatusBadge status={project.stage} type="stage" />
                 </TableCell>
-                <TableCell className="hidden text-sm font-medium tabular-nums lg:table-cell">
+                <TableCell className="hidden text-sm font-medium tabular-nums xl:table-cell">
                   {project.listPrice || "—"}
                 </TableCell>
-                <TableCell>
-                  <div className="space-y-1.5 min-w-[100px]">
+                <TableCell className="hidden lg:table-cell">
+                  <div className="min-w-[100px] space-y-1.5">
                     <span className="text-xs tabular-nums text-muted-foreground">
                       {project.documentsCompleteCount}/{project.documentsTotalCount}
                     </span>
                     <Progress value={docPct} className="h-1.5" />
                   </div>
                 </TableCell>
-                <TableCell>
+                <TableCell className="hidden xl:table-cell">
                   <p className="max-w-[180px] truncate text-xs text-muted-foreground">{project.nextStep || "—"}</p>
                   <p className={cn("text-xs tabular-nums", dueDateClass(dueBucket))}>
                     {project.nextStepDate?.trim() || "—"}
@@ -122,5 +123,6 @@ export default function TransactionsTable({ rows, clientEmailById, loading }: Pr
         )}
       </TableBody>
     </Table>
+    </div>
   );
 }

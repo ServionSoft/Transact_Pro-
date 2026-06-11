@@ -191,7 +191,7 @@ function DashboardStatCard({
   const card = (
     <Card
       className={cn(
-        "h-full border-border/70 bg-gradient-to-br from-card via-card to-muted/15",
+        "border-border/70 bg-gradient-to-br from-card via-card to-muted/15",
         "shadow-sm transition-shadow duration-200 hover:shadow-md hover:border-border",
         to && "cursor-pointer",
       )}
@@ -206,7 +206,7 @@ function DashboardStatCard({
         </span>
       </CardHeader>
       <CardContent className="p-3 pt-0">
-        <p className="text-2xl font-semibold tabular-nums tracking-tight text-foreground">{value}</p>
+        <p className="text-xl font-semibold tabular-nums tracking-tight text-foreground sm:text-2xl">{value}</p>
       </CardContent>
     </Card>
   );
@@ -534,7 +534,7 @@ export default function DashboardPage() {
   ]);
 
   return (
-    <div className="mx-auto flex min-h-0 flex-1 w-full max-w-[1600px] flex-col gap-3 overflow-hidden bg-gradient-to-b from-muted/25 via-background to-background p-4 md:p-6">
+    <div className="page-padding mx-auto flex w-full max-w-[1600px] flex-col gap-4 bg-gradient-to-b from-muted/25 via-background to-background pb-8">
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 shrink-0">
         <PageHeader
           title={`${greetingForHour()}, ${firstName}`}
@@ -547,7 +547,7 @@ export default function DashboardPage() {
               Updated {lastSynced.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
             </span>
           )}
-          <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5" disabled={loading} onClick={() => void refresh()}>
+          <Button type="button" variant="outline" size="sm" className="h-10 gap-1.5 sm:h-8" disabled={loading} onClick={() => void refresh()}>
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
@@ -557,7 +557,9 @@ export default function DashboardPage() {
       <div
         className={cn(
           "grid gap-2 shrink-0",
-          statCards.length <= 2 ? "grid-cols-2 max-w-xl" : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5",
+          statCards.length <= 2
+            ? "grid-cols-2 max-w-xl"
+            : "grid-cols-1 min-[400px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5",
         )}
       >
         {statCards.map((card, i) => (
@@ -572,15 +574,15 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 flex-1 min-h-0">
-        <div className="lg:col-span-5 flex flex-col gap-2 min-h-0">
-          <Card className="flex-1 min-h-[140px] flex flex-col border-border/80 bg-card/90 shadow-sm overflow-hidden backdrop-blur-sm">
-            <CardHeader className="px-3 py-2 pb-0 space-y-0">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+        <div className="flex flex-col gap-4 xl:col-span-5">
+          <Card className="border-border/80 bg-card/90 shadow-sm backdrop-blur-sm">
+            <CardHeader className="space-y-0 px-3 py-2 pb-0">
               <CardTitle className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 Pipeline by stage
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-2 pt-1 flex-1 flex flex-col min-h-[120px]">
+            <CardContent className="p-2 pt-1">
               {!canViewProjects ? (
                 <DashboardEmptyState
                   title="Not available"
@@ -589,7 +591,7 @@ export default function DashboardPage() {
               ) : stageChartData.length === 0 ? (
                 <DashboardEmptyState title="No pipeline data" description="No transactions to chart yet." />
               ) : (
-                <ResponsiveContainer width="100%" height="100%" minHeight={140}>
+                <ResponsiveContainer width="100%" height={150}>
                   <PieChart>
                     <Pie
                       data={stageChartData}
@@ -611,14 +613,14 @@ export default function DashboardPage() {
               )}
             </CardContent>
           </Card>
-          <Card className="flex-1 min-h-[120px] flex flex-col border-border/80 bg-card/90 shadow-sm overflow-hidden backdrop-blur-sm">
-            <CardHeader className="px-3 py-2 pb-0 space-y-0">
+          <Card className="border-border/80 bg-card/90 shadow-sm backdrop-blur-sm">
+            <CardHeader className="space-y-0 px-3 py-2 pb-0">
               <CardTitle className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 Deadlines · next 14 days
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-2 pt-1 flex-1 flex flex-col min-h-[100px]">
-              <ResponsiveContainer width="100%" height="100%" minHeight={110}>
+            <CardContent className="p-2 pt-1">
+              <ResponsiveContainer width="100%" height={120}>
                 <BarChart data={deadlineBarData} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" />
                   <XAxis dataKey="day" tick={{ fontSize: 9 }} interval={2} />
@@ -631,8 +633,8 @@ export default function DashboardPage() {
           </Card>
           </div>
 
-        <Card className="lg:col-span-4 flex flex-col min-h-0 border-border/80 bg-card/90 shadow-sm overflow-hidden backdrop-blur-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 px-3 py-2 pb-2">
+        <Card className="flex flex-col border-border/80 bg-card/90 shadow-sm backdrop-blur-sm xl:col-span-4 xl:max-h-[340px]">
+          <CardHeader className="flex shrink-0 flex-row items-center justify-between space-y-0 px-3 py-2 pb-2">
             <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Attention</CardTitle>
             {canViewProjects ? (
               <Link
@@ -646,7 +648,7 @@ export default function DashboardPage() {
             )}
           </CardHeader>
           <Separator />
-          <div className="overflow-y-auto flex-1 min-h-0 p-1">
+          <div className="min-h-0 flex-1 overflow-y-auto p-1 xl:overflow-y-auto">
             {attentionItems.length === 0 ? (
               <DashboardEmptyState
                 title="All clear"
@@ -672,8 +674,8 @@ export default function DashboardPage() {
           </div>
         </Card>
 
-        <Card className="lg:col-span-3 flex flex-col min-h-0 border-border/80 bg-card/90 shadow-sm overflow-hidden backdrop-blur-sm">
-          <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0 px-3 py-2 pb-2">
+        <Card className="flex flex-col border-border/80 bg-card/90 shadow-sm backdrop-blur-sm xl:col-span-3 xl:max-h-[340px]">
+          <CardHeader className="flex shrink-0 flex-row items-start justify-between gap-2 space-y-0 px-3 py-2 pb-2">
             <div className="min-w-0">
               <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Deadlines</CardTitle>
               <p className="text-[10px] font-normal normal-case tracking-normal text-muted-foreground mt-0.5 leading-snug">
@@ -696,7 +698,7 @@ export default function DashboardPage() {
             </Link>
           </CardHeader>
           <Separator />
-          <div className="overflow-y-auto flex-1 min-h-0 p-1">
+          <div className="min-h-0 flex-1 overflow-y-auto p-1">
             {upcomingDeadlineSlice.length === 0 ? (
               <DashboardEmptyState
                 title="No deadlines"
@@ -732,8 +734,8 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      <Card className="flex flex-col flex-1 min-h-[140px] max-h-[220px] shrink-0 overflow-hidden border-border/80 bg-card/90 shadow-sm backdrop-blur-sm">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 px-3 py-2 pb-2 shrink-0">
+      <Card className="border-border/80 bg-card/90 shadow-sm backdrop-blur-sm">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 px-3 py-2 pb-2">
           <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Active transactions
           </CardTitle>
@@ -746,7 +748,7 @@ export default function DashboardPage() {
           )}
         </CardHeader>
         <Separator />
-        <div className="overflow-auto flex-1 min-h-0">
+        <div className="overflow-x-auto">
           {!canViewProjects ? (
             <div className="px-3 py-4">
               <DashboardEmptyState

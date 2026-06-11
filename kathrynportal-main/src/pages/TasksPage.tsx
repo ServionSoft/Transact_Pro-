@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { dueDateBucket } from "@/lib/transactionListUtils";
+import { listPageBodyClass, listPageRootClass, listPageShellClass } from "@/lib/listPageLayout";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -225,7 +226,7 @@ export default function TasksPage() {
   ];
 
   return (
-    <div className="mx-auto flex min-h-0 flex-1 w-full max-w-7xl flex-col gap-6 overflow-hidden p-6 sm:p-8">
+    <div className={listPageRootClass}>
       <div className="shrink-0">
         <PageHeader
           title="Task dashboard"
@@ -237,7 +238,7 @@ export default function TasksPage() {
         />
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <div className={listPageShellClass}>
         <div className="shrink-0 space-y-3 border-b border-border p-4 sm:p-5">
           <div className="relative w-full sm:max-w-md">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -286,7 +287,7 @@ export default function TasksPage() {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5">
+        <div className={cn(listPageBodyClass, "p-4 sm:p-5")}>
           {loading ? (
             <div className="space-y-3">
               {Array.from({ length: 4 }).map((_, i) => (

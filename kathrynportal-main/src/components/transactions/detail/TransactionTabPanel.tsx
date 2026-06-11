@@ -12,8 +12,10 @@ export default function TransactionTabPanel({ children, className, scroll = true
   return (
     <div
       className={cn(
-        "min-h-0 flex-1 pt-4",
-        scroll ? "overflow-y-auto overscroll-contain" : "flex flex-col overflow-hidden",
+        "pt-4",
+        scroll
+          ? "lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain"
+          : "flex flex-col lg:min-h-0 lg:flex-1 lg:overflow-hidden",
         className,
       )}
     >

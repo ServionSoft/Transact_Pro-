@@ -420,7 +420,7 @@ export default function FormattingRulesTab() {
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="flex min-h-0 flex-1 flex-col overflow-hidden"
+      className="space-y-4"
     >
       {rulesLoadState === "loading" && (
         <p className="text-sm text-muted-foreground mb-4">Loading document rules from server…</p>
@@ -501,8 +501,7 @@ export default function FormattingRulesTab() {
         </TabsList>
       </Tabs>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
-        <div className="space-y-4">
+      <div className="space-y-4">
         {filtered.map((rule, i) => (
           <motion.div
             key={rule.id}
@@ -618,7 +617,6 @@ export default function FormattingRulesTab() {
             No rules in this view yet.
           </div>
         )}
-        </div>
       </div>
 
       <Dialog open={showCreate} onOpenChange={(open) => { if (!open) { setShowCreate(false); setEditingRule(null); } }}>

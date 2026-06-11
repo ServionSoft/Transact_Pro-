@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "react-router-dom";
-import { ExternalLink, FileText, Loader2, Mail, Pencil } from "lucide-react";
+import { ExternalLink, FileText, Loader2, Mail, MoreHorizontal, Pencil } from "lucide-react";
 import type { Project, ProjectStage } from "@/data/mockData";
 import StatusBadge from "@/components/shared/StatusBadge";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +8,12 @@ import { projectDetailState } from "@/lib/projectDetailNavigation";
 import { getTransactionRecipientSuggestions } from "@/lib/transactionRecipientSuggestions";
 import { dueDateBucket, dueDateClass, propertyStreet } from "@/lib/transactionListUtils";
 import type { Client, ProjectTask } from "@/data/mockData";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
 export type TaskDashboardRowData = {
@@ -144,7 +150,7 @@ export default function TaskDashboardRow({
         <span className="max-w-[140px] truncate text-[11px] text-muted-foreground">{task.assignedTo}</span>
       </div>
 
-      <div className="flex shrink-0 items-center gap-0.5">
+      <div className="hidden shrink-0 items-center gap-0.5 md:flex">
         <Button type="button" size="sm" variant="ghost" className="h-8 w-8 p-0" title="Tasks on transaction" onClick={openTasks}>
           <Pencil className="h-3.5 w-3.5" />
         </Button>
@@ -158,6 +164,38 @@ export default function TaskDashboardRow({
           <ExternalLink className="h-3.5 w-3.5" />
         </Button>
       </div>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-10 w-10 shrink-0 p-0 md:hidden"
+            aria-label="Task actions"
+          >
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuItem onClick={openTasks}>
+            <Pencil className="mr-2 h-4 w-4" />
+            Edit on transaction
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={openEmail}>
+            <Mail className="mr-2 h-4 w-4" />
+            Compose email
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={openDocuments}>
+            <FileText className="mr-2 h-4 w-4" />
+            Documents
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={openProject}>
+            <ExternalLink className="mr-2 h-4 w-4" />
+            Open transaction
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }

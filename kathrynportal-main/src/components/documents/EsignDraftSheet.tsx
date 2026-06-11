@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CloudDownload, Download, Plus, Save, Send, ShieldCheck, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { toast as appToast } from "@/hooks/use-toast";
 import { jsPDF } from "jspdf";
 import { getDocument } from "pdfjs-dist";
 import type { FileAttachment, ProjectDocument } from "@/data/mockData";
@@ -614,11 +613,11 @@ export default function EsignDraftSheet({
     try {
       await deleteEsignDocumentApi(ownerProjectId, draftId);
       setDocuments((prev) => prev.filter((d) => d.id !== draftId));
-      appToast({ title: "Template deleted." });
+      toast.success("Template deleted.");
     } catch (error) {
       if (isNotFoundError(error)) {
         setDocuments((prev) => prev.filter((d) => d.id !== draftId));
-        appToast({ title: "Template already removed." });
+        toast.success("Template already removed.");
         return;
       }
       toast.error(error instanceof Error ? error.message : "Could not delete template.");

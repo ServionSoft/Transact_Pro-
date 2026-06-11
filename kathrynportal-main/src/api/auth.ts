@@ -44,7 +44,7 @@ type RefreshResponse = {
 
 function requireBase(): string {
   const base = getApiBaseUrl();
-  if (!base) throw new Error("VITE_API_URL is not set");
+  if (base === undefined) throw new Error("VITE_API_URL is not set");
   return base.replace(/\/+$/, "");
 }
 

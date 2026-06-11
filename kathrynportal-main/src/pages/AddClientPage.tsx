@@ -74,7 +74,7 @@ export default function AddClientPage() {
     setForm((prev) => ({ ...prev, [field]: value }));
 
   return (
-    <div className="p-8 max-w-3xl mx-auto">
+    <div className="page-padding mx-auto flex w-full max-w-3xl flex-col pb-8">
       <button onClick={() => navigate("/clients")} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6 transition-colors">
         <ArrowLeft className="w-4 h-4" /> Back to Contacts
       </button>

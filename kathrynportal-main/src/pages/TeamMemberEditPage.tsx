@@ -208,7 +208,7 @@ export default function TeamMemberEditPage() {
   };
 
   return (
-    <div className="p-8 max-w-3xl mx-auto space-y-6">
+    <div className="page-padding mx-auto flex w-full max-w-3xl flex-col gap-4 pb-8 sm:gap-6">
       <Button variant="ghost" size="sm" onClick={goBack}>
         ← Back
       </Button>

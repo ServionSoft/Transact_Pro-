@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { prefersCompactCalendarView } from "@/hooks/use-mobile";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useAppStore } from "@/store/appStore";
 import { Link } from "react-router-dom";
@@ -19,6 +20,7 @@ import {
 } from "@/api/projects";
 import type { CalendarEvent } from "@/data/mockData";
 import { calendarKindLabel } from "@/lib/calendarEventUtils";
+import { listPageBodyClass, listPagePanelClass, listPageRootClass, listPageShellClass } from "@/lib/listPageLayout";
 import { cn } from "@/lib/utils";
 import {
   ContextMenu,
@@ -69,7 +71,9 @@ export default function CalendarPage() {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
-  const [view, setView] = useState<"month" | "list" | "reminders">("month");
+  const [view, setView] = useState<"month" | "list" | "reminders">(() =>
+    prefersCompactCalendarView() ? "list" : "month",
+  );
   const storeCalendarEvents = useAppStore((s) => s.calendarEvents);
   const apiOn = Boolean(getApiBaseUrl());
   const [loading, setLoading] = useState(false);
@@ -274,7 +278,7 @@ export default function CalendarPage() {
   const showMonthNav = view !== "reminders";
 
   return (
-    <div className="mx-auto flex min-h-0 flex-1 w-full max-w-7xl flex-col gap-6 overflow-hidden p-6 sm:p-8">
+    <div className={listPageRootClass}>
       <div className="shrink-0">
         <PageHeader
           title="Calendar"
@@ -282,7 +286,7 @@ export default function CalendarPage() {
         />
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <div className={listPageShellClass}>
         <div className="shrink-0 space-y-3 border-b border-border p-4 sm:p-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             {showMonthNav ? (
@@ -317,7 +321,7 @@ export default function CalendarPage() {
                   type="button"
                   onClick={() => setView(opt.v)}
                   className={cn(
-                    "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                    "min-h-[44px] rounded-md px-3 py-2 text-sm font-medium transition-colors sm:min-h-0 sm:py-1.5",
                     view === opt.v
                       ? "bg-background text-foreground shadow-sm"
                       : "text-muted-foreground hover:text-foreground",
@@ -357,17 +361,18 @@ export default function CalendarPage() {
           ) : null}
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className={listPagePanelClass}>
           {view === "month" && (
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            <div className={listPageBodyClass}>
               <div className="border-b border-border">
                 <div className="grid grid-cols-7">
                   {days.map((d) => (
                     <div
                       key={d}
-                      className="border-r border-border px-2 py-2 text-center text-xs font-medium uppercase text-muted-foreground last:border-r-0"
+                      className="border-r border-border px-1 py-2 text-center text-[10px] font-medium uppercase text-muted-foreground last:border-r-0 md:px-2 md:text-xs"
                     >
-                      {d}
+                      <span className="md:hidden">{d.slice(0, 1)}</span>
+                      <span className="hidden md:inline">{d}</span>
                     </div>
                   ))}
                 </div>
@@ -376,7 +381,7 @@ export default function CalendarPage() {
                 {Array.from({ length: firstDay }).map((_, i) => (
                   <div
                     key={`empty-${i}`}
-                    className="min-h-[100px] border-b border-r border-border bg-muted/30"
+                    className="min-h-[72px] border-b border-r border-border bg-muted/30 md:min-h-[88px] lg:min-h-[100px]"
                   />
                 ))}
                 {Array.from({ length: daysInMonth }).map((_, i) => {
@@ -390,7 +395,7 @@ export default function CalendarPage() {
                     <div
                       key={day}
                       className={cn(
-                        "min-h-[100px] border-b border-r border-border p-1.5",
+                        "min-h-[72px] border-b border-r border-border p-1 md:min-h-[88px] md:p-1.5 lg:min-h-[100px]",
                         isToday && "bg-accent/5",
                       )}
                     >

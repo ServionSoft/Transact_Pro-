@@ -1,4 +1,4 @@
-export type PartyRow = { role: string; name: string; email?: string };
+export type PartyRow = { role: string; name: string; preferredName?: string; email?: string };
 
 export type PartyGroup = { title: string; rows: PartyRow[] };
 
@@ -15,9 +15,26 @@ function partyFromRow(row: unknown, role: string): PartyRow | null {
   const o = asRecord(row);
   if (!o) return null;
   const name = typeof o.name === "string" ? o.name.trim() : "";
+  const preferredName = typeof o.preferredName === "string" ? o.preferredName.trim() : "";
   const email = typeof o.email === "string" ? o.email.trim() : "";
-  if (!name && !email) return null;
-  return { role, name: name || "—", email: email || undefined };
+  if (!name && !preferredName && !email) return null;
+  return {
+    role,
+    name: name || preferredName || "—",
+    preferredName: preferredName || undefined,
+    email: email || undefined,
+  };
+}
+
+function lenderFromMetadata(lender: unknown): PartyRow | null {
+  const o = asRecord(lender);
+  if (!o) return null;
+  const name = typeof o.name === "string" ? o.name.trim() : "";
+  const company = typeof o.company === "string" ? o.company.trim() : "";
+  if (!name && !company) return null;
+  const displayName = name || company;
+  const role = company && name ? `Lender · ${company}` : company ? "Lender" : "Lender";
+  return { role, name: displayName };
 }
 
 function pushGroup(groups: PartyGroup[], title: string, rows: PartyRow[]) {
@@ -70,6 +87,9 @@ export function getTransactionPartyGroups(metadata: Record<string, unknown> | un
     if (row) extras.push(row);
   }
   pushGroup(groups, "Escrow & team", extras);
+
+  const lender = lenderFromMetadata(metadata.lender);
+  if (lender) pushGroup(groups, "Lender", [lender]);
 
   return groups;
 }

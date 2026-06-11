@@ -58,8 +58,52 @@ function formatBadgeCollapsed(n: number): string {
   return String(n);
 }
 
-export default function AppSidebar() {
-  const [collapsed, setCollapsed] = useState(false);
+const SIDEBAR_COLLAPSED_KEY = "transactpro-sidebar-collapsed";
+const SIDEBAR_AUTO_COLLAPSE_MQ = "(max-width: 1279px)";
+
+function readStoredCollapsed(): boolean {
+  try {
+    const saved = localStorage.getItem(SIDEBAR_COLLAPSED_KEY);
+    if (saved !== null) return saved === "true";
+  } catch {
+    /* ignore */
+  }
+  return typeof window !== "undefined" && window.matchMedia(SIDEBAR_AUTO_COLLAPSE_MQ).matches;
+}
+
+type AppSidebarProps = {
+  inDrawer?: boolean;
+  onNavigate?: () => void;
+};
+
+export default function AppSidebar({ inDrawer = false, onNavigate }: AppSidebarProps = {}) {
+  const [collapsed, setCollapsedState] = useState(readStoredCollapsed);
+  const isCollapsed = inDrawer ? false : collapsed;
+
+  const setCollapsed = useCallback((next: boolean) => {
+    setCollapsedState(next);
+    try {
+      if (!window.matchMedia(SIDEBAR_AUTO_COLLAPSE_MQ).matches) {
+        localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(next));
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    const mq = window.matchMedia(SIDEBAR_AUTO_COLLAPSE_MQ);
+    const sync = () => {
+      if (mq.matches) {
+        setCollapsedState(true);
+        return;
+      }
+      setCollapsedState(readStoredCollapsed());
+    };
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
   const [themeMounted, setThemeMounted] = useState(false);
   const { theme, setTheme } = useTheme();
   const location = useLocation();
@@ -201,16 +245,16 @@ export default function AppSidebar() {
     if (!themeMounted) {
       return (
         <div
-          className={cn(buttonClass, collapsed ? "justify-center p-2.5" : "gap-3 px-3 py-2.5")}
+          className={cn(buttonClass, isCollapsed ? "justify-center p-2.5" : "gap-3 px-3 py-2.5")}
           aria-hidden
         >
           <Moon className="h-5 w-5 shrink-0 opacity-40" />
-          {!collapsed ? <span className="text-sm opacity-40">Appearance</span> : null}
+          {!isCollapsed ? <span className="text-sm opacity-40">Appearance</span> : null}
         </div>
       );
     }
 
-    if (collapsed) {
+    if (isCollapsed) {
       return (
         <Tooltip delayDuration={200}>
           <TooltipTrigger asChild>
@@ -255,10 +299,11 @@ export default function AppSidebar() {
     const link = (
       <NavLink
         to={item.to}
+        onClick={() => onNavigate?.()}
         className={cn(
           "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium outline-none transition-colors",
           "focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar",
-          collapsed ? "justify-center px-2" : "pr-2",
+          isCollapsed ? "justify-center px-2" : "pr-2",
           isActive
             ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-sm"
             : "text-sidebar-foreground/90 hover:bg-sidebar-accent/45 hover:text-sidebar-accent-foreground",
@@ -276,8 +321,8 @@ export default function AppSidebar() {
             isActive ? "text-sidebar-primary" : "text-sidebar-muted group-hover:text-sidebar-accent-foreground",
           )}
         />
-        {!collapsed && <span className="min-w-0 flex-1 truncate">{item.label}</span>}
-        {!collapsed && item.badge > 0 && (
+        {!isCollapsed && <span className="min-w-0 flex-1 truncate">{item.label}</span>}
+        {!isCollapsed && item.badge > 0 && (
           <span
             title={badgeTitles[item.to]}
             className={cn(
@@ -288,7 +333,7 @@ export default function AppSidebar() {
             {formatBadgeExpanded(item.badge)}
           </span>
         )}
-        {collapsed && item.badge > 0 && (
+        {isCollapsed && item.badge > 0 && (
           <span
             title={badgeTitles[item.to]}
             className={cn(
@@ -302,7 +347,7 @@ export default function AppSidebar() {
       </NavLink>
     );
 
-    if (!collapsed) return link;
+    if (!isCollapsed) return link;
 
     return (
       <Tooltip delayDuration={200}>
@@ -317,33 +362,38 @@ export default function AppSidebar() {
     );
   };
 
-  return (
-    <aside
-      className={cn(
-        "flex h-full min-h-0 shrink-0 flex-col self-stretch border-r border-sidebar-border bg-sidebar transition-[width] duration-300 ease-out",
-        collapsed ? "w-[76px]" : "w-[272px]",
-      )}
-    >
+  const shellClass = cn(
+    "flex h-full min-h-0 flex-col self-stretch bg-sidebar text-sidebar-foreground",
+    inDrawer
+      ? "w-full"
+      : cn(
+          "hidden shrink-0 border-r border-sidebar-border transition-[width] duration-300 ease-out lg:flex",
+          isCollapsed ? "w-[76px]" : "w-[272px]",
+        ),
+  );
+
+  const panel = (
+    <>
       {/* Brand */}
       <div
         className={cn(
           "flex shrink-0 items-center border-b border-sidebar-border/80 px-3 py-4",
-          collapsed ? "justify-center px-2 py-3" : "px-4 py-5",
+          isCollapsed ? "justify-center px-2 py-3" : "px-4 py-5",
         )}
       >
-        <BrandLogo variant={collapsed ? "mark" : "full"} className={collapsed ? "max-h-10 max-w-10" : undefined} />
+        <BrandLogo variant={isCollapsed ? "mark" : "full"} className={isCollapsed ? "max-h-10 max-w-10" : undefined} />
       </div>
 
       {/* Nav */}
       <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 py-4">
-        {!collapsed && (
+        {!isCollapsed && (
           <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-sidebar-muted">Menu</p>
         )}
         {navItems.map((item) => (
           <Fragment key={item.to}>
             {item.to === "/tasks" && (
               <>
-                {collapsed ? (
+                {isCollapsed ? (
                   <div className="mx-2 my-2 h-px shrink-0 bg-sidebar-border/70" aria-hidden />
                 ) : (
                   <p className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-wider text-sidebar-muted">
@@ -354,7 +404,7 @@ export default function AppSidebar() {
             )}
             {item.to === "/settings" && (
               <>
-                {collapsed ? (
+                {isCollapsed ? (
                   <div className="mx-2 my-2 h-px shrink-0 bg-sidebar-border/70" aria-hidden />
                 ) : (
                   <p className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-wider text-sidebar-muted">
@@ -372,7 +422,7 @@ export default function AppSidebar() {
       <div className="shrink-0 space-y-2 border-t border-sidebar-border/80 p-2">
         {user && (
           <>
-            {!collapsed ? (
+            {!isCollapsed ? (
               <div className="rounded-xl border border-sidebar-border/60 bg-sidebar-accent/25 px-3 py-3">
                 <div className="flex items-start gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary/90 text-xs font-bold text-sidebar-primary-foreground">
@@ -412,7 +462,7 @@ export default function AppSidebar() {
         <div className="flex flex-col gap-0.5">
           {renderThemeToggle()}
 
-          {collapsed ? (
+          {!inDrawer && isCollapsed ? (
             <Tooltip delayDuration={200}>
               <TooltipTrigger asChild>
                 <button
@@ -426,7 +476,7 @@ export default function AppSidebar() {
               </TooltipTrigger>
               <TooltipContent side="right">Expand</TooltipContent>
             </Tooltip>
-          ) : (
+          ) : !inDrawer ? (
             <button
               type="button"
               onClick={() => setCollapsed(true)}
@@ -435,9 +485,9 @@ export default function AppSidebar() {
               <ChevronLeft className="h-5 w-5 shrink-0" />
               <span>Collapse</span>
             </button>
-          )}
+          ) : null}
 
-          {collapsed ? (
+          {isCollapsed ? (
             <Tooltip delayDuration={200}>
               <TooltipTrigger asChild>
                 <button
@@ -463,6 +513,12 @@ export default function AppSidebar() {
           )}
         </div>
       </div>
-    </aside>
+    </>
   );
+
+  if (inDrawer) {
+    return <div className={shellClass}>{panel}</div>;
+  }
+
+  return <aside className={shellClass}>{panel}</aside>;
 }

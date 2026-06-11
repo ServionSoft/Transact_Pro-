@@ -83,8 +83,8 @@ export default function ClientDetailPage() {
 
   if (loading) {
     return (
-      <div className="p-8 max-w-5xl mx-auto">
-        <div className="bg-card border border-border rounded-lg p-6 text-sm text-muted-foreground">
+      <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col p-6 sm:p-8">
+        <div className="rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground">
           Loading contact...
         </div>
       </div>
@@ -93,7 +93,7 @@ export default function ClientDetailPage() {
 
   if (!client) {
     return (
-      <div className="p-8 text-center">
+      <div className="p-6 text-center sm:p-8">
         <p className="text-muted-foreground">Contact not found.</p>
         <Button variant="outline" onClick={() => navigate("/clients")} className="mt-4">Back to Contacts</Button>
       </div>
@@ -167,7 +167,7 @@ export default function ClientDetailPage() {
   };
 
   return (
-    <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-contain p-8">
+    <div className="page-padding mx-auto flex w-full max-w-5xl flex-col gap-6 pb-8">
       <button onClick={() => navigate("/clients")} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6 transition-colors">
         <ArrowLeft className="w-4 h-4" /> Back to Contacts
       </button>
@@ -176,7 +176,7 @@ export default function ClientDetailPage() {
         title={client.name}
         subtitle={`${client.company} • ${client.role}`}
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => navigate(`/email?to=${client.email}`)} className="gap-2">
               <Mail className="w-4 h-4" /> Email
             </Button>
@@ -292,7 +292,7 @@ export default function ClientDetailPage() {
         }
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         {/* Contact Info Card */}
         <div className="bg-card border border-border rounded-lg p-6">
           <h3 className="font-display font-semibold text-foreground mb-4">Contact Information</h3>

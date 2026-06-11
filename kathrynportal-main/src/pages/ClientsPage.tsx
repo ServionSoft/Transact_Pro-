@@ -17,6 +17,7 @@ import LinkedTransactionsCell from "@/components/clients/LinkedTransactionsCell"
 import { useAppStore } from "@/store/appStore";
 import { isTransactionProject } from "@/data/mockData";
 import { getApiBaseUrl } from "@/lib/apiConfig";
+import { listPageBodyClass, listPageRootClass, listPageShellClass } from "@/lib/listPageLayout";
 import { hasPermission } from "@/lib/permissions";
 import { useAuthStore } from "@/store/authStore";
 import type { Client } from "@/data/mockData";
@@ -27,7 +28,6 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -349,7 +349,7 @@ export default function ClientsPage() {
   );
 
   return (
-    <div className="mx-auto flex min-h-0 flex-1 w-full max-w-7xl flex-col gap-6 overflow-hidden p-6 sm:p-8">
+    <div className={listPageRootClass}>
       <div className="shrink-0">
         <PageHeader
           title="Contacts"
@@ -364,35 +364,22 @@ export default function ClientsPage() {
         />
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <div className={listPageShellClass}>
         <div className="shrink-0 border-b border-border">
-          <div className="flex flex-col gap-4 p-4 sm:p-5">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div className="relative w-full lg:max-w-md">
+          <div className="flex flex-col gap-3 p-4 sm:gap-4 sm:p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="relative w-full sm:max-w-md">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  placeholder="Search by name, email, company, property…"
+                  placeholder="Search name, email, company…"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="pl-9"
                   aria-label="Search contacts"
                 />
               </div>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end sm:gap-4">
-                <Tabs
-                  value={filterStatus}
-                  onValueChange={(v) => setFilterStatus(v)}
-                  className={cn("w-full sm:w-auto", showArchived && "pointer-events-none opacity-50")}
-                >
-                  <TabsList className="grid w-full grid-cols-2 sm:inline-flex sm:w-auto">
-                    {STATUS_TABS.map((s) => (
-                      <TabsTrigger key={s} value={s} className="text-xs sm:text-sm">
-                        {s}
-                      </TabsTrigger>
-                    ))}
-                  </TabsList>
-                </Tabs>
-                <div className="flex items-center gap-2 sm:shrink-0">
+              <div className="flex flex-wrap items-center gap-3 self-start sm:self-auto">
+                <div className="flex items-center gap-2">
                   <Switch
                     id="contacts-archived"
                     checked={showArchived}
@@ -407,19 +394,49 @@ export default function ClientsPage() {
                 </div>
               </div>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Linked transactions show property addresses for active deals where this contact is the primary client.
-            </p>
-          </div>
 
-          {showArchived && (
-            <div className="border-t border-border bg-muted/30 px-4 py-2.5 sm:px-5">
-              <p className="text-xs text-muted-foreground">
-                Archived contacts are hidden from active workflows. Use <strong className="text-foreground">Restore</strong> from the row
-                menu to move them back.
+            {showArchived ? (
+              <p className="border-t border-border/60 pt-3 text-xs text-muted-foreground">
+                Archived contacts are hidden from active workflows. Use <strong className="text-foreground">Restore</strong> from the
+                row menu to move them back.
               </p>
-            </div>
-          )}
+            ) : null}
+
+            {!showArchived ? (
+              <div
+                className="flex items-center gap-1 overflow-x-auto border-t border-border/60 pt-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                role="tablist"
+                aria-label="Filter by status"
+              >
+                {STATUS_TABS.map((s) => {
+                  const active = filterStatus === s;
+                  return (
+                    <button
+                      key={s}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() => setFilterStatus(s)}
+                      className={cn(
+                        "shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm transition-colors",
+                        active
+                          ? "border-primary font-medium text-foreground"
+                          : "border-transparent text-muted-foreground hover:border-border hover:text-foreground",
+                      )}
+                    >
+                      {s}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+
+            {!showArchived ? (
+              <p className="text-xs text-muted-foreground">
+                Linked transactions show property addresses for active deals where this contact is the primary client.
+              </p>
+            ) : null}
+          </div>
 
           {loadError && (
             <div className="border-t border-destructive/30 bg-destructive/5 px-4 py-4 sm:px-5">
@@ -432,7 +449,7 @@ export default function ClientsPage() {
           )}
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className={listPageBodyClass}>
         {loading ? (
           <>
             <div className="hidden md:block">

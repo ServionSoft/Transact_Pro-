@@ -7,7 +7,15 @@ import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { dueDateBucket, dueDateClass, isBuyerTransaction, transactionTypeLabel } from "@/lib/transactionListUtils";
 import type { PartyGroup } from "@/lib/transactionMetadataParties";
+import {
+  getListingDetailRows,
+  getPropertyDetailRows,
+  getTransactionDetailRows,
+  getTransactionTimelineRows,
+  type OverviewDetailRow,
+} from "@/lib/transactionOverviewMetadata";
 import DetailRow from "./DetailRow";
+import CollapsibleSectionCard from "./CollapsibleSectionCard";
 import SectionCard from "./SectionCard";
 import TransactionPartiesSection from "./TransactionPartiesSection";
 import type { TransactionDetailTabId } from "./transactionDetailTabs";
@@ -28,22 +36,38 @@ function StatTile({ label, value, sub, progress, icon: Icon, onClick }: StatTile
     <button
       type="button"
       onClick={onClick}
-      className="group flex flex-col rounded-xl border border-border bg-card p-4 text-left shadow-sm transition-colors hover:border-primary/30 hover:bg-muted/20"
+      className="group flex flex-col rounded-xl border border-border bg-card p-3 text-left shadow-sm transition-colors hover:border-primary/30 hover:bg-muted/20"
     >
-      <div className="mb-2 flex items-center justify-between gap-2">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
         <Icon className="h-4 w-4 text-muted-foreground" />
         <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
       </div>
-      <p className="font-display text-2xl font-bold tabular-nums text-foreground">{value}</p>
+      <p className="font-display text-xl font-bold tabular-nums text-foreground">{value}</p>
       <p className="mt-0.5 text-xs text-muted-foreground">{label}</p>
-      {sub ? <p className="mt-1 truncate text-[11px] text-muted-foreground">{sub}</p> : null}
-      {progress !== undefined ? <Progress value={progress} className="mt-3 h-1.5" /> : null}
+      {sub ? <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{sub}</p> : null}
+      {progress !== undefined ? <Progress value={progress} className="mt-2 h-1" /> : null}
     </button>
+  );
+}
+
+function DetailRows({ rows, className, columns = 2 }: { rows: OverviewDetailRow[]; className?: string; columns?: 1 | 2 }) {
+  return (
+    <div
+      className={cn(
+        columns === 2 ? "grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2" : "space-y-2",
+        className,
+      )}
+    >
+      {rows.map((r) => (
+        <DetailRow key={r.label} label={r.label} value={r.value} className="text-xs" />
+      ))}
+    </div>
   );
 }
 
 type Props = {
   project: Project;
+  metadata: Record<string, unknown> | undefined;
   docProgress: { done: number; total: number };
   sigCounts: SigCounts;
   tasksComplete: number;
@@ -53,9 +77,6 @@ type Props = {
   nextDeadline: { title: string; date: string } | null;
   partyGroups: PartyGroup[];
   effectiveSellerMatch: string;
-  rpaSeller: string;
-  prelimSeller: string;
-  sellerMismatchNotes: string;
   assignmentOptions: Array<{ id: string; name: string; email: string; designation?: string | null }>;
   canAssignMembers: boolean;
   apiOn: boolean;
@@ -67,6 +88,7 @@ type Props = {
 
 export default function TransactionOverviewTab({
   project,
+  metadata,
   docProgress,
   sigCounts,
   tasksComplete,
@@ -76,9 +98,6 @@ export default function TransactionOverviewTab({
   nextDeadline,
   partyGroups,
   effectiveSellerMatch,
-  rpaSeller,
-  prelimSeller,
-  sellerMismatchNotes,
   assignmentOptions,
   canAssignMembers,
   apiOn,
@@ -92,12 +111,32 @@ export default function TransactionOverviewTab({
   const isListing = !isBuyerTransaction(project.type);
   const nextDueBucket = nextDeadline ? dueDateBucket(nextDeadline.date) : "none";
 
+  const propertyRows = getPropertyDetailRows(metadata, project);
+  const transactionRows = getTransactionDetailRows(metadata);
+  const listingRows = getListingDetailRows(metadata);
+  const timelineRows = getTransactionTimelineRows(metadata, project.deadlines ?? []);
+
+  const escrowStageRows = [
+    { label: "Escrow officer", value: project.escrowOfficer || "—" },
+    { label: "Escrow company", value: project.escrowCompany || "—" },
+    { label: "Stage", value: project.stage },
+    { label: "Transaction type", value: transactionTypeLabel(project.type) },
+    { label: "Created", value: project.createdAt || "—" },
+    { label: "Files stored", value: String(filesCount) },
+  ];
+
   const matchBadgeVariant =
     effectiveSellerMatch === "Yes" ? "default" : effectiveSellerMatch === "No" ? "destructive" : "secondary";
 
+  const showDetails =
+    propertyRows.length > 0 ||
+    transactionRows.length > 0 ||
+    listingRows.length > 0 ||
+    escrowStageRows.length > 0;
+
   return (
-    <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatTile
           label="Documents complete"
           value={`${docProgress.done}/${docProgress.total}`}
@@ -128,104 +167,147 @@ export default function TransactionOverviewTab({
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <SectionCard title="Property & transaction">
-          <div className="space-y-3">
-            <DetailRow label="Address" value={project.propertyAddress} />
-            <DetailRow label="Type" value={project.propertyType || "—"} />
-            <DetailRow label="Year built" value={project.yearBuilt || "—"} />
-            <DetailRow label="Representation" value={project.representationSide || "—"} />
-            <DetailRow label="List price" value={project.listPrice || "—"} />
-            <DetailRow label="Transaction type" value={transactionTypeLabel(project.type)} />
-          </div>
-        </SectionCard>
-
-        <SectionCard title="Escrow & stage">
-          <div className="space-y-3">
-            <DetailRow label="Escrow officer" value={project.escrowOfficer || "—"} />
-            <DetailRow label="Escrow company" value={project.escrowCompany || "—"} />
-            <DetailRow label="Stage" value={project.stage} />
-            <DetailRow label="Created" value={project.createdAt || "—"} />
-            <DetailRow label="Files stored" value={String(filesCount)} />
-          </div>
-          <Link
-            to={`/clients/${project.clientId}`}
-            className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline"
+      {showDetails && (
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+          <CollapsibleSectionCard
+            title="Property details"
+            defaultOpen
+            action={`${propertyRows.length + escrowStageRows.length} fields`}
           >
-            View contact profile <ChevronRight className="h-3.5 w-3.5" />
-          </Link>
-        </SectionCard>
-      </div>
+            <DetailRows rows={propertyRows} />
+            <div className="mt-2 border-t border-border pt-2">
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Escrow & stage
+              </p>
+              <DetailRows
+                rows={escrowStageRows.map((r) => ({ label: r.label, value: r.value }))}
+                columns={2}
+              />
+            </div>
+            <Link
+              to={`/clients/${project.clientId}`}
+              className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline"
+            >
+              View contact profile <ChevronRight className="h-3 w-3" />
+            </Link>
+          </CollapsibleSectionCard>
+
+          <CollapsibleSectionCard
+            title="Transaction details"
+            defaultOpen
+            action={`${transactionRows.length + (isListing && listingRows.length > 0 ? listingRows.length : 0)} fields`}
+          >
+            <DetailRows rows={transactionRows} />
+            {isListing ? (
+              <DetailRow
+                label="Seller name match?"
+                value={<Badge variant={matchBadgeVariant}>{effectiveSellerMatch}</Badge>}
+                className="text-xs"
+              />
+            ) : null}
+            {isListing && listingRows.length > 0 ? (
+              <div className="mt-2 border-t border-border pt-2">
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Listing details
+                </p>
+                <DetailRows rows={listingRows} />
+              </div>
+            ) : null}
+          </CollapsibleSectionCard>
+        </div>
+      )}
+
+      {timelineRows.length > 0 && (
+        <CollapsibleSectionCard
+          title="Timeline"
+          defaultOpen
+          action={`${timelineRows.length} items`}
+        >
+          <ul className="grid grid-cols-1 gap-1.5 md:grid-cols-2 xl:grid-cols-3">
+            {timelineRows.map((row) => {
+              const bucket = row.isTextField ? "none" : dueDateBucket(row.value);
+              return (
+                <li
+                  key={row.title}
+                  className="flex items-start justify-between gap-3 rounded-md border border-border/60 bg-muted/20 px-2.5 py-1.5 text-xs"
+                >
+                  <span className="min-w-0 text-muted-foreground">{row.title}</span>
+                  <span
+                    className={cn(
+                      "shrink-0 text-right font-medium tabular-nums",
+                      row.isTextField ? "text-foreground" : dueDateClass(bucket),
+                    )}
+                  >
+                    {row.value}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+          <button
+            type="button"
+            onClick={() => onNavigateTab("calendar")}
+            className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline"
+          >
+            Open Timeline tab <ChevronRight className="h-3 w-3" />
+          </button>
+        </CollapsibleSectionCard>
+      )}
 
       <TransactionPartiesSection partyGroups={partyGroups} onEmailParty={onEmailParty} />
 
-      {isListing ? (
-        <SectionCard title="Seller identity check">
-          <div className="space-y-3">
-            <DetailRow label="RPA seller" value={rpaSeller || "Not provided"} />
-            <DetailRow label="Prelim seller" value={prelimSeller || "Not provided"} />
-            <DetailRow
-              label="Seller name match?"
-              value={<Badge variant={matchBadgeVariant}>{effectiveSellerMatch}</Badge>}
-            />
+      <SectionCard title="Team assignments" className="p-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0 flex-1">
+            {(project.assignees ?? []).length === 0 ? (
+              <p className="text-sm text-muted-foreground">No team members assigned.</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {(project.assignees ?? []).map((a) => (
+                  <span key={a.userId} className="rounded-full bg-secondary px-2 py-0.5 text-xs text-foreground">
+                    {a.name}
+                    {a.designation ? ` · ${a.designation}` : ""}
+                  </span>
+                ))}
+              </div>
+            )}
+            {canAssignMembers && apiOn ? (
+              <div className="mt-3 space-y-2">
+                <p className="text-xs text-muted-foreground">Select assignees</p>
+                <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+                  {assignmentOptions.map((member) => {
+                    const checked = (project.assignees ?? []).some((a) => a.userId === member.id);
+                    return (
+                      <label
+                        key={member.id}
+                        className="flex cursor-pointer items-center gap-2 rounded-md border border-border px-2 py-1.5 text-xs"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={savingAssignments}
+                          onChange={(e) => {
+                            const current = project.assignees ?? [];
+                            const nextIds = e.target.checked
+                              ? [...current.map((a) => a.userId), member.id]
+                              : current.map((a) => a.userId).filter((uid) => uid !== member.id);
+                            onAssignmentsChange([...new Set(nextIds)]);
+                          }}
+                        />
+                        <span className="min-w-0 truncate">{member.name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
           </div>
-          {effectiveSellerMatch === "No" ? (
-            <div className="mt-4 border-t border-border pt-3">
-              <p className="text-xs text-muted-foreground">Mismatch notes</p>
-              <p className="mt-1 text-sm text-foreground">{sellerMismatchNotes || "No notes added."}</p>
-            </div>
+          {nextDeadline ? (
+            <p className={cn("shrink-0 text-xs lg:text-right", dueDateClass(nextDueBucket))}>
+              Next deadline: <span className="font-medium">{nextDeadline.title}</span> on {nextDeadline.date}
+            </p>
           ) : null}
-        </SectionCard>
-      ) : null}
-
-      <SectionCard title="Team assignments">
-        {(project.assignees ?? []).length === 0 ? (
-          <p className="text-sm text-muted-foreground">No team members assigned.</p>
-        ) : (
-          <div className="mb-4 flex flex-wrap gap-2">
-            {(project.assignees ?? []).map((a) => (
-              <span key={a.userId} className="rounded-full bg-secondary px-2.5 py-1 text-xs text-foreground">
-                {a.name}
-                {a.designation ? ` · ${a.designation}` : ""}
-              </span>
-            ))}
-          </div>
-        )}
-        {canAssignMembers && apiOn ? (
-          <div className="space-y-2">
-            <p className="text-xs text-muted-foreground">Select assignees for this transaction</p>
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-              {assignmentOptions.map((member) => {
-                const checked = (project.assignees ?? []).some((a) => a.userId === member.id);
-                return (
-                  <label
-                    key={member.id}
-                    className="flex cursor-pointer items-center gap-2 rounded-md border border-border px-2.5 py-2 text-sm"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      disabled={savingAssignments}
-                      onChange={(e) => {
-                        const current = project.assignees ?? [];
-                        const nextIds = e.target.checked
-                          ? [...current.map((a) => a.userId), member.id]
-                          : current.map((a) => a.userId).filter((uid) => uid !== member.id);
-                        onAssignmentsChange([...new Set(nextIds)]);
-                      }}
-                    />
-                    <span className="min-w-0 truncate">{member.name}</span>
-                  </label>
-                );
-              })}
-            </div>
-          </div>
-        ) : null}
-        {nextDeadline ? (
-          <p className={cn("mt-4 border-t border-border pt-3 text-xs", dueDateClass(nextDueBucket))}>
-            Next deadline: <span className="font-medium">{nextDeadline.title}</span> on {nextDeadline.date}
-          </p>
-        ) : null}
+        </div>
       </SectionCard>
     </motion.div>
   );

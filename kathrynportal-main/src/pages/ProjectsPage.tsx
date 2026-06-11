@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { Plus, Search, LayoutGrid, List, Columns3, FolderKanban } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useIsCompactNav, useIsMobile } from "@/hooks/use-mobile";
 import { useAppStore } from "@/store/appStore";
 import { useAuthStore } from "@/store/authStore";
 import {
@@ -19,6 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import ArchivedTransactionsTable from "@/components/transactions/ArchivedTransactionsTable";
+import { listPageBodyClass, listPageRootClass, listPageShellClass } from "@/lib/listPageLayout";
 import { cn } from "@/lib/utils";
 import { TRANSACTION_STAGES, filterTransactions } from "@/lib/transactionListUtils";
 import TransactionCard from "@/components/transactions/TransactionCard";
@@ -60,6 +62,8 @@ function mapStoreProjectToListItem(p: Project): ProjectListItem {
 export default function ProjectsPage() {
   const [search, setSearch] = useState("");
   const [filterStage, setFilterStage] = useState<string>("All");
+  const isCompactNav = useIsCompactNav();
+  const isMobile = useIsMobile();
   const [viewMode, setViewMode] = useState<ViewMode>("cards");
   const [loading, setLoading] = useState(() => Boolean(getApiBaseUrl()));
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -171,6 +175,18 @@ export default function ProjectsPage() {
     }
   }, [showArchived, viewMode]);
 
+  useEffect(() => {
+    if (isCompactNav && viewMode === "list") {
+      setViewMode("cards");
+    }
+  }, [isCompactNav, viewMode]);
+
+  useEffect(() => {
+    if (isMobile && viewMode === "kanban") {
+      setViewMode("cards");
+    }
+  }, [isMobile, viewMode]);
+
   const viewButtons: { mode: ViewMode; icon: typeof LayoutGrid; label: string }[] = [
     { mode: "cards", icon: LayoutGrid, label: "Cards" },
     { mode: "list", icon: List, label: "List" },
@@ -178,7 +194,7 @@ export default function ProjectsPage() {
   ];
 
   return (
-    <div className="mx-auto flex min-h-0 flex-1 w-full max-w-7xl flex-col gap-6 overflow-hidden p-6 sm:p-8">
+    <div className={listPageRootClass}>
       <div className="shrink-0">
         <PageHeader
           title="Transactions"
@@ -199,7 +215,7 @@ export default function ProjectsPage() {
         />
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <div className={listPageShellClass}>
         <div className="shrink-0 border-b border-border">
           <div className="flex flex-col gap-3 p-4 sm:gap-4 sm:p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -234,7 +250,10 @@ export default function ProjectsPage() {
                 ) : null}
                 {!showArchived ? (
                   <div className="flex items-center gap-1" role="tablist" aria-label="View mode">
-                    {viewButtons.map((v) => {
+                    {viewButtons
+                      .filter((v) => !(isCompactNav && v.mode === "list"))
+                      .filter((v) => !(isMobile && v.mode === "kanban"))
+                      .map((v) => {
                       const active = viewMode === v.mode;
                       return (
                         <button
@@ -244,7 +263,7 @@ export default function ProjectsPage() {
                           aria-selected={active}
                           onClick={() => setViewMode(v.mode)}
                           className={cn(
-                            "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors sm:text-sm",
+                            "inline-flex min-h-[44px] items-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-colors sm:min-h-0 sm:px-2.5 sm:py-1.5 sm:text-sm",
                             active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
                           )}
                         >
@@ -311,7 +330,7 @@ export default function ProjectsPage() {
           )}
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5">
+        <div className={cn(listPageBodyClass, "p-4 sm:p-5")}>
           {loading ? (
             <>
               {viewMode === "cards" && (

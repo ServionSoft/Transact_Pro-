@@ -1,3 +1,4 @@
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
@@ -13,6 +14,7 @@ import { loadConfig } from "./config/env.js";
 import { getPool } from "./db/pool.js";
 import { registerRoutes } from "./routes/index.js";
 import { handleDocuSignConnect } from "./controllers/docusignConnectController.js";
+import { isDevLanOrigin } from "./utils/devCors.js";
 
 const config = loadConfig();
 const app = express();
@@ -30,16 +32,41 @@ app.post(
 app.use(express.json({ limit: "10mb" }));
 app.use(
   cors({
-    origin: config.corsOrigins.length ? config.corsOrigins : true,
+    origin(origin, callback) {
+      if (!origin) return callback(null, true);
+      if (!config.corsOrigins.length || config.corsOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      if (config.nodeEnv === "development" && isDevLanOrigin(origin)) {
+        return callback(null, true);
+      }
+      callback(new Error(`CORS blocked: ${origin}`));
+    },
     credentials: true,
   })
 );
 
 registerRoutes(app, config);
 
-app.listen(config.port, () => {
+function firstLanIPv4(): string | undefined {
+  for (const ifaces of Object.values(os.networkInterfaces())) {
+    for (const iface of ifaces ?? []) {
+      const family = iface.family;
+      const isV4 = family === "IPv4" || family === 4;
+      if (isV4 && !iface.internal) return iface.address;
+    }
+  }
+  return undefined;
+}
+
+app.listen(config.port, "0.0.0.0", () => {
   // eslint-disable-next-line no-console
   console.log(`API listening on http://localhost:${config.port}`);
+  const lan = firstLanIPv4();
+  if (lan) {
+    // eslint-disable-next-line no-console
+    console.log(`API on LAN: http://${lan}:${config.port} (phone must use Vite :8080, not this URL directly)`);
+  }
   if (config.docusignAccountId && config.docusignIntegrationKey) {
     // eslint-disable-next-line no-console
     console.log(

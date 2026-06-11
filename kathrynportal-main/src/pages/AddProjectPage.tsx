@@ -23,10 +23,11 @@ import { ContactLinkPicker } from "@/components/shared/ContactLinkPicker";
 import type { Client } from "@/types/domain";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import PageHeader from "@/components/shared/PageHeader";
 import FieldLabelHelp from "@/components/shared/FieldLabelHelp";
 import { TX_FIELD_HELP, type TransactionFieldHelp } from "@/lib/transactionFieldHelp";
 import { toast } from "sonner";
+import { useIsCompactNav } from "@/hooks/use-mobile";
+import { cn } from "@/lib/utils";
 
 type TxType = "Listing" | "Buyer File";
 type LoanType = "Conventional" | "FHA/VA" | "All Cash" | "Other";
@@ -438,6 +439,7 @@ export default function AddProjectPage() {
   );
   const [currentStep, setCurrentStep] = useState<WorkflowStep>("core");
   const [submitAttempted, setSubmitAttempted] = useState(false);
+  const compactNav = useIsCompactNav();
   const stepOrder: WorkflowStep[] = isListing
     ? ["core", "parties", "timeline", "listing", "review"]
     : ["core", "parties", "timeline", "review"];
@@ -496,6 +498,29 @@ export default function AddProjectPage() {
   useEffect(() => {
     if (hasListingAgent2Data) setShowListingAgent2(true);
   }, [hasListingAgent2Data]);
+
+  useEffect(() => {
+    if (!compactNav) return;
+    if (currentStep === "core") {
+      setOpen((prev) => ({
+        ...prev,
+        general: true,
+        transaction: true,
+        property: true,
+      }));
+      return;
+    }
+    setOpen({
+      general: false,
+      transaction: false,
+      property: false,
+      timeline: currentStep === "timeline",
+      parties: currentStep === "parties",
+      listing: currentStep === "listing",
+    });
+  }, [currentStep, compactNav]);
+
+  const currentStepIndex = stepOrder.indexOf(currentStep);
 
   useEffect(() => {
     if (!apiOn) {
@@ -907,47 +932,96 @@ export default function AddProjectPage() {
     navigate(`/projects/${created.id}`);
   };
 
+  const goToPreviousStep = () => {
+    setCurrentStep(stepOrder[Math.max(0, currentStepIndex - 1)]);
+  };
+  const goToNextStep = () => {
+    setCurrentStep(stepOrder[Math.min(stepOrder.length - 1, currentStepIndex + 1)]);
+  };
+
+  const submitButtonClassName =
+    "h-11 flex-1 gap-2 border border-primary/80 shadow-sm shadow-primary/20 disabled:opacity-50 xl:h-10 xl:flex-none xl:w-full";
+  const submitButtonTitle =
+    !formCanSubmit && missingRequiredItems.length > 0
+      ? `Required: ${missingRequiredItems.map((item) => item.label).join(", ")}`
+      : !formCanSubmit
+        ? "Fix validation errors before saving"
+        : undefined;
+  const submitDisabled = !formCanSubmit || (isEditMode && loadingEditProject);
+  const submitLabel = isEditMode ? "Update Transaction" : "Create Transaction";
+
   return (
-    <div className="mx-auto flex min-h-0 w-full max-w-[1500px] flex-1 flex-col overflow-hidden px-4 py-6 md:px-6 md:py-8 xl:px-8">
+    <div className="page-padding mx-auto w-full min-h-full max-w-[1500px] pb-4 xl:min-h-0 xl:pb-8">
       <div className="shrink-0">
-      <button onClick={() => navigate("/projects")} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6 transition-colors">
-        <ArrowLeft className="w-4 h-4" /> Back to Transactions
-      </button>
-      <PageHeader
-        title={isEditMode ? "Update Transaction" : "New Transaction"}
-        subtitle={isEditMode ? "Edit this transaction using the same project form." : "Set up a new Listing or Buyer File transaction."}
-      />
-      {isEditMode && loadingEditProject ? (
-        <div className="mb-4 rounded-md border border-border bg-secondary/20 p-3 text-sm text-muted-foreground">
-          Loading transaction details...
+        <button
+          onClick={() => navigate("/projects")}
+          className="mb-3 flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground sm:mb-6"
+        >
+          <ArrowLeft className="h-4 w-4" /> Back to Transactions
+        </button>
+        <div className="mb-4 flex min-w-0 flex-col gap-2 sm:mb-6">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h1 className="font-display text-xl font-bold text-foreground sm:text-2xl">
+                {isEditMode ? "Update Transaction" : "New Transaction"}
+              </h1>
+              <p className="mt-1 hidden text-sm text-muted-foreground sm:block">
+                {isEditMode
+                  ? "Edit this transaction using the same project form."
+                  : "Set up a new Listing or Buyer File transaction."}
+              </p>
+            </div>
+            <div className="shrink-0 rounded-md border border-border bg-card px-2.5 py-1.5 text-right xl:hidden">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                Step {currentStepIndex + 1} of {stepOrder.length}
+              </p>
+              <p className="text-xs font-semibold text-foreground">{stepTitle[currentStep]}</p>
+              <p className="text-[10px] text-muted-foreground">
+                {requiredDone}/{requiredTotal} required
+              </p>
+            </div>
+          </div>
         </div>
-      ) : null}
+        {isEditMode && loadingEditProject ? (
+          <div className="mb-4 rounded-md border border-border bg-secondary/20 p-3 text-sm text-muted-foreground">
+            Loading transaction details...
+          </div>
+        ) : null}
 
-      <div className="mb-4 rounded-lg border border-border bg-card p-2">
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2">
-          {stepOrder.map((step, idx) => {
-            const active = currentStep === step;
-            return (
-              <button
-                key={step}
-                type="button"
-                onClick={() => setCurrentStep(step)}
-                className={`rounded-md border px-3 py-2 text-left transition-colors ${
-                  active ? "border-accent bg-accent/10 text-foreground" : "border-border bg-background text-muted-foreground hover:border-accent/50"
-                }`}
-              >
-                <p className="text-[10px] font-semibold uppercase tracking-wide">Step {idx + 1}</p>
-                <p className="text-xs font-medium">{stepTitle[step]}</p>
-              </button>
-            );
-          })}
+        <div className="mb-4 min-w-0 overflow-hidden rounded-lg border border-border bg-card">
+          <div
+            className="flex min-w-0 items-center gap-1.5 overflow-x-auto overscroll-x-contain p-2 snap-x snap-mandatory scroll-px-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden xl:grid xl:grid-cols-5 xl:gap-2 xl:overflow-visible xl:overscroll-auto xl:snap-none"
+            role="tablist"
+            aria-label="Form steps"
+          >
+            {stepOrder.map((step, idx) => {
+              const active = currentStep === step;
+              return (
+                <button
+                  key={step}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setCurrentStep(step)}
+                  className={cn(
+                    "min-w-[7.25rem] shrink-0 snap-start whitespace-nowrap rounded-md border px-3 py-2 text-left transition-colors xl:w-full xl:min-w-0",
+                    active
+                      ? "border-accent bg-accent/10 text-foreground"
+                      : "border-transparent bg-background text-muted-foreground hover:border-accent/50",
+                    "min-h-[44px] xl:min-h-0",
+                  )}
+                >
+                  <p className="text-[10px] font-semibold uppercase tracking-wide">Step {idx + 1}</p>
+                  <p className="text-xs font-medium">{stepTitle[step]}</p>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
-      </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain">
-      <form onSubmit={handleSubmit} className="grid grid-cols-1 xl:grid-cols-12 gap-4 xl:gap-6 pb-4">
-        <div className="xl:col-span-8 2xl:col-span-9 space-y-4">
+      <form id="transaction-form" onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 xl:grid-cols-12 xl:gap-6">
+        <div className="order-2 space-y-4 xl:order-1 xl:col-span-8 2xl:col-span-9">
           {/* General */}
           <Section title="General" tone="core" visible={currentStep === "core"} open={open.general} onToggle={() => toggle("general")}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1046,7 +1120,7 @@ export default function AddProjectPage() {
                     value={transaction.sellerMatchOverride || "__auto__"}
                     onValueChange={(v) => setTransaction((p) => ({ ...p, sellerMatchOverride: v === "__auto__" ? "" : (v as YesNo) }))}
                   >
-                    <SelectTrigger className="w-[220px]">
+                    <SelectTrigger className="w-full sm:w-[220px]">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -1229,7 +1303,7 @@ export default function AddProjectPage() {
               </Label>
             </div>
             {showCOP && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-6">
+              <div className="grid grid-cols-1 gap-4 pl-0 sm:pl-6 md:grid-cols-2">
                 <DateRow label="COP — Into Contract" labelHelp={TX_FIELD_HELP.copIntoContract} value={cop.intoContract} onChange={v => setCop(p => ({ ...p, intoContract: v }))} />
                 <DateRow label="COP — COE" labelHelp={TX_FIELD_HELP.copCoe} value={cop.coe} onChange={v => setCop(p => ({ ...p, coe: v }))} />
               </div>
@@ -1241,7 +1315,7 @@ export default function AddProjectPage() {
               </Label>
             </div>
             {showSPRP && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-6">
+              <div className="grid grid-cols-1 gap-4 pl-0 sm:pl-6 md:grid-cols-2">
                 <DateRow label="SPRP — Into Contract" labelHelp={TX_FIELD_HELP.sprpIntoContract} value={sprp.intoContract} onChange={v => setSprp(p => ({ ...p, intoContract: v }))} />
                 <DateRow label="SPRP — COE" labelHelp={TX_FIELD_HELP.sprpCoe} value={sprp.coe} onChange={v => setSprp(p => ({ ...p, coe: v }))} />
               </div>
@@ -1732,8 +1806,8 @@ export default function AddProjectPage() {
           </Section>
         </div>
 
-        <div className="xl:col-span-4 2xl:col-span-3 space-y-4 xl:sticky xl:top-4 self-start">
-          <div className="bg-card border border-border rounded-lg p-4 space-y-4">
+        <div className="order-1 space-y-4 xl:order-2 xl:col-span-4 xl:sticky xl:top-4 2xl:col-span-3">
+          <div className="space-y-4 rounded-lg border border-border bg-card p-4">
             <div className="space-y-3">
               <Label className="text-sm font-semibold">Transaction Type *</Label>
               <RadioGroup value={type} onValueChange={(v) => setType(v as TxType)} className="grid grid-cols-1 gap-2">
@@ -1785,7 +1859,7 @@ export default function AddProjectPage() {
               </div>
             </div>
 
-            <div className="pt-2 border-t border-border space-y-2">
+            <div className="hidden space-y-2 border-t border-border pt-2 xl:block">
               <p className="text-xs font-semibold text-foreground">Quick navigation</p>
               <div className="grid grid-cols-1 gap-1">
                 {stepOrder.map((step) => (
@@ -1793,68 +1867,136 @@ export default function AddProjectPage() {
                     key={`jump-${step}`}
                     type="button"
                     onClick={() => setCurrentStep(step)}
-                    className={`text-left rounded px-2 py-1 text-xs transition-colors ${
-                      currentStep === step ? "bg-accent/10 text-foreground" : "text-muted-foreground hover:bg-secondary/50"
-                    }`}
+                    className={cn(
+                      "rounded px-2 py-1 text-left text-xs transition-colors",
+                      currentStep === step
+                        ? "bg-accent/10 text-foreground"
+                        : "text-muted-foreground hover:bg-secondary/50",
+                    )}
                   >
                     {stepTitle[step]}
                   </button>
                 ))}
               </div>
             </div>
+
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-9 w-full text-muted-foreground xl:hidden"
+              onClick={() => navigate("/projects")}
+            >
+              Cancel
+            </Button>
           </div>
 
-          <div className="bg-card border border-border rounded-lg p-4 space-y-3">
+          <div className="hidden space-y-3 rounded-lg border border-border bg-card p-4 xl:block">
             <div className="grid grid-cols-2 gap-2">
               <Button
                 type="button"
                 variant="outline"
-                className="border-sky-300/90 bg-sky-50/40 hover:bg-sky-100/60 hover:border-sky-400 text-sky-900 disabled:opacity-50"
-                disabled={stepOrder.indexOf(currentStep) === 0}
-                onClick={() => setCurrentStep(stepOrder[Math.max(0, stepOrder.indexOf(currentStep) - 1)])}
+                className="border-sky-300/90 bg-sky-50/40 text-sky-900 hover:border-sky-400 hover:bg-sky-100/60 disabled:opacity-50"
+                disabled={currentStepIndex === 0}
+                onClick={goToPreviousStep}
               >
                 Previous
               </Button>
               <Button
                 type="button"
                 variant="outline"
-                className="border-violet-300/90 bg-violet-50/40 hover:bg-violet-100/60 hover:border-violet-400 text-violet-900 disabled:opacity-50"
-                disabled={stepOrder.indexOf(currentStep) === stepOrder.length - 1}
-                onClick={() => setCurrentStep(stepOrder[Math.min(stepOrder.length - 1, stepOrder.indexOf(currentStep) + 1)])}
+                className="border-violet-300/90 bg-violet-50/40 text-violet-900 hover:border-violet-400 hover:bg-violet-100/60 disabled:opacity-50"
+                disabled={currentStepIndex === stepOrder.length - 1}
+                onClick={goToNextStep}
               >
                 Next
               </Button>
             </div>
             <Button
               type="submit"
-              className="w-full border border-primary/80 shadow-sm shadow-primary/20 disabled:opacity-50"
-              disabled={!formCanSubmit || (isEditMode && loadingEditProject)}
-              title={
-                !formCanSubmit && missingRequiredItems.length > 0
-                  ? `Required: ${missingRequiredItems.map((item) => item.label).join(", ")}`
-                  : !formCanSubmit
-                    ? "Fix validation errors before saving"
-                    : undefined
-              }
+              className={submitButtonClassName}
+              disabled={submitDisabled}
+              title={submitButtonTitle}
             >
-              {isEditMode ? "Update Transaction" : "Create Transaction"}
+              {submitLabel}
             </Button>
             {!formCanSubmit && missingRequiredItems.length > 0 ? (
-              <p className="text-xs text-muted-foreground text-center">
+              <p className="text-center text-xs text-muted-foreground">
                 Complete {missingRequiredItems.map((item) => item.label).join(", ")} to save.
               </p>
             ) : null}
             <Button
               type="button"
               variant="outline"
-              className="w-full border-rose-300/90 bg-rose-50/40 hover:bg-rose-100/60 hover:border-rose-400 text-rose-900"
+              className="w-full border-rose-300/90 bg-rose-50/40 text-rose-900 hover:border-rose-400 hover:bg-rose-100/60"
               onClick={() => navigate("/projects")}
             >
               Cancel
             </Button>
           </div>
         </div>
+
       </form>
+
+      <div
+        aria-hidden
+        className="pointer-events-none shrink-0 xl:hidden"
+        style={{ height: "calc(11.5rem + env(safe-area-inset-bottom, 0px))" }}
+      />
+
+      <div
+        aria-label="Form navigation"
+        className="safe-bottom pointer-events-none fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background px-4 py-3 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] xl:hidden dark:shadow-[0_-4px_12px_rgba(0,0,0,0.3)]"
+      >
+        <div className="pointer-events-auto mx-auto max-w-[1500px] space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 border-sky-300/90 bg-sky-50/40 text-sky-900 hover:border-sky-400 hover:bg-sky-100/60 disabled:opacity-50 dark:bg-sky-950/30 dark:text-sky-100"
+              disabled={currentStepIndex === 0}
+              onClick={goToPreviousStep}
+            >
+              Previous
+            </Button>
+            {currentStepIndex < stepOrder.length - 1 ? (
+              <Button
+                type="button"
+                className="h-11 border border-violet-300/90 bg-violet-50/40 text-violet-900 hover:border-violet-400 hover:bg-violet-100/60 dark:bg-violet-950/30 dark:text-violet-100"
+                disabled={currentStepIndex === stepOrder.length - 1}
+                onClick={goToNextStep}
+              >
+                Next
+              </Button>
+            ) : (
+              <Button
+                type="submit"
+                form="transaction-form"
+                className="h-11 border border-primary/80 shadow-sm shadow-primary/20 disabled:opacity-50"
+                disabled={submitDisabled}
+                title={submitButtonTitle}
+              >
+                {submitLabel}
+              </Button>
+            )}
+          </div>
+          {currentStepIndex < stepOrder.length - 1 ? (
+            <Button
+              type="submit"
+              form="transaction-form"
+              className={cn(submitButtonClassName, "w-full")}
+              disabled={submitDisabled}
+              title={submitButtonTitle}
+            >
+              {submitLabel}
+            </Button>
+          ) : null}
+          {!formCanSubmit && missingRequiredItems.length > 0 ? (
+            <p className="text-center text-[10px] leading-snug text-muted-foreground">
+              {missingRequiredItems.length} required field{missingRequiredItems.length === 1 ? "" : "s"} remaining
+            </p>
+          ) : null}
+        </div>
       </div>
     </div>
   );
@@ -1893,11 +2035,15 @@ function Section({
     listing: "bg-indigo-500/10",
   };
   return (
-    <div className={`bg-card border rounded-lg overflow-hidden ${toneStyles[tone]}`}>
+    <div className={cn("rounded-lg border bg-card overflow-x-hidden", toneStyles[tone])}>
       <button
         type="button"
         onClick={onToggle}
-        className={`w-full flex items-center justify-between px-4 py-3 transition-colors text-left ${toneHeaderStyles[tone]} hover:brightness-95`}
+        className={cn(
+          "flex min-h-[44px] w-full items-center justify-between px-4 py-3 text-left transition-colors xl:min-h-0",
+          toneHeaderStyles[tone],
+          "hover:brightness-95",
+        )}
       >
         <div>
           <h3 className="font-display font-semibold text-foreground">{title}</h3>

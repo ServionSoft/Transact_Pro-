@@ -52,6 +52,13 @@ import TransactionTasksTab from "@/components/transactions/detail/TransactionTas
 import type { TransactionDetailTabId } from "@/components/transactions/detail/transactionDetailTabs";
 import type { ProjectDetailLocationState } from "@/lib/projectDetailNavigation";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
+import {
+  embeddedTabBodyClass,
+  transactionDetailRootClass,
+  transactionDetailTabShellClass,
+  transactionTabCardClass,
+} from "@/lib/listPageLayout";
+import { cn } from "@/lib/utils";
 
 function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
@@ -86,10 +93,7 @@ export default function ProjectDetailPage() {
   const apiOn = Boolean(getApiBaseUrl());
   const [activeTab, setActiveTab] = useState<TransactionDetailTabId>("overview");
 
-  // Editable next step
-  const [editingNextStep, setEditingNextStep] = useState(false);
-  const [nextStepText, setNextStepText] = useState("");
-  const [nextStepDate, setNextStepDate] = useState("");
+  const [savingNextStep, setSavingNextStep] = useState(false);
 
   // Email compose
   const [showComposeEmail, setShowComposeEmail] = useState(false);
@@ -282,7 +286,6 @@ export default function ProjectDetailPage() {
   const rpaSeller = typeof transactionMeta?.rpaSeller === "string" ? transactionMeta.rpaSeller : "";
   const prelimSeller = typeof transactionMeta?.prelimSeller === "string" ? transactionMeta.prelimSeller : "";
   const sellerMatchOverride = typeof transactionMeta?.sellerMatchOverride === "string" ? transactionMeta.sellerMatchOverride : "";
-  const sellerMismatchNotes = typeof transactionMeta?.sellerMismatchNotes === "string" ? transactionMeta.sellerMismatchNotes : "";
   const autoSellerMatch = rpaSeller.trim() && prelimSeller.trim()
     ? rpaSeller.toLowerCase().replace(/[^a-z0-9]/g, "") === prelimSeller.toLowerCase().replace(/[^a-z0-9]/g, "")
       ? "Yes"
@@ -327,30 +330,23 @@ export default function ProjectDetailPage() {
       });
   };
 
-  const openNextStepEdit = () => {
-    setNextStepText(project.nextStep);
-    setNextStepDate(project.nextStepDate);
-    setActiveTab("overview");
-    setEditingNextStep(true);
-  };
-
-  const saveNextStep = () => {
+  const saveNextStep = (text: string, date: string) => {
     if (!project) return;
     if (getApiBaseUrl()) {
-      void patchProjectNextStepApi(project.id, nextStepText, nextStepDate)
+      setSavingNextStep(true);
+      void patchProjectNextStepApi(project.id, text, date)
         .then((updated) => {
           upsertProject(updated);
-          toast.success("Next step updated", { description: `"${nextStepText}" — due ${nextStepDate}` });
-          setEditingNextStep(false);
         })
         .catch((e) => {
           toast.error(e instanceof Error ? e.message : "Could not update next step.");
+        })
+        .finally(() => {
+          setSavingNextStep(false);
         });
       return;
     }
-    setNextStepStore(project.id, nextStepText, nextStepDate);
-    toast.success("Next step updated", { description: `"${nextStepText}" — due ${nextStepDate}` });
-    setEditingNextStep(false);
+    setNextStepStore(project.id, text, date);
   };
 
   const openReminderDraft = (deadlineId: string, title: string, date: string) => {
@@ -841,10 +837,11 @@ export default function ProjectDetailPage() {
     activeTab === "attachments" ||
     activeTab === "tasks" ||
     activeTab === "emails" ||
-    activeTab === "notes";
+    activeTab === "notes" ||
+    activeTab === "calendar";
 
   return (
-    <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col overflow-hidden p-5 md:p-6">
+    <div className={transactionDetailRootClass}>
       <div className="shrink-0 space-y-3 border-b border-border/60 pb-3">
         <TransactionDetailHeader
           project={project}
@@ -857,13 +854,8 @@ export default function ProjectDetailPage() {
         <TransactionNextStepBanner
           nextStep={project.nextStep}
           nextStepDate={project.nextStepDate}
-          editing={editingNextStep}
-          editText={nextStepText}
-          editDate={nextStepDate}
-          onEditText={setNextStepText}
-          onEditDate={setNextStepDate}
-          onStartEdit={openNextStepEdit}
-          onCancelEdit={() => setEditingNextStep(false)}
+          canEdit={canEditProject}
+          saving={savingNextStep}
           onSave={saveNextStep}
         />
         <TransactionDetailTabBar activeTab={activeTab} onTabChange={setActiveTab} />
@@ -873,6 +865,7 @@ export default function ProjectDetailPage() {
       {activeTab === "overview" && (
         <TransactionOverviewTab
           project={project}
+          metadata={metadataRecord}
           docProgress={docProgress}
           sigCounts={sigCounts}
           tasksComplete={tasksComplete}
@@ -882,9 +875,6 @@ export default function ProjectDetailPage() {
           nextDeadline={nextDeadline ? { title: nextDeadline.title, date: nextDeadline.date } : null}
           partyGroups={partyGroups}
           effectiveSellerMatch={effectiveSellerMatch}
-          rpaSeller={rpaSeller}
-          prelimSeller={prelimSeller}
-          sellerMismatchNotes={sellerMismatchNotes}
           assignmentOptions={assignmentOptions}
           canAssignMembers={canAssignMembers}
           apiOn={apiOn}
@@ -899,7 +889,7 @@ export default function ProjectDetailPage() {
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+          className={transactionDetailTabShellClass}
         >
           <TransactionDocumentsWorkspace
             projectId={project.id}
@@ -913,7 +903,7 @@ export default function ProjectDetailPage() {
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden"
+          className={cn(transactionDetailTabShellClass, "gap-2")}
         >
           <p className="shrink-0 text-xs text-muted-foreground">
             Browse and organize stored files. Upload and checklist actions live on the Documents tab or the Documents hub.
@@ -931,7 +921,7 @@ export default function ProjectDetailPage() {
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+          className={transactionDetailTabShellClass}
         >
           <TransactionTasksTab
             project={project}
@@ -960,7 +950,7 @@ export default function ProjectDetailPage() {
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+          className={transactionDetailTabShellClass}
         >
           <TransactionEmailsTab
             project={project}
@@ -988,7 +978,7 @@ export default function ProjectDetailPage() {
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+          className={transactionDetailTabShellClass}
         >
           <TransactionNotesTab
             project={project}
@@ -1005,11 +995,15 @@ export default function ProjectDetailPage() {
 
       {/* Timeline */}
       {activeTab === "calendar" && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-          <div className="bg-card border border-border rounded-lg overflow-hidden">
-            <div className="px-4 py-2.5 border-b border-border flex items-center justify-between">
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className={transactionDetailTabShellClass}
+        >
+          <div className={cn(transactionTabCardClass, "overflow-x-hidden rounded-lg")}>
+            <div className="flex flex-col gap-2 border-b border-border px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between">
               <h3 className="font-display font-semibold text-foreground">Deadlines & Reminders</h3>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
                   size="sm"
                   variant="outline"
@@ -1054,22 +1048,25 @@ export default function ProjectDetailPage() {
                 }}>Save</Button>
               </div>
             )}
-            <div className="divide-y divide-border max-h-[62vh] overflow-y-auto">
+            <div className={cn(embeddedTabBodyClass, "touch-pan-y divide-y divide-border")}>
               {sortedDeadlines.map((dl) => (
-                <div key={dl.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-foreground">{dl.title}</p>
+                <div
+                  key={dl.id}
+                  className="touch-pan-y flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:py-2.5"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="break-words text-sm font-medium text-foreground">{dl.title}</p>
                     <p className="text-xs text-muted-foreground">
                       {dl.type === "deadline" ? "Deadline" : "Reminder"}
                       {dl.formManaged ? " · From transaction form" : ""}
                     </p>
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
                     {canEditProject ? (
                       <Input
                         type="date"
                         value={dl.date}
-                        className="h-8 w-36 text-xs"
+                        className="h-8 min-w-0 flex-1 text-xs sm:w-36 sm:flex-none"
                         onChange={(e) => {
                           if (e.target.value && e.target.value !== dl.date) {
                             handleDeadlineDateChange(dl.id, e.target.value);
@@ -1082,7 +1079,7 @@ export default function ProjectDetailPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="h-7 px-2.5 text-xs"
+                      className="h-8 flex-1 px-2.5 text-xs sm:h-7 sm:flex-none"
                       onClick={() => openReminderDraft(dl.id, dl.title, dl.date)}
                     >
                       Draft Reminder
@@ -1091,7 +1088,7 @@ export default function ProjectDetailPage() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                        className="h-8 w-8 shrink-0 p-0 text-destructive hover:text-destructive sm:h-7 sm:w-7"
                         aria-label={dl.formManaged ? "Clear deadline date" : "Delete deadline"}
                         onClick={() => void handleDeleteDeadline(dl.id, dl.title, dl.formManaged)}
                       >

@@ -13,6 +13,7 @@ import { applyEmailTemplateToCompose } from "@/lib/emailTemplateTokens";
 import { getApiBaseUrl } from "@/lib/apiConfig";
 import type { TransactionRecipientSuggestion } from "@/lib/transactionRecipientSuggestions";
 import { useAppStore } from "@/store/appStore";
+import { listPageBodyClass, transactionTabCardClass } from "@/lib/listPageLayout";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -133,7 +134,7 @@ export default function TransactionEmailsTab({
   }, [emails]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+    <div className={transactionTabCardClass}>
       <div className="shrink-0 space-y-3 border-b border-border p-4 sm:p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -251,7 +252,7 @@ export default function TransactionEmailsTab({
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+      <div className={listPageBodyClass}>
         {emails.length === 0 ? (
           <div className="flex flex-col items-center justify-center px-6 py-14 text-center">
             <Mail className="mb-3 h-10 w-10 text-muted-foreground/50" />
