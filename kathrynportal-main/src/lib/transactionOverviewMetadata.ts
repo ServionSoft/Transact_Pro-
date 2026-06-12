@@ -1,4 +1,5 @@
 import type { Project } from "@/data/mockData";
+import { resolveEffectiveSellerMatchLabel } from "@/lib/sellerNameMatch";
 import { buildOverviewTimelineRows, type TimelineOverviewRow } from "@/lib/transactionTimelineFields";
 
 export type OverviewDetailRow = { label: string; value: string };
@@ -103,6 +104,17 @@ export function getListingDetailRows(metadata: Record<string, unknown> | undefin
   push(row("Questionnaires electronically", yesNo(l.questionnairesElectronically)));
   push(row("Seller on listing agreement", str(l.sellerOnListingAgreement)));
   push(row("Seller on prelim", str(l.sellerOnPrelim)));
+  const listingMatch = resolveEffectiveSellerMatchLabel(
+    str(l.sellerMatchOverride),
+    str(l.sellerOnListingAgreement),
+    str(l.sellerOnPrelim),
+  );
+  if (listingMatch !== "Pending" || str(l.sellerOnListingAgreement) || str(l.sellerOnPrelim)) {
+    push({ label: "Seller name match", value: listingMatch });
+  }
+  if (listingMatch === "No") {
+    push(row("Mismatch notes", str(l.sellerMismatchNotes)));
+  }
   push(row("DocuSign", yesNo(l.docuSign)));
   push(row("NHD company", str(l.nhdCompany)));
   if (l.nhdEnvironmental === true) push({ label: "NHD environmental", value: "Yes" });

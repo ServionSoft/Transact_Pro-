@@ -93,6 +93,10 @@ export const TX_FIELD_HELP = {
     why: "Listing: seller name/vesting exactly as shown on the preliminary title report (prelim).",
     example: "John A Smith and Jane B Smith, Trustees…",
   },
+  listingSellerNameMatch: {
+    fullName: "Listing seller name match",
+    why: "Confirms listing agreement seller vesting matches the prelim. Auto-calculated; override only when you have a documented reason.",
+  },
   questionnairesElectronically: {
     fullName: "Questionnaires electronically",
     why: "Listing: whether seller questionnaires will be sent/completed electronically.",

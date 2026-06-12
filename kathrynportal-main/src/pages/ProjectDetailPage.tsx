@@ -45,6 +45,8 @@ import { applyEmailTemplateToCompose, buildTimelineEmailComposePrefill } from "@
 import { useAuthStore } from "@/store/authStore";
 import { hasPermission } from "@/lib/permissions";
 import { getTransactionPartyGroups, resolveProjectEscrowOfficer } from "@/lib/transactionMetadataParties";
+import { resolveEffectiveSellerMatchLabel } from "@/lib/sellerNameMatch";
+import { isBuyerTransaction } from "@/lib/transactionListUtils";
 import TransactionTimelineEditor from "@/components/transactions/TransactionTimelineEditor";
 import {
   buildOverviewTimelineRows,
@@ -325,19 +327,24 @@ export default function ProjectDetailPage() {
     project.metadata.transaction &&
     typeof project.metadata.transaction === "object"
   ) ? (project.metadata.transaction as Record<string, unknown>) : null;
-  const rpaSeller = typeof transactionMeta?.rpaSeller === "string" ? transactionMeta.rpaSeller : "";
-  const prelimSeller = typeof transactionMeta?.prelimSeller === "string" ? transactionMeta.prelimSeller : "";
-  const sellerMatchOverride = typeof transactionMeta?.sellerMatchOverride === "string" ? transactionMeta.sellerMatchOverride : "";
-  const autoSellerMatch = rpaSeller.trim() && prelimSeller.trim()
-    ? rpaSeller.toLowerCase().replace(/[^a-z0-9]/g, "") === prelimSeller.toLowerCase().replace(/[^a-z0-9]/g, "")
-      ? "Yes"
-      : "No"
-    : "Pending";
-  const effectiveSellerMatch = sellerMatchOverride === "yes"
-    ? "Yes"
-    : sellerMatchOverride === "no"
-      ? "No"
-      : autoSellerMatch;
+  const listingMeta = (
+    project.metadata &&
+    typeof project.metadata === "object" &&
+    "listing" in project.metadata &&
+    project.metadata.listing &&
+    typeof project.metadata.listing === "object"
+  ) ? (project.metadata.listing as Record<string, unknown>) : null;
+  const effectiveSellerMatch = isBuyerTransaction(project.type)
+    ? resolveEffectiveSellerMatchLabel(
+        typeof transactionMeta?.sellerMatchOverride === "string" ? transactionMeta.sellerMatchOverride : "",
+        typeof transactionMeta?.rpaSeller === "string" ? transactionMeta.rpaSeller : "",
+        typeof transactionMeta?.prelimSeller === "string" ? transactionMeta.prelimSeller : "",
+      )
+    : resolveEffectiveSellerMatchLabel(
+        typeof listingMeta?.sellerMatchOverride === "string" ? listingMeta.sellerMatchOverride : "",
+        typeof listingMeta?.sellerOnListingAgreement === "string" ? listingMeta.sellerOnListingAgreement : "",
+        typeof listingMeta?.sellerOnPrelim === "string" ? listingMeta.sellerOnPrelim : "",
+      );
 
   const partyGroups = getTransactionPartyGroups(metadataRecord);
   const nextDeadline = sortedDeadlines[0] ?? null;

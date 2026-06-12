@@ -45,6 +45,10 @@ import {
   type TimelineFormState,
   type TimelineRequiredContext,
 } from "@/lib/transactionTimelineFields";
+import {
+  autoSellerNameMatch,
+  resolveSellerNameMatchStatus,
+} from "@/lib/sellerNameMatch";
 
 type TxType = "Listing" | "Buyer File";
 type LoanType = "Conventional" | "FHA/VA" | "All Cash" | "Other";
@@ -57,10 +61,6 @@ function inferContractAccepted(metadata: Record<string, unknown> | undefined, st
   if (metadata?.contractAccepted === true) return true;
   if (stage && POST_CONTRACT_STAGES.includes(stage)) return true;
   return false;
-}
-
-function normalizeSellerName(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 function isValidEmail(value: string): boolean {
@@ -476,6 +476,8 @@ export default function AddProjectPage() {
     docuSign: "" as YesNo,
     sellerOnListingAgreement: "",
     sellerOnPrelim: "",
+    sellerMatchOverride: "" as YesNo,
+    sellerMismatchNotes: "",
     nhdCompany: "", nhdEnvironmental: false,
   });
 
@@ -514,13 +516,21 @@ export default function AddProjectPage() {
     () => ({ isAllCash, noHOA, hoaYes, showCOP, showSPRP }),
     [isAllCash, noHOA, hoaYes, showCOP, showSPRP],
   );
-  const autoSellerNameMatch: YesNo =
-    transaction.rpaSeller.trim() && transaction.prelimSeller.trim()
-      ? normalizeSellerName(transaction.rpaSeller) === normalizeSellerName(transaction.prelimSeller)
-        ? "yes"
-        : "no"
-      : "";
-  const sellerNameMatchStatus: YesNo = transaction.sellerMatchOverride || autoSellerNameMatch;
+  const autoTransactionSellerNameMatch = autoSellerNameMatch(transaction.rpaSeller, transaction.prelimSeller);
+  const sellerNameMatchStatus = resolveSellerNameMatchStatus(
+    transaction.sellerMatchOverride,
+    transaction.rpaSeller,
+    transaction.prelimSeller,
+  );
+  const autoListingSellerNameMatch = autoSellerNameMatch(
+    listing.sellerOnListingAgreement,
+    listing.sellerOnPrelim,
+  );
+  const listingSellerNameMatchStatus = resolveSellerNameMatchStatus(
+    listing.sellerMatchOverride,
+    listing.sellerOnListingAgreement,
+    listing.sellerOnPrelim,
+  );
   const hasListingAgent2Data = Boolean(
     listingAgents[1]?.name ||
       listingAgents[1]?.email ||
@@ -1322,7 +1332,7 @@ export default function AddProjectPage() {
                 label="Seller Name Match?"
                 labelHelp={TX_FIELD_HELP.sellerNameMatch}
                 className="md:col-span-2"
-                hint={autoSellerNameMatch
+                hint={autoTransactionSellerNameMatch
                   ? "Auto-calculated from both names. You can override if needed."
                   : "Pending until both RPA Seller and Prelim Seller are filled."}
               >
@@ -1336,7 +1346,7 @@ export default function AddProjectPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__auto__">
-                        Auto ({autoSellerNameMatch === "yes" ? "Yes" : autoSellerNameMatch === "no" ? "No" : "Pending"})
+                        Auto ({autoTransactionSellerNameMatch === "yes" ? "Yes" : autoTransactionSellerNameMatch === "no" ? "No" : "Pending"})
                       </SelectItem>
                       <SelectItem value="yes">Yes</SelectItem>
                       <SelectItem value="no">No</SelectItem>
@@ -1446,6 +1456,49 @@ export default function AddProjectPage() {
                     placeholder="e.g. John A Smith and Jane B Smith, Trustees..."
                   />
                 </Field>
+                <Field
+                  label="Seller Name Match?"
+                  labelHelp={TX_FIELD_HELP.listingSellerNameMatch}
+                  className="md:col-span-2"
+                  hint={autoListingSellerNameMatch
+                    ? "Auto-calculated from both names. You can override if needed."
+                    : "Pending until both listing agreement and prelim seller names are filled."}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Select
+                      value={listing.sellerMatchOverride || "__auto__"}
+                      onValueChange={(v) => setListing((p) => ({ ...p, sellerMatchOverride: v === "__auto__" ? "" : (v as YesNo) }))}
+                    >
+                      <SelectTrigger className="w-full sm:w-[220px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__auto__">
+                          Auto ({autoListingSellerNameMatch === "yes" ? "Yes" : autoListingSellerNameMatch === "no" ? "No" : "Pending"})
+                        </SelectItem>
+                        <SelectItem value="yes">Yes</SelectItem>
+                        <SelectItem value="no">No</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <span className="text-xs text-muted-foreground">
+                      Effective status: {listingSellerNameMatchStatus === "yes" ? "Yes" : listingSellerNameMatchStatus === "no" ? "No" : "Pending"}
+                    </span>
+                  </div>
+                </Field>
+                {listingSellerNameMatchStatus === "no" && (
+                  <Field
+                    label="Mismatch Notes"
+                    className="md:col-span-2"
+                    hint="Optional. Explain why names differ (trust text, vesting, spelling, etc.)."
+                  >
+                    <Textarea
+                      value={listing.sellerMismatchNotes}
+                      onChange={e => setListing(p => ({ ...p, sellerMismatchNotes: e.target.value }))}
+                      rows={2}
+                      placeholder="Reason for mismatch between listing agreement and prelim seller names..."
+                    />
+                  </Field>
+                )}
                 <Field label="NHD Company" labelHelp={TX_FIELD_HELP.nhdCompany}>
                   <Input value={listing.nhdCompany} onChange={e => setListing(p => ({ ...p, nhdCompany: e.target.value }))} />
                 </Field>
