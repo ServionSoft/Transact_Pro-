@@ -183,7 +183,7 @@ export default function ProjectDeadlinesPrintPage() {
 
   if (loading || !project) {
     return (
-      <div className="p-8 max-w-5xl mx-auto">
+      <div className="page-padding mx-auto w-full max-w-5xl">
         <p className="text-sm text-muted-foreground">{loading ? "Loading print template..." : "Transaction not found."}</p>
         <Button variant="outline" size="sm" className="mt-3" onClick={() => navigate("/projects")}>
           Back
@@ -193,7 +193,7 @@ export default function ProjectDeadlinesPrintPage() {
   }
 
   return (
-    <div className="deadlines-print-page p-4 md:p-6 max-w-5xl mx-auto print:max-w-none print:p-0">
+    <div className="deadlines-print-page page-padding mx-auto w-full min-w-0 max-w-5xl print:max-w-none print:p-0">
       <style>{`
         @media print {
           .no-print { display: none !important; }
@@ -210,29 +210,39 @@ export default function ProjectDeadlinesPrintPage() {
         }
       `}</style>
 
-      <div className="no-print mb-4 flex items-center justify-between gap-2">
-        <Button variant="ghost" size="sm" onClick={() => navigate(`/projects/${project.id}`)} className="gap-1">
-          <ArrowLeft className="w-3.5 h-3.5" /> Back to transaction
+      <div className="no-print mb-4 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => navigate(`/projects/${project.id}`)}
+          className="h-10 w-full justify-start gap-1 sm:w-auto"
+        >
+          <ArrowLeft className="h-3.5 w-3.5 shrink-0" /> Back to transaction
         </Button>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="gap-1" onClick={() => window.print()}>
-            <Printer className="w-3.5 h-3.5" /> Print
+        <div className="grid min-w-0 grid-cols-3 gap-2 sm:flex sm:items-center sm:gap-2">
+          <Button variant="outline" size="sm" className="h-10 gap-1 px-2 text-xs sm:px-3 sm:text-sm" onClick={() => window.print()}>
+            <Printer className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">Print</span>
           </Button>
-          <Button variant="outline" size="sm" className="gap-1" onClick={savePdfFile}>
-            <Download className="w-3.5 h-3.5" /> Save PDF
+          <Button variant="outline" size="sm" className="h-10 gap-1 px-2 text-xs sm:px-3 sm:text-sm" onClick={savePdfFile}>
+            <Download className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">Save PDF</span>
           </Button>
-          <Button variant="outline" size="sm" className="gap-1" onClick={exportCsv}>
-            <Download className="w-3.5 h-3.5" /> CSV
+          <Button variant="outline" size="sm" className="h-10 gap-1 px-2 text-xs sm:px-3 sm:text-sm" onClick={exportCsv}>
+            <Download className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">CSV</span>
           </Button>
         </div>
       </div>
 
-      <article className="bg-white text-slate-900 border border-slate-200 rounded-xl p-6 md:p-8 print:border-0 print:rounded-none print:p-0">
-        <header className="border-b border-slate-200 pb-4 mb-5">
-          <p className="text-xs uppercase tracking-[0.15em] text-slate-500">Transaction Deadline Schedule</p>
-          <h1 className="text-2xl font-semibold mt-1">{project.propertyAddress.split(",")[0]}</h1>
-          <p className="text-sm text-slate-600 mt-1">{project.name}</p>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 text-sm">
+      <article className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 text-slate-900 sm:p-6 md:p-8 print:rounded-none print:border-0 print:p-0">
+        <header className="mb-5 border-b border-slate-200 pb-4">
+          <p className="text-[10px] uppercase tracking-[0.15em] text-slate-500 sm:text-xs">Transaction Deadline Schedule</p>
+          <h1 className="mt-1 break-words text-xl font-semibold sm:text-2xl">
+            {project.propertyAddress.split(",")[0]}
+          </h1>
+          <p className="mt-1 break-words text-sm text-slate-600">{project.name}</p>
+          <div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
             <InfoCell label="Client" value={project.clientName} />
             <InfoCell label="Type" value={project.type} />
             <InfoCell label="Stage" value={project.stage} />
@@ -240,38 +250,51 @@ export default function ProjectDeadlinesPrintPage() {
           </div>
         </header>
 
-        <section>
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr className="bg-slate-50">
-                <th className="text-left px-3 py-2 border border-slate-200 w-14">#</th>
-                <th className="text-left px-3 py-2 border border-slate-200">Deadline</th>
-                <th className="text-left px-3 py-2 border border-slate-200 w-40">Type</th>
-                <th className="text-left px-3 py-2 border border-slate-200 w-40">Date</th>
-              </tr>
-            </thead>
-            <tbody>
-              {deadlines.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="px-3 py-4 border border-slate-200 text-slate-500">
-                    No deadlines available.
-                  </td>
-                </tr>
-              ) : (
-                deadlines.map((dl, idx) => (
-                  <tr key={dl.id}>
-                    <td className="px-3 py-2 border border-slate-200 text-slate-600">{idx + 1}</td>
-                    <td className="px-3 py-2 border border-slate-200 font-medium">{dl.title}</td>
-                    <td className="px-3 py-2 border border-slate-200">{dl.type}</td>
-                    <td className="px-3 py-2 border border-slate-200">{fmtDate(dl.date)}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+        <section className="min-w-0">
+          {deadlines.length === 0 ? (
+            <p className="rounded-lg border border-slate-200 px-3 py-4 text-sm text-slate-500">No deadlines available.</p>
+          ) : (
+            <>
+              <ul className="space-y-3 md:hidden print:hidden">
+                {deadlines.map((dl, idx) => (
+                  <li key={dl.id} className="rounded-lg border border-slate-200 bg-slate-50/40 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="shrink-0 text-xs font-semibold text-slate-500">#{idx + 1}</span>
+                      <span className="shrink-0 text-xs font-medium text-slate-700">{fmtDate(dl.date)}</span>
+                    </div>
+                    <p className="mt-2 break-words text-sm font-medium text-slate-900">{dl.title}</p>
+                    <p className="mt-1 text-xs capitalize text-slate-600">{dl.type}</p>
+                  </li>
+                ))}
+              </ul>
+
+              <div className="hidden min-w-0 overflow-x-auto overscroll-x-contain md:block print:block">
+                <table className="w-full min-w-[36rem] border-collapse text-sm">
+                  <thead>
+                    <tr className="bg-slate-50">
+                      <th className="w-14 border border-slate-200 px-3 py-2 text-left">#</th>
+                      <th className="min-w-[12rem] border border-slate-200 px-3 py-2 text-left">Deadline</th>
+                      <th className="w-36 border border-slate-200 px-3 py-2 text-left">Type</th>
+                      <th className="w-36 border border-slate-200 px-3 py-2 text-left">Date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {deadlines.map((dl, idx) => (
+                      <tr key={dl.id}>
+                        <td className="border border-slate-200 px-3 py-2 text-slate-600">{idx + 1}</td>
+                        <td className="border border-slate-200 px-3 py-2 font-medium break-words">{dl.title}</td>
+                        <td className="border border-slate-200 px-3 py-2 whitespace-nowrap">{dl.type}</td>
+                        <td className="border border-slate-200 px-3 py-2 whitespace-nowrap">{fmtDate(dl.date)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </section>
 
-        <footer className="mt-6 text-xs text-slate-500 flex items-center justify-between">
+        <footer className="mt-6 flex flex-col gap-2 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
           <span>Prepared for client presentation.</span>
           <Link to={`/projects/${project.id}`} className="no-print underline underline-offset-2">
             Open transaction
@@ -284,9 +307,9 @@ export default function ProjectDeadlinesPrintPage() {
 
 function InfoCell({ label, value }: { label: string; value: string }) {
   return (
-    <div>
+    <div className="min-w-0">
       <p className="text-[11px] uppercase tracking-wide text-slate-500">{label}</p>
-      <p className="font-medium truncate">{value || "—"}</p>
+      <p className="break-words font-medium">{value || "—"}</p>
     </div>
   );
 }
