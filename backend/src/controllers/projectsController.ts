@@ -479,13 +479,32 @@ export function createProjectsController(pool: Pool, config: AppConfig) {
     },
 
     async createTask(req: Request, res: Response): Promise<void> {
-      const body = req.body as { title?: unknown; stage?: unknown; status?: unknown; dueDate?: unknown };
+      const body = req.body as {
+        title?: unknown;
+        stage?: unknown;
+        status?: unknown;
+        dueDate?: unknown;
+        taskType?: unknown;
+        emailTemplateId?: unknown;
+        recipientEmail?: unknown;
+      };
       const title = typeof body?.title === "string" ? body.title : "";
       const stage = typeof body?.stage === "string" ? body.stage : "";
       const status = typeof body?.status === "string" ? body.status : "";
       const dueDate = typeof body?.dueDate === "string" ? body.dueDate : "";
+      const taskType = typeof body?.taskType === "string" ? body.taskType : "";
+      const emailTemplateId = typeof body?.emailTemplateId === "string" ? body.emailTemplateId : "";
+      const recipientEmail = typeof body?.recipientEmail === "string" ? body.recipientEmail : "";
       try {
-        const result = await createProjectTask(pool, req.params.id, { title, stage, status, dueDate });
+        const result = await createProjectTask(pool, req.params.id, {
+          title,
+          stage,
+          status,
+          dueDate,
+          taskType,
+          emailTemplateId,
+          recipientEmail,
+        });
         if ("error" in result) {
           res.status(result.error.status).json({ success: false, error: { code: result.error.code, message: result.error.message } });
           return;
@@ -497,12 +516,31 @@ export function createProjectsController(pool: Pool, config: AppConfig) {
     },
 
     async patchTask(req: Request, res: Response): Promise<void> {
-      const body = req.body as { status?: unknown; title?: unknown; stage?: unknown; dueDate?: unknown };
-      const input: { title?: string; stage?: string; status?: string; dueDate?: string } = {};
+      const body = req.body as {
+        status?: unknown;
+        title?: unknown;
+        stage?: unknown;
+        dueDate?: unknown;
+        taskType?: unknown;
+        emailTemplateId?: unknown;
+        recipientEmail?: unknown;
+      };
+      const input: {
+        title?: string;
+        stage?: string;
+        status?: string;
+        dueDate?: string;
+        taskType?: string;
+        emailTemplateId?: string;
+        recipientEmail?: string;
+      } = {};
       if (typeof body?.title === "string") input.title = body.title;
       if (typeof body?.stage === "string") input.stage = body.stage;
       if (typeof body?.status === "string") input.status = body.status;
       if (typeof body?.dueDate === "string") input.dueDate = body.dueDate;
+      if (typeof body?.taskType === "string") input.taskType = body.taskType;
+      if (typeof body?.emailTemplateId === "string") input.emailTemplateId = body.emailTemplateId;
+      if (typeof body?.recipientEmail === "string") input.recipientEmail = body.recipientEmail;
       try {
         const result = await updateProjectTask(pool, req.params.id, req.params.taskId, input);
         if ("error" in result) {

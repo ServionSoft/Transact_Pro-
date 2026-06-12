@@ -48,6 +48,9 @@ type ProjectDetailApiRow = Omit<ProjectListItem, "documentsCompleteCount" | "doc
     status: ProjectTask["status"];
     dueDate: string;
     completedDate?: string;
+    taskType?: ProjectTask["taskType"];
+    emailTemplateId?: string;
+    recipientEmail?: string;
     notes?: Array<{ id?: string; body?: string; createdAt?: string; updatedAt?: string; author?: string }>;
   }>;
   emails: Array<{
@@ -219,6 +222,7 @@ function mapDetailRowToProject(row: ProjectDetailApiRow): Project {
     })),
     tasks: (row.tasks ?? []).map((t) => ({
       ...t,
+      taskType: t.taskType ?? "general",
       notes: (t.notes ?? []).map((n, index) => ({
         id: n.id ?? `legacy-${t.id}-${index}`,
         date: n.createdAt ?? "",
@@ -507,6 +511,9 @@ export async function updateProjectTaskApi(
     stage?: ProjectStage;
     status?: "Pending" | "In Progress" | "Complete";
     dueDate?: string;
+    taskType?: ProjectTask["taskType"];
+    emailTemplateId?: string;
+    recipientEmail?: string;
   }
 ): Promise<Project> {
   const json = await apiCall(`/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}`, {
@@ -535,7 +542,15 @@ export async function deleteProjectTaskApi(projectId: string, taskId: string): P
 
 export async function createProjectTaskApi(
   projectId: string,
-  body: { title: string; stage: ProjectStage; status?: "Pending" | "In Progress" | "Complete"; dueDate?: string }
+  body: {
+    title: string;
+    stage: ProjectStage;
+    status?: "Pending" | "In Progress" | "Complete";
+    dueDate?: string;
+    taskType?: ProjectTask["taskType"];
+    emailTemplateId?: string;
+    recipientEmail?: string;
+  }
 ): Promise<Project> {
   const json = await apiCall(`/api/projects/${encodeURIComponent(projectId)}/tasks`, {
     method: "POST",

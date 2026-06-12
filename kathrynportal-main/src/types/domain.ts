@@ -84,6 +84,8 @@ export interface ProjectDocument {
   esignDocumentId?: string;
 }
 
+export type ProjectTaskType = "general" | "email";
+
 export interface ProjectTask {
   id: string;
   title: string;
@@ -91,6 +93,9 @@ export interface ProjectTask {
   status: TaskStatus;
   dueDate: string;
   completedDate?: string;
+  taskType?: ProjectTaskType;
+  emailTemplateId?: string;
+  recipientEmail?: string;
   notes?: { id: string; date: string; text: string; author: string; updatedAt?: string }[];
 }
 

@@ -38,7 +38,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { CRM_DOCUMENT_VAULT_PROJECT_ID, type EmailThread } from "@/data/mockData";
+import { CRM_DOCUMENT_VAULT_PROJECT_ID, type EmailThread, type ProjectTask } from "@/data/mockData";
+import { listEmailTemplatesFromApi } from "@/api/emailTemplates";
+import { applyEmailTemplateToCompose } from "@/lib/emailTemplateTokens";
 import { useAuthStore } from "@/store/authStore";
 import { hasPermission } from "@/lib/permissions";
 import { getTransactionPartyGroups } from "@/lib/transactionMetadataParties";
@@ -107,6 +109,9 @@ export default function ProjectDetailPage() {
   const [composeTo, setComposeTo] = useState("");
   const [composeSubject, setComposeSubject] = useState("");
   const [composeBody, setComposeBody] = useState("");
+  const [composeTemplateId, setComposeTemplateId] = useState("");
+  const emailTemplates = useAppStore((s) => s.emailTemplates);
+  const setEmailTemplates = useAppStore((s) => s.setEmailTemplates);
 
   // Add-deadline form
   const [showAddDeadline, setShowAddDeadline] = useState(false);
@@ -115,6 +120,9 @@ export default function ProjectDetailPage() {
   const [showAddTask, setShowAddTask] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskDueDate, setNewTaskDueDate] = useState("");
+  const [newTaskType, setNewTaskType] = useState<ProjectTask["taskType"]>("general");
+  const [newTaskEmailTemplateId, setNewTaskEmailTemplateId] = useState("");
+  const [newTaskRecipientEmail, setNewTaskRecipientEmail] = useState("");
   const [taskFilter, setTaskFilter] = useState<"All" | "Pending" | "In Progress" | "Complete">("All");
   const [newNoteBody, setNewNoteBody] = useState("");
   const [assignmentOptions, setAssignmentOptions] = useState<Array<{ id: string; name: string; email: string; designation?: string | null }>>([]);
@@ -230,15 +238,17 @@ export default function ProjectDetailPage() {
     if (!project) return;
     const state = location.state as ProjectDetailLocationState | null | undefined;
     if (!state?.tab) return;
-    const token = `${location.key}:${state.tab}:${state.composeEmail ?? ""}`;
+    const token = `${location.key}:${state.tab}:${state.composeEmail ?? ""}:${state.composeSubject ?? ""}:${state.composeTemplateId ?? ""}`;
     if (consumedNavRef.current === token) return;
     consumedNavRef.current = token;
     setActiveTab(state.tab);
     if (state.tab === "emails") {
       setShowComposeEmail(true);
       const email = state.composeEmail?.trim() || clients.find((c) => c.id === project.clientId)?.email?.trim();
-      if (email) setComposeTo(email);
-      setComposeSubject((prev) => prev.trim() || `Re: ${project.propertyAddress}`);
+      setComposeTo(email ?? "");
+      setComposeSubject(state.composeSubject?.trim() || `Re: ${project.propertyAddress}`);
+      setComposeBody(state.composeBody ?? "");
+      setComposeTemplateId(state.composeTemplateId ?? "");
     }
     navigate(location.pathname, { replace: true, state: {} });
   }, [project, location.key, location.state, location.pathname, navigate, clients]);
@@ -312,15 +322,47 @@ export default function ProjectDetailPage() {
   const nextDeadline = sortedDeadlines[0] ?? null;
   const tasksComplete = (project.tasks ?? []).filter((t) => t.status === "Complete").length;
 
-  const openTransactionEmail = (email?: string) => {
+  const openTransactionCompose = (options?: {
+    email?: string;
+    subject?: string;
+    body?: string;
+    templateId?: string;
+  }) => {
     setActiveTab("emails");
     setShowComposeEmail(true);
-    if (email?.trim()) {
-      setComposeTo(email.trim());
-    } else {
-      setComposeTo(client?.email ?? "");
+    setComposeTo(options?.email?.trim() || client?.email?.trim() || "");
+    setComposeSubject(options?.subject?.trim() || `Re: ${project.propertyAddress}`);
+    setComposeBody(options?.body ?? "");
+    setComposeTemplateId(options?.templateId ?? "");
+  };
+
+  const openTransactionEmail = (email?: string) => {
+    openTransactionCompose({ email });
+  };
+
+  const handleComposeEmailTask = (task: ProjectTask) => {
+    const openWithTemplates = (templates: typeof emailTemplates) => {
+      const tpl = task.emailTemplateId
+        ? templates.find((t) => t.id === task.emailTemplateId)
+        : undefined;
+      const applied = tpl ? applyEmailTemplateToCompose(tpl, project, client) : null;
+      openTransactionCompose({
+        email: task.recipientEmail?.trim() || client?.email?.trim(),
+        subject: applied?.subject || task.title,
+        body: applied?.body ?? "",
+        templateId: task.emailTemplateId,
+      });
+    };
+    if (apiOn && emailTemplates.length === 0) {
+      void listEmailTemplatesFromApi()
+        .then((rows) => {
+          setEmailTemplates(rows);
+          openWithTemplates(rows);
+        })
+        .catch(() => openWithTemplates(emailTemplates));
+      return;
     }
-    setComposeSubject((prev) => prev.trim() || `Re: ${project.propertyAddress}`);
+    openWithTemplates(emailTemplates);
   };
 
   const handleAssignmentsChange = (userIds: string[]) => {
@@ -505,39 +547,55 @@ export default function ProjectDetailPage() {
   };
 
   const handleSaveNewTask = () => {
-                    const title = newTaskTitle.trim();
-                    if (!title) {
-                      toast.error("Task title is required.");
-                      return;
-                    }
-                    if (apiOn) {
-                      void createProjectTaskApi(project.id, {
-                        title,
-                        stage: project.stage,
-                        dueDate: newTaskDueDate || undefined,
-                      })
-                        .then((updated) => {
-                          upsertProject(updated);
-                          setNewTaskTitle("");
-                          setNewTaskDueDate("");
-                          setShowAddTask(false);
-                          toast.success("Task added.");
-                        })
-                        .catch((e) => {
-                          toast.error(e instanceof Error ? e.message : "Could not add task.");
-                        });
-                      return;
-                    }
-                    addProjectTaskStore(project.id, {
-                      title,
-                      stage: project.stage,
-                      status: "Pending",
-                      dueDate: newTaskDueDate || new Date().toISOString().split("T")[0],
-                    });
-                    setNewTaskTitle("");
-                    setNewTaskDueDate("");
-                    setShowAddTask(false);
-                    toast.success("Task added.");
+    const title = newTaskTitle.trim();
+    if (!title) {
+      toast.error("Task title is required.");
+      return;
+    }
+    const taskType = newTaskType ?? "general";
+    const emailFields =
+      taskType === "email"
+        ? {
+            emailTemplateId: newTaskEmailTemplateId || undefined,
+            recipientEmail: newTaskRecipientEmail.trim() || undefined,
+          }
+        : {};
+    const resetNewTaskForm = () => {
+      setNewTaskTitle("");
+      setNewTaskDueDate("");
+      setNewTaskType("general");
+      setNewTaskEmailTemplateId("");
+      setNewTaskRecipientEmail("");
+      setShowAddTask(false);
+    };
+    if (apiOn) {
+      void createProjectTaskApi(project.id, {
+        title,
+        stage: project.stage,
+        dueDate: newTaskDueDate || undefined,
+        taskType,
+        ...emailFields,
+      })
+        .then((updated) => {
+          upsertProject(updated);
+          resetNewTaskForm();
+          toast.success("Task added.");
+        })
+        .catch((e) => {
+          toast.error(e instanceof Error ? e.message : "Could not add task.");
+        });
+      return;
+    }
+    addProjectTaskStore(project.id, {
+      title,
+      stage: project.stage,
+      status: "Pending",
+      dueDate: newTaskDueDate || new Date().toISOString().split("T")[0],
+      taskType,
+      ...emailFields,
+    });
+    resetNewTaskForm();
+    toast.success("Task added.");
   };
 
   const handleToggleTaskComplete = (taskId: string, isComplete: boolean) => {
@@ -599,10 +657,21 @@ export default function ProjectDetailPage() {
 
   const handleUpdateTask = (
     taskId: string,
-    payload: { title: string; stage: string; status: "Pending" | "In Progress" | "Complete"; dueDate: string }
+    payload: {
+      title: string;
+      stage: string;
+      status: "Pending" | "In Progress" | "Complete";
+      dueDate: string;
+      taskType?: ProjectTask["taskType"];
+      emailTemplateId?: string;
+      recipientEmail?: string;
+    }
   ) => {
     if (apiOn) {
-      void updateProjectTaskApi(project.id, taskId, payload)
+      void updateProjectTaskApi(project.id, taskId, {
+        ...payload,
+        stage: payload.stage as Project["stage"],
+      })
         .then((updated) => {
           upsertProject(updated);
           toast.success("Task updated.");
@@ -738,6 +807,7 @@ export default function ProjectDetailPage() {
     setComposeTo("");
     setComposeSubject("");
     setComposeBody("");
+    setComposeTemplateId("");
   };
 
   const handleSendEmail = (options?: { templateId?: string }) => {
@@ -1029,6 +1099,14 @@ export default function ProjectDetailPage() {
             onNewTaskTitleChange={setNewTaskTitle}
             newTaskDueDate={newTaskDueDate}
             onNewTaskDueDateChange={setNewTaskDueDate}
+            newTaskType={newTaskType}
+            onNewTaskTypeChange={setNewTaskType}
+            newTaskEmailTemplateId={newTaskEmailTemplateId}
+            onNewTaskEmailTemplateIdChange={setNewTaskEmailTemplateId}
+            newTaskRecipientEmail={newTaskRecipientEmail}
+            onNewTaskRecipientEmailChange={setNewTaskRecipientEmail}
+            recipientSuggestions={emailRecipientSuggestions}
+            onComposeEmailTask={handleComposeEmailTask}
             onSaveNewTask={handleSaveNewTask}
             onToggleTaskComplete={handleToggleTaskComplete}
             onMarkAllComplete={handleMarkAllTasksComplete}
@@ -1069,6 +1147,7 @@ export default function ProjectDetailPage() {
             onReply={handleReplyEmail}
             onDeleteEmail={handleDeleteEmail}
             canDelete={canEditProject}
+            initialTemplateId={composeTemplateId}
           />
         </motion.div>
       )}

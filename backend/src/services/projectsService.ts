@@ -46,6 +46,8 @@ export type ProjectTaskNoteApi = {
   updatedAt?: string;
 };
 
+export type ProjectTaskTypeUi = "general" | "email";
+
 export type ProjectTaskApi = {
   id: string;
   title: string;
@@ -53,8 +55,22 @@ export type ProjectTaskApi = {
   status: TaskStatusUi;
   dueDate: string;
   completedDate?: string;
+  taskType: ProjectTaskTypeUi;
+  emailTemplateId?: string;
+  recipientEmail?: string;
   notes: ProjectTaskNoteApi[];
 };
+
+const TASK_TYPE_DB_TO_UI: Record<string, ProjectTaskTypeUi> = {
+  general: "general",
+  email: "email",
+};
+
+function mapTaskTypeToDb(type: string): "general" | "email" | null {
+  if (type === "email") return "email";
+  if (type === "general") return "general";
+  return null;
+}
 
 export type ProjectEmailApi = {
   id: string;
@@ -892,8 +908,12 @@ async function getProjectTasks(pool: Pool, projectId: string): Promise<ProjectTa
     status: string;
     due_date: string | null;
     completed_at: Date | null;
+    task_type: string;
+    email_template_id: string | null;
+    recipient_email: string | null;
   }>(
-    `SELECT id::text, title, stage::text, status::text, due_date::text, completed_at
+    `SELECT id::text, title, stage::text, status::text, due_date::text, completed_at,
+            task_type::text, email_template_id::text, recipient_email
      FROM public.project_tasks
      WHERE project_id = $1::bigint
      ORDER BY created_at ASC`,
@@ -941,6 +961,9 @@ async function getProjectTasks(pool: Pool, projectId: string): Promise<ProjectTa
     stage: STAGE_DB_TO_UI[r.stage] ?? "Listing Prep",
     status: TASK_STATUS_DB_TO_UI[r.status] ?? "Pending",
     dueDate: r.due_date ?? "",
+    taskType: TASK_TYPE_DB_TO_UI[r.task_type] ?? "general",
+    ...(r.email_template_id ? { emailTemplateId: r.email_template_id } : {}),
+    ...(r.recipient_email?.trim() ? { recipientEmail: r.recipient_email.trim() } : {}),
     ...(r.completed_at ? { completedDate: r.completed_at.toISOString().split("T")[0] } : {}),
     notes: notesByTaskId.get(r.id) ?? [],
   }));
@@ -1955,10 +1978,53 @@ export async function permanentlyDeleteArchivedProject(
   return { ok: true };
 }
 
+async function validateTaskEmailFields(
+  pool: Pool,
+  input: { taskType?: string; emailTemplateId?: string; recipientEmail?: string }
+): Promise<ServiceError | null> {
+  const taskType = normalizeText(input.taskType) || "general";
+  if (taskType !== "general" && taskType !== "email") {
+    return { status: 400, code: "PROJECT_TASK_TYPE_INVALID", message: "Task type is invalid." };
+  }
+  const templateId = normalizeText(input.emailTemplateId);
+  if (templateId) {
+    if (!/^\d+$/.test(templateId)) {
+      return { status: 400, code: "PROJECT_TASK_TEMPLATE_INVALID", message: "Email template is invalid." };
+    }
+    const tpl = await pool.query<{ ok: string }>(
+      `SELECT 1::text AS ok FROM public.email_templates WHERE id = $1::bigint AND deleted_at IS NULL LIMIT 1`,
+      [templateId]
+    );
+    if (tpl.rows.length === 0) {
+      return { status: 400, code: "PROJECT_TASK_TEMPLATE_NOT_FOUND", message: "Email template was not found." };
+    }
+  }
+  const recipient = normalizeText(input.recipientEmail);
+  if (recipient && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) {
+    return { status: 400, code: "PROJECT_TASK_RECIPIENT_INVALID", message: "Recipient email is invalid." };
+  }
+  if (taskType === "general" && (templateId || recipient)) {
+    return {
+      status: 400,
+      code: "PROJECT_TASK_EMAIL_FIELDS_NOT_ALLOWED",
+      message: "Email template and recipient apply only to email tasks.",
+    };
+  }
+  return null;
+}
+
 export async function createProjectTask(
   pool: Pool,
   projectId: string,
-  input: { title: string; stage: string; status?: string; dueDate?: string }
+  input: {
+    title: string;
+    stage: string;
+    status?: string;
+    dueDate?: string;
+    taskType?: string;
+    emailTemplateId?: string;
+    recipientEmail?: string;
+  }
 ): Promise<{ project: ProjectDetailApi } | { error: ServiceError }> {
   if (!/^\d+$/.test(projectId)) {
     return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
@@ -1976,15 +2042,27 @@ export async function createProjectTask(
     statusRaw === "In Progress" ? "in_progress" :
       statusRaw === "Complete" ? "complete" :
         "pending";
+  const emailValidation = await validateTaskEmailFields(pool, input);
+  if (emailValidation) return { error: emailValidation };
+  const taskTypeDb = mapTaskTypeToDb(normalizeText(input.taskType) || "general") ?? "general";
+  const emailTemplateId =
+    taskTypeDb === "email" && /^\d+$/.test(normalizeText(input.emailTemplateId))
+      ? normalizeText(input.emailTemplateId)
+      : null;
+  const recipientEmail =
+    taskTypeDb === "email" ? normalizeText(input.recipientEmail) || null : null;
   await pool.query(
     `INSERT INTO public.project_tasks (
-       project_id, title, stage, status, due_date, completed_at, created_at, updated_at
+       project_id, title, stage, status, due_date, completed_at,
+       task_type, email_template_id, recipient_email,
+       created_at, updated_at
      ) VALUES (
        $1::bigint, $2, $3::public.project_stage, $4::public.task_status, $5::date,
        CASE WHEN $4::public.task_status = 'complete'::public.task_status THEN now() ELSE NULL END,
+       $6::public.project_task_type, $7::bigint, $8,
        now(), now()
      )`,
-    [projectId, title, stageDb, statusDb, parseDateString(input.dueDate)]
+    [projectId, title, stageDb, statusDb, parseDateString(input.dueDate), taskTypeDb, emailTemplateId, recipientEmail]
   );
   const project = await getProjectById(pool, projectId);
   if (!project) return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
@@ -2002,7 +2080,15 @@ export async function updateProjectTask(
   pool: Pool,
   projectId: string,
   taskId: string,
-  input: { title?: string; stage?: string; status?: string; dueDate?: string }
+  input: {
+    title?: string;
+    stage?: string;
+    status?: string;
+    dueDate?: string;
+    taskType?: string;
+    emailTemplateId?: string;
+    recipientEmail?: string;
+  }
 ): Promise<{ project: ProjectDetailApi } | { error: ServiceError }> {
   if (!/^\d+$/.test(projectId) || !/^\d+$/.test(taskId)) {
     return { error: { status: 404, code: "PROJECT_TASK_NOT_FOUND", message: "Project task not found." } };
@@ -2011,7 +2097,10 @@ export async function updateProjectTask(
   const hasStage = input.stage !== undefined;
   const hasStatus = input.status !== undefined;
   const hasDueDate = input.dueDate !== undefined;
-  if (!hasTitle && !hasStage && !hasStatus && !hasDueDate) {
+  const hasTaskType = input.taskType !== undefined;
+  const hasEmailTemplateId = input.emailTemplateId !== undefined;
+  const hasRecipientEmail = input.recipientEmail !== undefined;
+  if (!hasTitle && !hasStage && !hasStatus && !hasDueDate && !hasTaskType && !hasEmailTemplateId && !hasRecipientEmail) {
     return {
       error: { status: 400, code: "PROJECT_TASK_NOTHING_TO_UPDATE", message: "No task fields to update." },
     };
@@ -2055,6 +2144,53 @@ export async function updateProjectTask(
   if (hasDueDate) {
     sets.push(`due_date = $${idx++}::date`);
     params.push(parseDateString(input.dueDate));
+  }
+
+  if (hasTaskType || hasEmailTemplateId || hasRecipientEmail) {
+    const current = await pool.query<{
+      task_type: string;
+      email_template_id: string | null;
+      recipient_email: string | null;
+    }>(
+      `SELECT task_type::text, email_template_id::text, recipient_email
+       FROM public.project_tasks
+       WHERE id = $1::bigint AND project_id = $2::bigint
+       LIMIT 1`,
+      [taskId, projectId]
+    );
+    if (current.rows.length === 0) {
+      return { error: { status: 404, code: "PROJECT_TASK_NOT_FOUND", message: "Project task not found." } };
+    }
+    const row = current.rows[0];
+    const nextType = hasTaskType
+      ? mapTaskTypeToDb(input.taskType ?? "")
+      : mapTaskTypeToDb(TASK_TYPE_DB_TO_UI[row.task_type] ?? "general");
+    if (!nextType) {
+      return { error: { status: 400, code: "PROJECT_TASK_TYPE_INVALID", message: "Task type is invalid." } };
+    }
+    const nextTemplateId = hasEmailTemplateId
+      ? normalizeText(input.emailTemplateId)
+      : row.email_template_id ?? "";
+    const nextRecipient = hasRecipientEmail
+      ? normalizeText(input.recipientEmail)
+      : row.recipient_email ?? "";
+    const emailValidation = await validateTaskEmailFields(pool, {
+      taskType: nextType,
+      emailTemplateId: nextTemplateId || undefined,
+      recipientEmail: nextRecipient || undefined,
+    });
+    if (emailValidation) return { error: emailValidation };
+    sets.push(`task_type = $${idx++}::public.project_task_type`);
+    params.push(nextType);
+    if (nextType === "email") {
+      sets.push(`email_template_id = $${idx++}::bigint`);
+      params.push(/^\d+$/.test(nextTemplateId) ? nextTemplateId : null);
+      sets.push(`recipient_email = $${idx++}`);
+      params.push(nextRecipient || null);
+    } else {
+      sets.push(`email_template_id = NULL`);
+      sets.push(`recipient_email = NULL`);
+    }
   }
 
   params.push(taskId, projectId);

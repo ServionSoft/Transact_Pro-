@@ -1,7 +1,12 @@
-import { useState } from "react";
-import { CheckSquare, MessageSquare, Pencil, Plus, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { CheckSquare, Mail, MessageSquare, Pencil, Plus, Trash2 } from "lucide-react";
 import type { Project, ProjectTask } from "@/data/mockData";
+import { listEmailTemplatesFromApi } from "@/api/emailTemplates";
 import { ALL_STAGES } from "@/types/domain";
+import { getApiBaseUrl } from "@/lib/apiConfig";
+import type { TransactionRecipientSuggestion } from "@/lib/transactionRecipientSuggestions";
+import { useAppStore } from "@/store/appStore";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +31,9 @@ type TaskEditPayload = {
   stage: string;
   status: ProjectTask["status"];
   dueDate: string;
+  taskType?: ProjectTask["taskType"];
+  emailTemplateId?: string;
+  recipientEmail?: string;
 };
 
 type Props = {
@@ -39,6 +47,14 @@ type Props = {
   onNewTaskTitleChange: (v: string) => void;
   newTaskDueDate: string;
   onNewTaskDueDateChange: (v: string) => void;
+  newTaskType?: ProjectTask["taskType"];
+  onNewTaskTypeChange?: (v: ProjectTask["taskType"]) => void;
+  newTaskEmailTemplateId?: string;
+  onNewTaskEmailTemplateIdChange?: (v: string) => void;
+  newTaskRecipientEmail?: string;
+  onNewTaskRecipientEmailChange?: (v: string) => void;
+  recipientSuggestions?: TransactionRecipientSuggestion[];
+  onComposeEmailTask?: (task: ProjectTask) => void;
   onSaveNewTask: () => void;
   onToggleTaskComplete: (taskId: string, isComplete: boolean) => void;
   onMarkAllComplete: () => void;
@@ -76,6 +92,14 @@ export default function TransactionTasksTab({
   onNewTaskTitleChange,
   newTaskDueDate,
   onNewTaskDueDateChange,
+  newTaskType = "general",
+  onNewTaskTypeChange,
+  newTaskEmailTemplateId = "",
+  onNewTaskEmailTemplateIdChange,
+  newTaskRecipientEmail = "",
+  onNewTaskRecipientEmailChange,
+  recipientSuggestions = [],
+  onComposeEmailTask,
   onSaveNewTask,
   onToggleTaskComplete,
   onMarkAllComplete,
@@ -93,7 +117,37 @@ export default function TransactionTasksTab({
   const [editStage, setEditStage] = useState("");
   const [editStatus, setEditStatus] = useState<ProjectTask["status"]>("Pending");
   const [editDueDate, setEditDueDate] = useState("");
+  const [editTaskType, setEditTaskType] = useState<ProjectTask["taskType"]>("general");
+  const [editEmailTemplateId, setEditEmailTemplateId] = useState("");
+  const [editRecipientEmail, setEditRecipientEmail] = useState("");
   const [taskNoteDrafts, setTaskNoteDrafts] = useState<Record<string, string>>({});
+  const apiOn = Boolean(getApiBaseUrl());
+  const emailTemplates = useAppStore((s) => s.emailTemplates);
+  const setEmailTemplates = useAppStore((s) => s.setEmailTemplates);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+
+  useEffect(() => {
+    if (!apiOn) return;
+    let cancelled = false;
+    setLoadingTemplates(true);
+    void listEmailTemplatesFromApi()
+      .then((rows) => {
+        if (!cancelled) setEmailTemplates(rows);
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          toast.error("Could not load email templates.", {
+            description: e instanceof Error ? e.message : "Unknown error",
+          });
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingTemplates(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiOn, setEmailTemplates]);
   const [editingTaskNote, setEditingTaskNote] = useState<{ taskId: string; noteId: string } | null>(null);
   const [editTaskNoteBody, setEditTaskNoteBody] = useState("");
 
@@ -108,6 +162,9 @@ export default function TransactionTasksTab({
     setEditStage(task.stage);
     setEditStatus(task.status);
     setEditDueDate(task.dueDate ?? "");
+    setEditTaskType(task.taskType ?? "general");
+    setEditEmailTemplateId(task.emailTemplateId ?? "");
+    setEditRecipientEmail(task.recipientEmail ?? "");
   };
 
   const cancelEdit = () => {
@@ -116,7 +173,91 @@ export default function TransactionTasksTab({
     setEditStage("");
     setEditStatus("Pending");
     setEditDueDate("");
+    setEditTaskType("general");
+    setEditEmailTemplateId("");
+    setEditRecipientEmail("");
   };
+
+  const isEmailTask = (task: ProjectTask) => (task.taskType ?? "general") === "email";
+
+  const renderEmailTaskFields = (
+    taskType: ProjectTask["taskType"],
+    onTypeChange: (v: ProjectTask["taskType"]) => void,
+    templateId: string,
+    onTemplateChange: (v: string) => void,
+    recipientEmail: string,
+    onRecipientChange: (v: string) => void,
+    idPrefix: string,
+  ) => (
+    <>
+      <div className="space-y-2">
+        <Label className="text-xs" htmlFor={`${idPrefix}-task-type`}>
+          Task type
+        </Label>
+        <Select value={taskType ?? "general"} onValueChange={(v) => onTypeChange(v as ProjectTask["taskType"])}>
+          <SelectTrigger id={`${idPrefix}-task-type`} className="h-9">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="general">General</SelectItem>
+            <SelectItem value="email">Email</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      {taskType === "email" ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label className="text-xs" htmlFor={`${idPrefix}-template`}>
+              Email template
+            </Label>
+            <Select
+              value={templateId || undefined}
+              onValueChange={onTemplateChange}
+            >
+              <SelectTrigger id={`${idPrefix}-template`} className="h-9">
+                <SelectValue
+                  placeholder={
+                    loadingTemplates
+                      ? "Loading templates…"
+                      : emailTemplates.length === 0
+                        ? "No templates"
+                        : "Choose template (optional)"
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {emailTemplates.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label className="text-xs" htmlFor={`${idPrefix}-recipient`}>
+              Default recipient
+            </Label>
+            <Select
+              value={recipientEmail || undefined}
+              onValueChange={onRecipientChange}
+            >
+              <SelectTrigger id={`${idPrefix}-recipient`} className="h-9">
+                <SelectValue placeholder="Choose party (optional)" />
+              </SelectTrigger>
+              <SelectContent>
+                {recipientSuggestions.map((s) => (
+                  <SelectItem key={`${s.email}-${s.label}`} value={s.email}>
+                    {s.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
 
   const saveEdit = (taskId: string) => {
     const title = editTitle.trim();
@@ -126,6 +267,13 @@ export default function TransactionTasksTab({
       stage: editStage,
       status: editStatus,
       dueDate: editDueDate,
+      taskType: editTaskType ?? "general",
+      ...(editTaskType === "email"
+        ? {
+            emailTemplateId: editEmailTemplateId || undefined,
+            recipientEmail: editRecipientEmail.trim() || undefined,
+          }
+        : { emailTemplateId: "", recipientEmail: "" }),
     });
     cancelEdit();
   };
@@ -212,17 +360,35 @@ export default function TransactionTasksTab({
       </div>
 
       {showAddTask && canEdit ? (
-        <div className="shrink-0 flex flex-col gap-2 border-b border-border bg-muted/20 px-4 py-3 sm:flex-row sm:items-center">
-          <Input
-            placeholder="Task title (e.g. Upload signed disclosures)"
-            value={newTaskTitle}
-            onChange={(e) => onNewTaskTitleChange(e.target.value)}
-            className="flex-1"
-          />
-          <Input type="date" value={newTaskDueDate} onChange={(e) => onNewTaskDueDateChange(e.target.value)} className="w-full sm:w-44" />
-          <Button size="sm" onClick={onSaveNewTask} className="shrink-0">
-            Save
-          </Button>
+        <div className="shrink-0 space-y-3 border-b border-border bg-muted/20 px-4 py-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Input
+              placeholder="Task title (e.g. Send disclosure package)"
+              value={newTaskTitle}
+              onChange={(e) => onNewTaskTitleChange(e.target.value)}
+              className="flex-1"
+            />
+            <Input
+              type="date"
+              value={newTaskDueDate}
+              onChange={(e) => onNewTaskDueDateChange(e.target.value)}
+              className="w-full sm:w-44"
+            />
+            <Button size="sm" onClick={onSaveNewTask} className="shrink-0">
+              Save
+            </Button>
+          </div>
+          {onNewTaskTypeChange
+            ? renderEmailTaskFields(
+                newTaskType,
+                onNewTaskTypeChange,
+                newTaskEmailTemplateId,
+                onNewTaskEmailTemplateIdChange ?? (() => undefined),
+                newTaskRecipientEmail,
+                onNewTaskRecipientEmailChange ?? (() => undefined),
+                "new-task",
+              )
+            : null}
         </div>
       ) : null}
 
@@ -287,6 +453,15 @@ export default function TransactionTasksTab({
                           <Input type="date" value={editDueDate} onChange={(e) => setEditDueDate(e.target.value)} />
                         </div>
                       </div>
+                      {renderEmailTaskFields(
+                        editTaskType,
+                        setEditTaskType,
+                        editEmailTemplateId,
+                        setEditEmailTemplateId,
+                        editRecipientEmail,
+                        setEditRecipientEmail,
+                        `edit-${task.id}`,
+                      )}
                       <div className="flex justify-end gap-2">
                         <Button type="button" size="sm" variant="outline" onClick={cancelEdit}>
                           Cancel
@@ -328,6 +503,11 @@ export default function TransactionTasksTab({
                           <Badge variant="outline" className={cn("text-[10px] font-semibold", taskStatusBadgeClass(task.status))}>
                             {task.status}
                           </Badge>
+                          {isEmailTask(task) ? (
+                            <Badge variant="outline" className="border-info/40 bg-info/10 text-[10px] font-semibold text-info">
+                              Email
+                            </Badge>
+                          ) : null}
                         </div>
                         <p className="mt-0.5 text-xs text-muted-foreground">
                           {task.stage}
@@ -338,6 +518,19 @@ export default function TransactionTasksTab({
                         </p>
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
+                        {isEmailTask(task) && onComposeEmailTask ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            aria-label="Compose email for task"
+                            title="Compose email"
+                            onClick={() => onComposeEmailTask(task)}
+                          >
+                            <Mail className="h-3.5 w-3.5 text-info" />
+                          </Button>
+                        ) : null}
                         <Popover>
                           <PopoverTrigger asChild>
                             <button

@@ -111,7 +111,9 @@ interface AppState {
   updateProjectTask: (
     projectId: string,
     taskId: string,
-    patch: Partial<Pick<ProjectTask, "title" | "stage" | "status" | "dueDate">>
+    patch: Partial<
+      Pick<ProjectTask, "title" | "stage" | "status" | "dueDate" | "taskType" | "emailTemplateId" | "recipientEmail">
+    >
   ) => void;
   deleteProjectTask: (projectId: string, taskId: string) => void;
   addProjectTaskNote: (

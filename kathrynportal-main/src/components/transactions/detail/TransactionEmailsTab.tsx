@@ -35,6 +35,7 @@ type Props = {
   onReply: (email: EmailThread) => void;
   onDeleteEmail: (emailId: string) => void;
   canDelete: boolean;
+  initialTemplateId?: string;
 };
 
 function directionBadgeClass(direction: EmailThread["direction"]): string {
@@ -67,6 +68,7 @@ export default function TransactionEmailsTab({
   onReply,
   onDeleteEmail,
   canDelete,
+  initialTemplateId = "",
 }: Props) {
   const apiOn = Boolean(getApiBaseUrl());
   const clients = useAppStore((s) => s.clients);
@@ -106,8 +108,14 @@ export default function TransactionEmailsTab({
   }, [apiOn, setEmailTemplates]);
 
   useEffect(() => {
-    if (!showCompose) setSelectedTemplateId("");
-  }, [showCompose]);
+    if (!showCompose) {
+      setSelectedTemplateId("");
+      return;
+    }
+    if (initialTemplateId) {
+      setSelectedTemplateId(initialTemplateId);
+    }
+  }, [showCompose, initialTemplateId]);
 
   const applyTemplate = (templateId: string) => {
     const tpl = emailTemplates.find((t) => t.id === templateId);
@@ -174,85 +182,86 @@ export default function TransactionEmailsTab({
         ) : null}
       </div>
 
-      {showCompose ? (
-        <div className="shrink-0 space-y-3 border-b border-border bg-muted/20 px-4 py-4 sm:px-5">
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">New email</p>
-          <TransactionComposeRecipientField
-            value={composeTo || defaultRecipient}
-            onChange={onComposeToChange}
-            suggestions={suggestions}
-          />
-          <div className="space-y-2">
-            <Label htmlFor="compose-template" className="text-sm font-medium text-foreground">
-              Use template
-            </Label>
-            <Select
-              value={selectedTemplateId || undefined}
-              onValueChange={applyTemplate}
-            >
-              <SelectTrigger id="compose-template">
-                <SelectValue
-                  placeholder={
-                    loadingTemplates
-                      ? "Loading templates…"
-                      : emailTemplates.length === 0
-                        ? "No templates — add in Settings"
-                        : "Choose a template…"
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {emailTemplates.map((t) => (
-                  <SelectItem key={t.id} value={t.id}>
-                    {t.name} ({t.category})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-[11px] text-muted-foreground">
-              Tokens: {"{{agent_name}}"} {"{{client_name}}"} {"{{property_address}}"} {"{{stage_name}}"} {"{{deadline_name}}"} {"{{deadline_date}}"} {"{{next_step}}"} {"{{list_price}}"} {"{{today_date}}"}
-            </p>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="compose-subject" className="text-sm font-medium text-foreground">
-              Subject
-            </Label>
-            <Input
-              id="compose-subject"
-              value={subjectValue}
-              onChange={(e) => onComposeSubjectChange(e.target.value)}
-              placeholder={defaultSubject}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="compose-body" className="text-sm font-medium text-foreground">
-              Email
-            </Label>
-            <Textarea
-              id="compose-body"
-              placeholder="Write your email…"
-              rows={5}
-              value={composeBody}
-              onChange={(e) => onComposeBodyChange(e.target.value)}
-            />
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={onCancelCompose}>
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              className="gap-1.5"
-              onClick={() => onSend({ templateId: selectedTemplateId || undefined })}
-            >
-              <Send className="h-3.5 w-3.5" /> Send
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
       <div className={listPageBodyClass}>
+        {showCompose ? (
+          <div className="space-y-3 border-b border-border bg-muted/20 px-4 py-4 sm:px-5">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">New email</p>
+            <TransactionComposeRecipientField
+              value={composeTo || defaultRecipient}
+              onChange={onComposeToChange}
+              suggestions={suggestions}
+            />
+            <div className="space-y-2">
+              <Label htmlFor="compose-template" className="text-sm font-medium text-foreground">
+                Use template
+              </Label>
+              <Select
+                value={selectedTemplateId || undefined}
+                onValueChange={applyTemplate}
+              >
+                <SelectTrigger id="compose-template">
+                  <SelectValue
+                    placeholder={
+                      loadingTemplates
+                        ? "Loading templates…"
+                        : emailTemplates.length === 0
+                          ? "No templates — add in Settings"
+                          : "Choose a template…"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {emailTemplates.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name} ({t.category})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">
+                Tokens: {"{{agent_name}}"} {"{{client_name}}"} {"{{property_address}}"} {"{{stage_name}}"} {"{{deadline_name}}"} {"{{deadline_date}}"} {"{{next_step}}"} {"{{list_price}}"} {"{{today_date}}"}
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="compose-subject" className="text-sm font-medium text-foreground">
+                Subject
+              </Label>
+              <Input
+                id="compose-subject"
+                value={subjectValue}
+                onChange={(e) => onComposeSubjectChange(e.target.value)}
+                placeholder={defaultSubject}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="compose-body" className="text-sm font-medium text-foreground">
+                Email
+              </Label>
+              <Textarea
+                id="compose-body"
+                placeholder="Write your email…"
+                rows={4}
+                className="min-h-[100px] max-h-48 resize-y"
+                value={composeBody}
+                onChange={(e) => onComposeBodyChange(e.target.value)}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={onCancelCompose}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => onSend({ templateId: selectedTemplateId || undefined })}
+              >
+                <Send className="h-3.5 w-3.5" /> Send
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
         {emails.length === 0 ? (
           <div className="flex flex-col items-center justify-center px-6 py-14 text-center">
             <Mail className="mb-3 h-10 w-10 text-muted-foreground/50" />
