@@ -51,8 +51,7 @@ registerRoutes(app, config);
 function firstLanIPv4(): string | undefined {
   for (const ifaces of Object.values(os.networkInterfaces())) {
     for (const iface of ifaces ?? []) {
-      const family = iface.family;
-      const isV4 = family === "IPv4" || family === 4;
+      const isV4 = String(iface.family) === "IPv4";
       if (isV4 && !iface.internal) return iface.address;
     }
   }
