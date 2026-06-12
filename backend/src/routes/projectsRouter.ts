@@ -93,6 +93,15 @@ export function registerProjectsRoutes(app: Express, config: AppConfig, pool: Po
   router.patch("/projects/:id/tasks/bulk", requirePool(pool), auth, edit, (req, res) => {
     void ctrl.patchTasksBulkStatus(req, res);
   });
+  router.post("/projects/:id/tasks/:taskId/notes", requirePool(pool), auth, edit, (req, res) => {
+    void ctrl.createTaskNote(req, res);
+  });
+  router.patch("/projects/:id/tasks/:taskId/notes/:noteId", requirePool(pool), auth, edit, (req, res) => {
+    void ctrl.updateTaskNote(req, res);
+  });
+  router.delete("/projects/:id/tasks/:taskId/notes/:noteId", requirePool(pool), auth, edit, (req, res) => {
+    void ctrl.deleteTaskNote(req, res);
+  });
   router.post("/projects/:id/deadlines", requirePool(pool), auth, edit, (req, res) => {
     void ctrl.createDeadline(req, res);
   });

@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { CheckSquare, Pencil, Plus, Trash2 } from "lucide-react";
+import { CheckSquare, MessageSquare, Pencil, Plus, Trash2 } from "lucide-react";
 import type { Project, ProjectTask } from "@/data/mockData";
 import { ALL_STAGES } from "@/types/domain";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -44,7 +46,13 @@ type Props = {
   canEdit?: boolean;
   onUpdateTask?: (taskId: string, payload: TaskEditPayload) => void;
   onDeleteTask?: (taskId: string) => void;
+  onAddTaskNote?: (taskId: string, body: string) => void;
+  onUpdateTaskNote?: (taskId: string, noteId: string, body: string) => void;
+  onDeleteTaskNote?: (taskId: string, noteId: string) => void;
+  taskNoteBusy?: string | null;
 };
+
+type TaskNote = NonNullable<ProjectTask["notes"]>[number];
 
 function taskStatusBadgeClass(status: ProjectTask["status"]): string {
   switch (status) {
@@ -75,12 +83,19 @@ export default function TransactionTasksTab({
   canEdit = true,
   onUpdateTask,
   onDeleteTask,
+  onAddTaskNote,
+  onUpdateTaskNote,
+  onDeleteTaskNote,
+  taskNoteBusy = null,
 }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editStage, setEditStage] = useState("");
   const [editStatus, setEditStatus] = useState<ProjectTask["status"]>("Pending");
   const [editDueDate, setEditDueDate] = useState("");
+  const [taskNoteDrafts, setTaskNoteDrafts] = useState<Record<string, string>>({});
+  const [editingTaskNote, setEditingTaskNote] = useState<{ taskId: string; noteId: string } | null>(null);
+  const [editTaskNoteBody, setEditTaskNoteBody] = useState("");
 
   const allTasks = project.tasks ?? [];
   const pendingCount = allTasks.filter((t) => t.status === "Pending").length;
@@ -113,6 +128,30 @@ export default function TransactionTasksTab({
       dueDate: editDueDate,
     });
     cancelEdit();
+  };
+
+  const cancelEditTaskNote = () => {
+    setEditingTaskNote(null);
+    setEditTaskNoteBody("");
+  };
+
+  const startEditTaskNote = (taskId: string, note: TaskNote) => {
+    setEditingTaskNote({ taskId, noteId: note.id });
+    setEditTaskNoteBody(note.text);
+  };
+
+  const saveTaskNote = (task: ProjectTask) => {
+    const body = (taskNoteDrafts[task.id] ?? "").trim();
+    if (!body) return;
+    onAddTaskNote?.(task.id, body);
+    setTaskNoteDrafts((prev) => ({ ...prev, [task.id]: "" }));
+  };
+
+  const saveEditTaskNote = (taskId: string, noteId: string) => {
+    const body = editTaskNoteBody.trim();
+    if (!body) return;
+    onUpdateTaskNote?.(taskId, noteId, body);
+    cancelEditTaskNote();
   };
 
   return (
@@ -298,30 +337,159 @@ export default function TransactionTasksTab({
                           </span>
                         </p>
                       </div>
-                      {canEdit && onUpdateTask && onDeleteTask && (
-                        <div className="flex shrink-0 gap-1">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            aria-label="Edit task"
-                            onClick={() => startEdit(task)}
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-destructive hover:text-destructive"
-                            aria-label="Delete task"
-                            onClick={() => onDeleteTask(task.id)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      )}
+                      <div className="flex shrink-0 items-center gap-1">
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <button
+                              type="button"
+                              className="relative inline-flex h-7 w-7 items-center justify-center rounded hover:bg-muted"
+                              aria-label="Task notes"
+                            >
+                              <MessageSquare className="h-3.5 w-3.5 text-muted-foreground" />
+                              {(task.notes ?? []).length > 0 ? (
+                                <span className="absolute -right-0.5 -top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-accent text-[8px] font-bold text-accent-foreground">
+                                  {(task.notes ?? []).length}
+                                </span>
+                              ) : null}
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-80" align="end">
+                            <p className="mb-2 text-xs font-semibold">Notes — {task.title}</p>
+                            <div className="max-h-48 space-y-2 overflow-y-auto pr-1">
+                              {(task.notes ?? []).length === 0 ? (
+                                <p className="text-xs text-muted-foreground">No notes yet.</p>
+                              ) : (
+                                (task.notes ?? []).map((n) => {
+                                  const isEditing =
+                                    editingTaskNote?.taskId === task.id && editingTaskNote.noteId === n.id;
+                                  const editLoading = taskNoteBusy === `edit:${task.id}:${n.id}`;
+                                  const deleteLoading = taskNoteBusy === `delete:${task.id}:${n.id}`;
+                                  return (
+                                    <div key={n.id} className="rounded border border-border bg-secondary/20 p-2">
+                                      <div className="flex items-start justify-between gap-1">
+                                        <p className="text-[10px] text-muted-foreground">
+                                          {n.date}
+                                          {n.updatedAt && n.updatedAt !== n.date ? (
+                                            <span className="italic"> · edited {n.updatedAt}</span>
+                                          ) : null}
+                                          <span> · {n.author}</span>
+                                        </p>
+                                        {canEdit && !isEditing ? (
+                                          <div className="flex shrink-0 gap-0.5">
+                                            <button
+                                              type="button"
+                                              className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                                              aria-label="Edit note"
+                                              disabled={Boolean(taskNoteBusy)}
+                                              onClick={() => startEditTaskNote(task.id, n)}
+                                            >
+                                              <Pencil className="h-3 w-3" />
+                                            </button>
+                                            <button
+                                              type="button"
+                                              className="inline-flex h-6 w-6 items-center justify-center rounded text-destructive hover:bg-destructive/10"
+                                              aria-label="Delete note"
+                                              disabled={Boolean(taskNoteBusy)}
+                                              onClick={() => onDeleteTaskNote?.(task.id, n.id)}
+                                            >
+                                              <Trash2 className="h-3 w-3" />
+                                            </button>
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                      {isEditing ? (
+                                        <div className="mt-1.5 space-y-1.5">
+                                          <Textarea
+                                            rows={3}
+                                            className="text-xs"
+                                            value={editTaskNoteBody}
+                                            onChange={(e) => setEditTaskNoteBody(e.target.value)}
+                                          />
+                                          <div className="flex justify-end gap-1">
+                                            <Button
+                                              type="button"
+                                              size="sm"
+                                              variant="outline"
+                                              className="h-7 px-2 text-xs"
+                                              onClick={cancelEditTaskNote}
+                                              disabled={editLoading}
+                                            >
+                                              Cancel
+                                            </Button>
+                                            <Button
+                                              type="button"
+                                              size="sm"
+                                              className="h-7 px-2 text-xs"
+                                              onClick={() => saveEditTaskNote(task.id, n.id)}
+                                              disabled={editLoading || !editTaskNoteBody.trim()}
+                                            >
+                                              Save
+                                            </Button>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <p className="mt-1 whitespace-pre-wrap text-xs text-foreground">{n.text}</p>
+                                      )}
+                                      {deleteLoading ? (
+                                        <p className="mt-1 text-[10px] text-muted-foreground">Deleting…</p>
+                                      ) : null}
+                                    </div>
+                                  );
+                                })
+                              )}
+                            </div>
+                            {canEdit && onAddTaskNote ? (
+                              <div className="mt-3 space-y-2 border-t border-border pt-3">
+                                <Textarea
+                                  rows={2}
+                                  className="text-xs"
+                                  placeholder="Add a note…"
+                                  value={taskNoteDrafts[task.id] ?? ""}
+                                  onChange={(e) =>
+                                    setTaskNoteDrafts((prev) => ({ ...prev, [task.id]: e.target.value }))
+                                  }
+                                />
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  className="h-7 w-full text-xs"
+                                  disabled={
+                                    taskNoteBusy === `add:${task.id}` ||
+                                    !(taskNoteDrafts[task.id] ?? "").trim()
+                                  }
+                                  onClick={() => saveTaskNote(task)}
+                                >
+                                  {taskNoteBusy === `add:${task.id}` ? "Saving…" : "Add note"}
+                                </Button>
+                              </div>
+                            ) : null}
+                          </PopoverContent>
+                        </Popover>
+                        {canEdit && onUpdateTask && onDeleteTask ? (
+                          <>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              aria-label="Edit task"
+                              onClick={() => startEdit(task)}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-destructive hover:text-destructive"
+                              aria-label="Delete task"
+                              onClick={() => onDeleteTask(task.id)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </>
+                        ) : null}
+                      </div>
                     </div>
                   )}
                 </li>

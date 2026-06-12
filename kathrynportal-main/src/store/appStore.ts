@@ -114,6 +114,13 @@ interface AppState {
     patch: Partial<Pick<ProjectTask, "title" | "stage" | "status" | "dueDate">>
   ) => void;
   deleteProjectTask: (projectId: string, taskId: string) => void;
+  addProjectTaskNote: (
+    projectId: string,
+    taskId: string,
+    note: { id: string; date: string; text: string; author: string; updatedAt?: string }
+  ) => void;
+  updateProjectTaskNote: (projectId: string, taskId: string, noteId: string, text: string) => void;
+  deleteProjectTaskNote: (projectId: string, taskId: string, noteId: string) => void;
 
   // ---- Calendar / deadlines ----
   addCalendarEvent: (e: Omit<CalendarEvent, "id">) => void;
@@ -526,6 +533,57 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
     notifyNavBadgeRefresh();
   },
+
+  addProjectTaskNote: (projectId, taskId, note) =>
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id !== projectId
+          ? p
+          : {
+              ...p,
+              tasks: p.tasks.map((t) =>
+                t.id === taskId ? { ...t, notes: [note, ...(t.notes ?? [])] } : t
+              ),
+            }
+      ),
+    })),
+
+  updateProjectTaskNote: (projectId, taskId, noteId, text) => {
+    const today = new Date().toISOString().split("T")[0];
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id !== projectId
+          ? p
+          : {
+              ...p,
+              tasks: p.tasks.map((t) =>
+                t.id !== taskId
+                  ? t
+                  : {
+                      ...t,
+                      notes: (t.notes ?? []).map((n) =>
+                        n.id === noteId ? { ...n, text, updatedAt: today } : n
+                      ),
+                    }
+              ),
+            }
+      ),
+    }));
+  },
+
+  deleteProjectTaskNote: (projectId, taskId, noteId) =>
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id !== projectId
+          ? p
+          : {
+              ...p,
+              tasks: p.tasks.map((t) =>
+                t.id === taskId ? { ...t, notes: (t.notes ?? []).filter((n) => n.id !== noteId) } : t
+              ),
+            }
+      ),
+    })),
 
   addCalendarEvent: (e) =>
     set((s) => ({ calendarEvents: [...s.calendarEvents, { ...e, id: uid("ce") }] })),

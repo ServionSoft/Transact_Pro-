@@ -48,6 +48,7 @@ type ProjectDetailApiRow = Omit<ProjectListItem, "documentsCompleteCount" | "doc
     status: ProjectTask["status"];
     dueDate: string;
     completedDate?: string;
+    notes?: Array<{ id?: string; body?: string; createdAt?: string; updatedAt?: string; author?: string }>;
   }>;
   emails: Array<{
     id: string;
@@ -216,7 +217,16 @@ function mapDetailRowToProject(row: ProjectDetailApiRow): Project {
         ...(n.updatedAt ? { updatedAt: n.updatedAt } : {}),
       })),
     })),
-    tasks: row.tasks ?? [],
+    tasks: (row.tasks ?? []).map((t) => ({
+      ...t,
+      notes: (t.notes ?? []).map((n, index) => ({
+        id: n.id ?? `legacy-${t.id}-${index}`,
+        date: n.createdAt ?? "",
+        text: n.body ?? "",
+        author: n.author ?? "Unknown",
+        ...(n.updatedAt ? { updatedAt: n.updatedAt } : {}),
+      })),
+    })),
     emails: (row.emails ?? []).map((em) => ({
       ...em,
       deliveryStatus: em.deliveryStatus ?? "sent",
@@ -378,6 +388,63 @@ export async function deleteProjectDocumentNoteApi(
   const row = (json as { data?: { project?: unknown } }).data?.project;
   if (!row || typeof row !== "object") {
     throw new ApiRequestError("Invalid document note delete response", 500, "");
+  }
+  return mapDetailRowToProject(row as ProjectDetailApiRow);
+}
+
+export async function createProjectTaskNoteApi(
+  projectId: string,
+  taskId: string,
+  body: string
+): Promise<Project> {
+  const json = await apiCall(
+    `/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/notes`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body }),
+    }
+  );
+  const row = (json as { data?: { project?: unknown } }).data?.project;
+  if (!row || typeof row !== "object") {
+    throw new ApiRequestError("Invalid task note create response", 500, "");
+  }
+  return mapDetailRowToProject(row as ProjectDetailApiRow);
+}
+
+export async function updateProjectTaskNoteApi(
+  projectId: string,
+  taskId: string,
+  noteId: string,
+  body: string
+): Promise<Project> {
+  const json = await apiCall(
+    `/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/notes/${encodeURIComponent(noteId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body }),
+    }
+  );
+  const row = (json as { data?: { project?: unknown } }).data?.project;
+  if (!row || typeof row !== "object") {
+    throw new ApiRequestError("Invalid task note update response", 500, "");
+  }
+  return mapDetailRowToProject(row as ProjectDetailApiRow);
+}
+
+export async function deleteProjectTaskNoteApi(
+  projectId: string,
+  taskId: string,
+  noteId: string
+): Promise<Project> {
+  const json = await apiCall(
+    `/api/projects/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}/notes/${encodeURIComponent(noteId)}`,
+    { method: "DELETE" }
+  );
+  const row = (json as { data?: { project?: unknown } }).data?.project;
+  if (!row || typeof row !== "object") {
+    throw new ApiRequestError("Invalid task note delete response", 500, "");
   }
   return mapDetailRowToProject(row as ProjectDetailApiRow);
 }

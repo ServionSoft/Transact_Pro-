@@ -18,6 +18,9 @@ import {
   createProjectTaskApi,
   updateProjectTaskApi,
   deleteProjectTaskApi,
+  createProjectTaskNoteApi,
+  updateProjectTaskNoteApi,
+  deleteProjectTaskNoteApi,
   deleteProjectApi,
   getProjectFromApi,
   listProjectAssignmentOptionsApi,
@@ -83,6 +86,9 @@ export default function ProjectDetailPage() {
   const setTaskStatusStore = useAppStore((s) => s.setTaskStatus);
   const updateProjectTaskStore = useAppStore((s) => s.updateProjectTask);
   const deleteProjectTaskStore = useAppStore((s) => s.deleteProjectTask);
+  const addProjectTaskNoteStore = useAppStore((s) => s.addProjectTaskNote);
+  const updateProjectTaskNoteStore = useAppStore((s) => s.updateProjectTaskNote);
+  const deleteProjectTaskNoteStore = useAppStore((s) => s.deleteProjectTaskNote);
   const addProjectDeadlineStore = useAppStore((s) => s.addProjectDeadline);
   const updateProjectNoteStore = useAppStore((s) => s.updateProjectNote);
   const deleteProjectNoteStore = useAppStore((s) => s.deleteProjectNote);
@@ -94,6 +100,7 @@ export default function ProjectDetailPage() {
   const [activeTab, setActiveTab] = useState<TransactionDetailTabId>("overview");
 
   const [savingNextStep, setSavingNextStep] = useState(false);
+  const [taskNoteBusy, setTaskNoteBusy] = useState<string | null>(null);
 
   // Email compose
   const [showComposeEmail, setShowComposeEmail] = useState(false);
@@ -609,6 +616,94 @@ export default function ProjectDetailPage() {
     toast.success("Task updated.");
   };
 
+  const handleAddTaskNote = (taskId: string, body: string) => {
+    if (!project) return;
+    const trimmed = body.trim();
+    if (!trimmed) {
+      toast.error("Note text is required.");
+      return;
+    }
+    if (apiOn) {
+      setTaskNoteBusy(`add:${taskId}`);
+      void createProjectTaskNoteApi(project.id, taskId, trimmed)
+        .then((updated) => {
+          upsertProject(updated);
+          toast.success("Note added.");
+        })
+        .catch((e) => {
+          toast.error(e instanceof Error ? e.message : "Could not add note.");
+        })
+        .finally(() => {
+          setTaskNoteBusy(null);
+        });
+      return;
+    }
+    addProjectTaskNoteStore(project.id, taskId, {
+      id: `tn-${Date.now()}`,
+      date: new Date().toISOString().split("T")[0],
+      text: trimmed,
+      author: user?.name ?? "Kathryn",
+    });
+    toast.success("Note added.");
+  };
+
+  const handleUpdateTaskNote = (taskId: string, noteId: string, body: string) => {
+    if (!project) return;
+    const trimmed = body.trim();
+    if (!trimmed) {
+      toast.error("Note text is required.");
+      return;
+    }
+    if (apiOn) {
+      setTaskNoteBusy(`edit:${taskId}:${noteId}`);
+      void updateProjectTaskNoteApi(project.id, taskId, noteId, trimmed)
+        .then((updated) => {
+          upsertProject(updated);
+          toast.success("Note updated.");
+        })
+        .catch((e) => {
+          toast.error(e instanceof Error ? e.message : "Could not update note.");
+        })
+        .finally(() => {
+          setTaskNoteBusy(null);
+        });
+      return;
+    }
+    updateProjectTaskNoteStore(project.id, taskId, noteId, trimmed);
+    toast.success("Note updated.");
+  };
+
+  const handleDeleteTaskNote = async (taskId: string, noteId: string) => {
+    if (!project) return;
+    if (
+      !(await confirm({
+        title: "Delete note",
+        description: "Delete this task note? This cannot be undone.",
+        confirmLabel: "Delete",
+        destructive: true,
+      }))
+    ) {
+      return;
+    }
+    if (apiOn) {
+      setTaskNoteBusy(`delete:${taskId}:${noteId}`);
+      void deleteProjectTaskNoteApi(project.id, taskId, noteId)
+        .then((updated) => {
+          upsertProject(updated);
+          toast.success("Note deleted.");
+        })
+        .catch((e) => {
+          toast.error(e instanceof Error ? e.message : "Could not delete note.");
+        })
+        .finally(() => {
+          setTaskNoteBusy(null);
+        });
+      return;
+    }
+    deleteProjectTaskNoteStore(project.id, taskId, noteId);
+    toast.success("Note deleted.");
+  };
+
   const handleDeleteTask = async (taskId: string) => {
     const task = (project.tasks ?? []).find((t) => t.id === taskId);
     if (
@@ -941,6 +1036,10 @@ export default function ProjectDetailPage() {
             canEdit={canEditProject}
             onUpdateTask={canEditProject ? handleUpdateTask : undefined}
             onDeleteTask={canEditProject ? handleDeleteTask : undefined}
+            onAddTaskNote={canEditProject ? handleAddTaskNote : undefined}
+            onUpdateTaskNote={canEditProject ? handleUpdateTaskNote : undefined}
+            onDeleteTaskNote={canEditProject ? handleDeleteTaskNote : undefined}
+            taskNoteBusy={taskNoteBusy}
           />
         </motion.div>
       )}

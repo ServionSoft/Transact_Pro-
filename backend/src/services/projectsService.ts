@@ -38,6 +38,14 @@ export type ProjectDocumentNoteApi = {
   updatedAt?: string;
 };
 
+export type ProjectTaskNoteApi = {
+  id: string;
+  body: string;
+  author: string;
+  createdAt: string;
+  updatedAt?: string;
+};
+
 export type ProjectTaskApi = {
   id: string;
   title: string;
@@ -45,6 +53,7 @@ export type ProjectTaskApi = {
   status: TaskStatusUi;
   dueDate: string;
   completedDate?: string;
+  notes: ProjectTaskNoteApi[];
 };
 
 export type ProjectEmailApi = {
@@ -890,6 +899,42 @@ async function getProjectTasks(pool: Pool, projectId: string): Promise<ProjectTa
      ORDER BY created_at ASC`,
     [projectId]
   );
+  const noteRows = await pool.query<{
+    id: string;
+    project_task_id: string;
+    body: string;
+    created_at: Date;
+    updated_at: Date;
+    author_name: string | null;
+  }>(
+    `SELECT
+       ptn.id::text,
+       ptn.project_task_id::text,
+       ptn.body,
+       ptn.created_at,
+       ptn.updated_at,
+       u.name AS author_name
+     FROM public.project_task_notes ptn
+     LEFT JOIN public.users u ON u.id = ptn.author_user_id
+     JOIN public.project_tasks pt ON pt.id = ptn.project_task_id
+     WHERE pt.project_id = $1::bigint
+     ORDER BY ptn.created_at DESC`,
+    [projectId]
+  );
+  const notesByTaskId = new Map<string, ProjectTaskNoteApi[]>();
+  for (const r of noteRows.rows) {
+    const list = notesByTaskId.get(r.project_task_id) ?? [];
+    const createdAt = r.created_at.toISOString().split("T")[0];
+    const updatedAt = r.updated_at.toISOString().split("T")[0];
+    list.push({
+      id: r.id,
+      body: r.body,
+      author: r.author_name ?? "Unknown",
+      createdAt,
+      ...(updatedAt !== createdAt ? { updatedAt } : {}),
+    });
+    notesByTaskId.set(r.project_task_id, list);
+  }
   return rows.map((r) => ({
     id: r.id,
     title: r.title,
@@ -897,6 +942,7 @@ async function getProjectTasks(pool: Pool, projectId: string): Promise<ProjectTa
     status: TASK_STATUS_DB_TO_UI[r.status] ?? "Pending",
     dueDate: r.due_date ?? "",
     ...(r.completed_at ? { completedDate: r.completed_at.toISOString().split("T")[0] } : {}),
+    notes: notesByTaskId.get(r.id) ?? [],
   }));
 }
 
@@ -2547,6 +2593,102 @@ export async function deleteProjectDocumentNote(
   );
   if (!rowCount) {
     return { error: { status: 404, code: "PROJECT_DOCUMENT_NOTE_NOT_FOUND", message: "Document note not found." } };
+  }
+  const project = await getProjectById(pool, projectId);
+  if (!project) return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
+  return { project };
+}
+
+export async function createProjectTaskNote(
+  pool: Pool,
+  projectId: string,
+  taskId: string,
+  body: string,
+  authorUserId: string | null
+): Promise<{ project: ProjectDetailApi } | { error: ServiceError }> {
+  if (!/^\d+$/.test(projectId) || !/^\d+$/.test(taskId)) {
+    return { error: { status: 404, code: "PROJECT_TASK_NOT_FOUND", message: "Task not found." } };
+  }
+  const trimmed = normalizeText(body);
+  if (!trimmed) {
+    return { error: { status: 400, code: "PROJECT_TASK_NOTE_BODY_REQUIRED", message: "Note text is required." } };
+  }
+  const existing = await pool.query<{ ok: string }>(
+    `SELECT 1::text AS ok
+     FROM public.project_tasks
+     WHERE id = $1::bigint
+       AND project_id = $2::bigint
+     LIMIT 1`,
+    [taskId, projectId]
+  );
+  if (existing.rows.length === 0) {
+    return { error: { status: 404, code: "PROJECT_TASK_NOT_FOUND", message: "Task not found." } };
+  }
+  await pool.query(
+    `INSERT INTO public.project_task_notes (
+       project_task_id, author_user_id, body, created_at, updated_at
+     ) VALUES (
+       $1::bigint, $2::bigint, $3, now(), now()
+     )`,
+    [taskId, authorUserId && /^\d+$/.test(authorUserId) ? authorUserId : null, trimmed]
+  );
+  const project = await getProjectById(pool, projectId);
+  if (!project) return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
+  return { project };
+}
+
+export async function updateProjectTaskNote(
+  pool: Pool,
+  projectId: string,
+  taskId: string,
+  noteId: string,
+  body: string
+): Promise<{ project: ProjectDetailApi } | { error: ServiceError }> {
+  if (!/^\d+$/.test(projectId) || !/^\d+$/.test(taskId) || !/^\d+$/.test(noteId)) {
+    return { error: { status: 404, code: "PROJECT_TASK_NOTE_NOT_FOUND", message: "Task note not found." } };
+  }
+  const trimmed = normalizeText(body);
+  if (!trimmed) {
+    return { error: { status: 400, code: "PROJECT_TASK_NOTE_BODY_REQUIRED", message: "Note text is required." } };
+  }
+  const { rowCount } = await pool.query(
+    `UPDATE public.project_task_notes ptn
+     SET body = $1, updated_at = now()
+     FROM public.project_tasks pt
+     WHERE ptn.id = $2::bigint
+       AND ptn.project_task_id = pt.id
+       AND pt.id = $3::bigint
+       AND pt.project_id = $4::bigint`,
+    [trimmed, noteId, taskId, projectId]
+  );
+  if (!rowCount) {
+    return { error: { status: 404, code: "PROJECT_TASK_NOTE_NOT_FOUND", message: "Task note not found." } };
+  }
+  const project = await getProjectById(pool, projectId);
+  if (!project) return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
+  return { project };
+}
+
+export async function deleteProjectTaskNote(
+  pool: Pool,
+  projectId: string,
+  taskId: string,
+  noteId: string
+): Promise<{ project: ProjectDetailApi } | { error: ServiceError }> {
+  if (!/^\d+$/.test(projectId) || !/^\d+$/.test(taskId) || !/^\d+$/.test(noteId)) {
+    return { error: { status: 404, code: "PROJECT_TASK_NOTE_NOT_FOUND", message: "Task note not found." } };
+  }
+  const { rowCount } = await pool.query(
+    `DELETE FROM public.project_task_notes ptn
+     USING public.project_tasks pt
+     WHERE ptn.id = $1::bigint
+       AND ptn.project_task_id = pt.id
+       AND pt.id = $2::bigint
+       AND pt.project_id = $3::bigint`,
+    [noteId, taskId, projectId]
+  );
+  if (!rowCount) {
+    return { error: { status: 404, code: "PROJECT_TASK_NOTE_NOT_FOUND", message: "Task note not found." } };
   }
   const project = await getProjectById(pool, projectId);
   if (!project) return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };

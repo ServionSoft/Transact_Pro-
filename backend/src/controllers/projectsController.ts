@@ -6,6 +6,9 @@ import {
   createProjectDocumentNote,
   updateProjectDocumentNote,
   deleteProjectDocumentNote,
+  createProjectTaskNote,
+  updateProjectTaskNote,
+  deleteProjectTaskNote,
   createProjectNote,
   updateProjectNote,
   deleteProjectNote,
@@ -764,6 +767,56 @@ export function createProjectsController(pool: Pool, config: AppConfig) {
         res.json({ success: true, data: { project: result.project }, message: "" });
       } catch {
         res.status(500).json({ success: false, error: { code: "PROJECT_DOCUMENT_NOTE_DELETE_FAILED", message: "Could not delete document note." } });
+      }
+    },
+
+    async createTaskNote(req: Request, res: Response): Promise<void> {
+      const body = req.body as { body?: unknown };
+      const noteBody = typeof body?.body === "string" ? body.body : "";
+      try {
+        const user = currentUser(req);
+        const result = await createProjectTaskNote(pool, req.params.id, req.params.taskId, noteBody, user?.id ?? null);
+        if ("error" in result) {
+          res.status(result.error.status).json({ success: false, error: { code: result.error.code, message: result.error.message } });
+          return;
+        }
+        res.status(201).json({ success: true, data: { project: result.project }, message: "" });
+      } catch {
+        res.status(500).json({ success: false, error: { code: "PROJECT_TASK_NOTE_CREATE_FAILED", message: "Could not create task note." } });
+      }
+    },
+
+    async updateTaskNote(req: Request, res: Response): Promise<void> {
+      const body = req.body as { body?: unknown };
+      const noteBody = typeof body?.body === "string" ? body.body : "";
+      try {
+        const result = await updateProjectTaskNote(
+          pool,
+          req.params.id,
+          req.params.taskId,
+          req.params.noteId,
+          noteBody
+        );
+        if ("error" in result) {
+          res.status(result.error.status).json({ success: false, error: { code: result.error.code, message: result.error.message } });
+          return;
+        }
+        res.json({ success: true, data: { project: result.project }, message: "" });
+      } catch {
+        res.status(500).json({ success: false, error: { code: "PROJECT_TASK_NOTE_UPDATE_FAILED", message: "Could not update task note." } });
+      }
+    },
+
+    async deleteTaskNote(req: Request, res: Response): Promise<void> {
+      try {
+        const result = await deleteProjectTaskNote(pool, req.params.id, req.params.taskId, req.params.noteId);
+        if ("error" in result) {
+          res.status(result.error.status).json({ success: false, error: { code: result.error.code, message: result.error.message } });
+          return;
+        }
+        res.json({ success: true, data: { project: result.project }, message: "" });
+      } catch {
+        res.status(500).json({ success: false, error: { code: "PROJECT_TASK_NOTE_DELETE_FAILED", message: "Could not delete task note." } });
       }
     },
 

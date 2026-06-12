@@ -91,6 +91,7 @@ export interface ProjectTask {
   status: TaskStatus;
   dueDate: string;
   completedDate?: string;
+  notes?: { id: string; date: string; text: string; author: string; updatedAt?: string }[];
 }
 
 export interface EmailThread {
