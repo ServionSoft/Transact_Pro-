@@ -18,7 +18,9 @@ function partyEmailName(row: unknown): { email: string; name: string } | null {
   const o = asRecord(row);
   if (!o) return null;
   const email = typeof o.email === "string" ? o.email.trim() : "";
-  const name = typeof o.name === "string" ? o.name.trim() : "";
+  const legalName = typeof o.name === "string" ? o.name.trim() : "";
+  const preferredName = typeof o.preferredName === "string" ? o.preferredName.trim() : "";
+  const name = preferredName || legalName;
   if (!email) return null;
   return { email, name };
 }

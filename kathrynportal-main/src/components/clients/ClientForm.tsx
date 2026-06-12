@@ -1,4 +1,5 @@
 import type { ClientStatus } from "@/data/mockData";
+import type { Client } from "@/types/domain";
 import { CONTACT_ROLE_OPTIONS, isKnownContactRole } from "@/constants/contactRoles";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,10 +20,13 @@ export type ClientFormValues = {
   state: string;
   zip: string;
   notes: string;
+  assistantContactId: string;
 };
 
 type ClientFormProps = {
   values: ClientFormValues;
+  contactOptions?: Client[];
+  excludeContactId?: string;
   isSubmitting?: boolean;
   submitLabel: string;
   onChange: <K extends keyof ClientFormValues>(field: K, value: ClientFormValues[K]) => void;
@@ -36,6 +40,8 @@ type ClientFormProps = {
 
 export default function ClientForm({
   values,
+  contactOptions = [],
+  excludeContactId,
   isSubmitting,
   submitLabel,
   onChange,
@@ -44,6 +50,16 @@ export default function ClientForm({
   formId,
   showFooterActions = true,
 }: ClientFormProps) {
+  const isEscrowOfficer = values.role.trim().toLowerCase() === "escrow officer";
+  const assistantOptions = contactOptions.filter((c) => {
+    if (excludeContactId && c.id === excludeContactId) return false;
+    const role = c.role.toLowerCase();
+    if (!role.includes("escrow assistant")) return false;
+    const company = values.company.trim().toLowerCase();
+    if (company && c.company.trim().toLowerCase() !== company) return false;
+    return true;
+  });
+
   return (
     <form id={formId} onSubmit={onSubmit} className="bg-card border border-border rounded-lg p-6 space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -113,6 +129,31 @@ export default function ClientForm({
             </SelectContent>
           </Select>
         </div>
+        {isEscrowOfficer ? (
+          <div className="md:col-span-2 space-y-2">
+            <Label htmlFor="assistantContactId">Default escrow assistant</Label>
+            <Select
+              value={values.assistantContactId || "__none__"}
+              onValueChange={(v) => onChange("assistantContactId", v === "__none__" ? "" : v)}
+            >
+              <SelectTrigger id="assistantContactId">
+                <SelectValue placeholder="Select assistant (optional)" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">None</SelectItem>
+                {assistantOptions.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {(c.preferredName?.trim() || c.name) + (c.email ? ` · ${c.email}` : "")}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Auto-fills Escrow Assistant on transactions when this officer is linked. Filtered by Escrow Assistant role
+              {values.company.trim() ? ` and company (${values.company.trim()})` : ""}.
+            </p>
+          </div>
+        ) : null}
         <div className="space-y-2">
           <Label htmlFor="status">Status</Label>
           <Select value={values.status} onValueChange={(v) => onChange("status", v as ClientStatus)}>

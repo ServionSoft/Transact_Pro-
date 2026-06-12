@@ -17,6 +17,7 @@ type ClientApiPayload = {
   state: string;
   zip: string;
   notes: string;
+  assistantContactId?: string;
   createdAt: string;
   projectCount: number;
 };
@@ -34,6 +35,7 @@ export type ClientUpsertBody = {
   state: string;
   zip: string;
   notes: string;
+  assistantContactId?: string;
 };
 
 function requireBase(): string {
@@ -57,6 +59,7 @@ function mapClient(p: ClientApiPayload): Client {
     state: p.state,
     zip: p.zip,
     notes: p.notes,
+    assistantContactId: p.assistantContactId ?? "",
     createdAt: p.createdAt,
     projectCount: p.projectCount,
   };

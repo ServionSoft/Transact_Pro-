@@ -66,6 +66,7 @@ export interface Client {
   state: string;
   zip: string;
   notes: string;
+  assistantContactId?: string;
   createdAt: string;
   projectCount: number;
 }

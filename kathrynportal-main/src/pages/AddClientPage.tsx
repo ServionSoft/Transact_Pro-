@@ -29,7 +29,9 @@ export default function AddClientPage() {
     zip: "",
     notes: "",
     status: "Active",
+    assistantContactId: "",
   });
+  const contactOptions = useAppStore((s) => s.clients);
 
   useEffect(() => {
     if (!getApiBaseUrl()) return;
@@ -82,6 +84,7 @@ export default function AddClientPage() {
 
       <ClientForm
         values={form}
+        contactOptions={contactOptions}
         isSubmitting={isSubmitting}
         submitLabel="Save contact"
         onSubmit={handleSubmit}

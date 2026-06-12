@@ -28,11 +28,20 @@ import { TX_FIELD_HELP, type TransactionFieldHelp } from "@/lib/transactionField
 import { toast } from "sonner";
 import { useIsCompactNav } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 type TxType = "Listing" | "Buyer File";
 type LoanType = "Conventional" | "FHA/VA" | "All Cash" | "Other";
 type YesNo = "yes" | "no" | "";
-type WorkflowStep = "core" | "parties" | "timeline" | "listing" | "review";
+type WorkflowStep = "general" | "parties" | "property" | "listing" | "transaction" | "timeline" | "review";
+
+const POST_CONTRACT_STAGES: ProjectStage[] = ["In Escrow", "Ready to Close", "Closed"];
+
+function inferContractAccepted(metadata: Record<string, unknown> | undefined, stage?: ProjectStage): boolean {
+  if (metadata?.contractAccepted === true) return true;
+  if (stage && POST_CONTRACT_STAGES.includes(stage)) return true;
+  return false;
+}
 
 function normalizeSellerName(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -64,6 +73,7 @@ type TransactionFormValidationInput = {
   propertyAddress: string;
   nextStep: string;
   purchasePrice: string;
+  requirePurchasePrice: boolean;
   property: {
     zip: string;
     yearBuilt: string;
@@ -86,35 +96,37 @@ function getTransactionFormValidation(input: TransactionFormValidationInput): {
   canSubmit: boolean;
 } {
   const requiredItems: RequiredFormItem[] = [
-    { key: "type", label: "Transaction Type", valid: Boolean(input.type), step: "core", message: "Transaction type is required." },
+    { key: "type", label: "Transaction Type", valid: Boolean(input.type), step: "general", message: "Transaction type is required." },
     {
       key: "contact",
       label: "Primary Contact",
       valid: /^\d+$/.test(input.clientId.trim()),
-      step: "core",
+      step: "general",
       message: "Primary contact is required.",
     },
     {
       key: "address",
       label: "Property Address",
       valid: Boolean(input.propertyAddress.trim()),
-      step: "core",
+      step: "general",
       message: "Property address is required.",
     },
     {
       key: "next-step",
       label: "Next Step",
       valid: Boolean(input.nextStep.trim()),
-      step: "core",
+      step: "general",
       message: "Next step is required.",
     },
-    {
-      key: "price",
-      label: "Purchase Price",
-      valid: Boolean(input.purchasePrice.trim()) && /^\d+(\.\d+)?$/.test(input.purchasePrice.trim()),
-      step: "core",
-      message: "Purchase price is required and must be a valid number.",
-    },
+    ...(input.requirePurchasePrice
+      ? [{
+          key: "price",
+          label: "Purchase Price",
+          valid: Boolean(input.purchasePrice.trim()) && /^\d+(\.\d+)?$/.test(input.purchasePrice.trim()),
+          step: "transaction" as WorkflowStep,
+          message: "Purchase price is required and must be a valid number.",
+        }]
+      : []),
   ];
   const missingRequired = requiredItems.filter((item) => !item.valid);
 
@@ -213,36 +225,67 @@ async function loadVaultEsignByOriginalFileIdMap(): Promise<Map<string, string>>
 
 interface AgentParty {
   contactId?: string;
-  name: string; email: string; phone: string;
+  name: string;
+  preferredName: string;
+  email: string; phone: string;
   licenseNumber: string; brokerage: string; brokerageLicense: string;
   notes: string;
 }
-interface SimpleParty { contactId?: string; name: string; email: string; }
+interface SimpleParty { contactId?: string; name: string; preferredName: string; email: string; }
 interface EscrowParty {
   contactId?: string;
-  name: string; email: string; phone: string; company: string;
+  name: string;
+  preferredName: string;
+  email: string; phone: string; company: string;
   address: string; cityStateZip: string;
 }
 interface PersonParty {
   contactId?: string;
-  name: string; email: string; salutation: string;
+  name: string;
+  preferredName: string;
+  email: string; salutation: string;
   entityType: string; entityName: string; title: string;
 }
 
 const blankAgent = (): AgentParty => ({
-  name: "", email: "", phone: "", licenseNumber: "",
+  name: "", preferredName: "", email: "", phone: "", licenseNumber: "",
   brokerage: "", brokerageLicense: "", notes: "",
 });
-const blankSimple = (): SimpleParty => ({ name: "", email: "" });
+const blankSimple = (): SimpleParty => ({ name: "", preferredName: "", email: "" });
 const blankEscrow = (): EscrowParty => ({
-  name: "", email: "", phone: "", company: "", address: "", cityStateZip: "",
+  name: "", preferredName: "", email: "", phone: "", company: "", address: "", cityStateZip: "",
 });
 const blankPerson = (): PersonParty => ({
-  name: "", email: "", salutation: "", entityType: "", entityName: "", title: "",
+  name: "", preferredName: "", email: "", salutation: "", entityType: "", entityName: "", title: "",
 });
 
 function labelFromClient(c: Client): string {
   return (c.preferredName?.trim()) || c.name;
+}
+
+function isSimplePartyEmpty(p: SimpleParty): boolean {
+  return !p.contactId && !p.name.trim() && !p.email.trim() && !p.preferredName.trim();
+}
+
+function simplePartyFromClient(c: Client): SimpleParty {
+  return {
+    contactId: c.id,
+    name: c.name,
+    preferredName: (c.preferredName ?? "").trim(),
+    email: c.email,
+  };
+}
+
+function applyEscrowAssistantFromOfficer(
+  officer: Client | undefined,
+  options: Client[],
+  current: SimpleParty,
+): SimpleParty | null {
+  if (!officer?.assistantContactId?.trim()) return null;
+  if (!isSimplePartyEmpty(current)) return null;
+  const assistant = options.find((x) => x.id === officer.assistantContactId);
+  if (!assistant) return null;
+  return simplePartyFromClient(assistant);
 }
 
 function applyAgentContact(prev: AgentParty, id: string, options: Client[]): AgentParty {
@@ -252,7 +295,8 @@ function applyAgentContact(prev: AgentParty, id: string, options: Client[]): Age
   return {
     ...prev,
     contactId: id,
-    name: labelFromClient(c),
+    name: c.name,
+    preferredName: (c.preferredName ?? "").trim(),
     email: c.email || prev.email,
     phone: c.phone || prev.phone,
     brokerage: c.company || prev.brokerage,
@@ -266,7 +310,8 @@ function applySimpleContact(prev: SimpleParty, id: string, options: Client[]): S
   return {
     ...prev,
     contactId: id,
-    name: labelFromClient(c),
+    name: c.name,
+    preferredName: (c.preferredName ?? "").trim(),
     email: c.email || prev.email,
   };
 }
@@ -279,7 +324,8 @@ function applyEscrowContact(prev: EscrowParty, id: string, options: Client[]): E
   return {
     ...prev,
     contactId: id,
-    name: labelFromClient(c),
+    name: c.name,
+    preferredName: (c.preferredName ?? "").trim(),
     email: c.email || prev.email,
     phone: c.phone || prev.phone,
     company: c.company || prev.company,
@@ -295,23 +341,25 @@ function applyPersonContact(prev: PersonParty, id: string, options: Client[]): P
   return {
     ...prev,
     contactId: id,
-    name: labelFromClient(c),
+    name: c.name,
+    preferredName: (c.preferredName ?? "").trim(),
     email: c.email || prev.email,
   };
 }
 
 function applyLenderContact(
-  prev: { contactId?: string; name: string; company: string },
+  prev: { contactId?: string; name: string; preferredName: string; company: string },
   id: string,
   options: Client[]
-): { contactId?: string; name: string; company: string } {
+): { contactId?: string; name: string; preferredName: string; company: string } {
   if (!id) return { ...prev, contactId: undefined };
   const c = options.find((x) => x.id === id);
   if (!c) return { ...prev, contactId: id };
   return {
     ...prev,
     contactId: id,
-    name: labelFromClient(c),
+    name: c.name,
+    preferredName: (c.preferredName ?? "").trim(),
     company: c.company || prev.company,
   };
 }
@@ -382,7 +430,7 @@ export default function AddProjectPage() {
   const [listingAgentTC, setListingAgentTC] = useState<SimpleParty>(blankSimple());
   const [escrow, setEscrow] = useState<EscrowParty>(blankEscrow());
   const [escrowAssistant, setEscrowAssistant] = useState<SimpleParty>(blankSimple());
-  const [lender, setLender] = useState<{ contactId?: string; name: string; company: string }>({ name: "", company: "" });
+  const [lender, setLender] = useState<{ contactId?: string; name: string; preferredName: string; company: string }>({ name: "", preferredName: "", company: "" });
   const [sellers, setSellers] = useState<PersonParty[]>([blankPerson()]);
   const [buyers, setBuyers] = useState<PersonParty[]>([blankPerson()]);
 
@@ -439,17 +487,23 @@ export default function AddProjectPage() {
       listingAgents[1]?.phone ||
       listingAgents[1]?.contactId
   );
-  const [currentStep, setCurrentStep] = useState<WorkflowStep>("core");
+  const [currentStep, setCurrentStep] = useState<WorkflowStep>("general");
   const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [contractAccepted, setContractAccepted] = useState(false);
   const compactNav = useIsCompactNav();
+  const showPostContractSections = !isListing || contractAccepted;
   const stepOrder: WorkflowStep[] = isListing
-    ? ["core", "parties", "timeline", "listing", "review"]
-    : ["core", "parties", "timeline", "review"];
+    ? showPostContractSections
+      ? ["general", "parties", "property", "listing", "transaction", "timeline", "review"]
+      : ["general", "parties", "property", "listing", "review"]
+    : ["general", "parties", "property", "transaction", "timeline", "review"];
   const stepTitle: Record<WorkflowStep, string> = {
-    core: "Core Details",
+    general: "General",
     parties: "Parties",
-    timeline: "Timeline",
+    property: "Property Details",
     listing: "Listing Details",
+    transaction: "Transaction Details",
+    timeline: "Timeline",
     review: "Review + Save",
   };
   const formValidation = getTransactionFormValidation({
@@ -458,34 +512,31 @@ export default function AddProjectPage() {
     propertyAddress: property.address,
     nextStep,
     purchasePrice: transaction.purchasePrice,
+    requirePurchasePrice: showPostContractSections,
     property,
     transaction,
     escrow,
     emailsToValidate: [
-      ...buyerAgents.map((a) => a.email),
-      buyerAgent3.email,
-      buyerAgentTC.email,
-      buyerAgentAssistant.email,
+      ...(showPostContractSections ? buyerAgents.map((a) => a.email) : []),
+      ...(showPostContractSections ? [buyerAgent3.email, buyerAgentTC.email, buyerAgentAssistant.email] : []),
       ...listingAgents.map((a) => a.email),
       listingAgent3.email,
       listingAgentTC.email,
       escrow.email,
       escrowAssistant.email,
       ...sellers.map((s) => s.email),
-      ...buyers.map((b) => b.email),
+      ...(showPostContractSections ? buyers.map((b) => b.email) : []),
     ],
     textFields: [
-      ...buyerAgents.map((a) => a.name),
-      buyerAgent3.name,
-      buyerAgentTC.name,
-      buyerAgentAssistant.name,
+      ...(showPostContractSections ? buyerAgents.map((a) => a.name) : []),
+      ...(showPostContractSections ? [buyerAgent3.name, buyerAgentTC.name, buyerAgentAssistant.name] : []),
       ...listingAgents.map((a) => a.name),
       listingAgent3.name,
       listingAgentTC.name,
       escrow.name,
-      lender.name,
+      ...(showPostContractSections ? [lender.name] : []),
       ...sellers.map((s) => s.name),
-      ...buyers.map((b) => b.name),
+      ...(showPostContractSections ? buyers.map((b) => b.name) : []),
       property.city,
       property.county,
     ],
@@ -502,20 +553,29 @@ export default function AddProjectPage() {
   }, [hasListingAgent2Data]);
 
   useEffect(() => {
+    if (!escrow.contactId || !isSimplePartyEmpty(escrowAssistant)) return;
+    const opts = mergePartyClientOptions();
+    const officer = opts.find((x) => x.id === escrow.contactId);
+    const fill = applyEscrowAssistantFromOfficer(officer, opts, escrowAssistant);
+    if (fill) setEscrowAssistant(fill);
+  }, [escrow.contactId, clientOptions, escrowAssistant]);
+
+  useEffect(() => {
+    if (!stepOrder.includes(currentStep)) {
+      setCurrentStep(stepOrder[0] ?? "general");
+    }
+  }, [currentStep, stepOrder]);
+
+  useEffect(() => {
     if (!compactNav) return;
-    if (currentStep === "core") {
-      setOpen((prev) => ({
-        ...prev,
-        general: true,
-        transaction: true,
-        property: true,
-      }));
+    if (currentStep === "general") {
+      setOpen((prev) => ({ ...prev, general: true }));
       return;
     }
     setOpen({
       general: false,
-      transaction: false,
-      property: false,
+      transaction: currentStep === "transaction",
+      property: currentStep === "property",
       timeline: currentStep === "timeline",
       parties: currentStep === "parties",
       listing: currentStep === "listing",
@@ -571,6 +631,7 @@ export default function AddProjectPage() {
     const hydrate = (p: {
       clientId: string;
       type: ProjectType;
+      stage: ProjectStage;
       nextStep: string;
       nextStepDate: string;
       yearBuilt: string;
@@ -602,6 +663,7 @@ export default function AddProjectPage() {
       }));
       setEscrow((prev) => ({ ...prev, name: p.escrowOfficer || "", company: p.escrowCompany || "" }));
       const md = p.metadata ?? {};
+      setContractAccepted(inferContractAccepted(md, p.stage));
       if (md.timeline && typeof md.timeline === "object") {
         setTimeline((prev) => ({ ...prev, ...(md.timeline as typeof prev) }));
       }
@@ -786,10 +848,13 @@ export default function AddProjectPage() {
     // ---- Compose project record ----
     const linkedClient = clientOptions.find((c) => c.id === clientId);
     const initialStage: ProjectStage = type === "Listing" ? "Listing Prep" : "In Escrow";
+    const resolvedStage =
+      isEditMode && existingProject?.stage ? existingProject.stage : initialStage;
     const fullAddress = [property.address, property.city, property.state, property.zip]
       .filter(Boolean)
       .join(", ");
     const metadata = {
+      contractAccepted: isListing ? contractAccepted : undefined,
       timeline,
       cop,
       showCOP,
@@ -823,7 +888,7 @@ export default function AddProjectPage() {
           clientId: clientId.trim(),
           propertyAddress: fullAddress || property.address,
           type,
-          stage: initialStage,
+          stage: resolvedStage,
           nextStep: nextStep.trim(),
           nextStepDate: nextStepDate || "",
           yearBuilt: property.yearBuilt,
@@ -887,7 +952,7 @@ export default function AddProjectPage() {
         clientName: linkedClient?.name || "Unassigned",
         propertyAddress: fullAddress || property.address,
         type: type as unknown as ProjectType,
-        stage: initialStage,
+        stage: resolvedStage,
         nextStep: nextStep.trim(),
         nextStepDate: nextStepDate || "",
         yearBuilt: property.yearBuilt,
@@ -915,7 +980,7 @@ export default function AddProjectPage() {
       clientName: linkedClient?.name || "Unassigned",
       propertyAddress: fullAddress || property.address,
       type: type as unknown as ProjectType,
-      stage: initialStage,
+      stage: resolvedStage,
       nextStep: nextStep.trim(),
       nextStepDate: nextStepDate || "",
       yearBuilt: property.yearBuilt,
@@ -992,7 +1057,8 @@ export default function AddProjectPage() {
 
         <div className="mb-4 min-w-0 overflow-hidden rounded-lg border border-border bg-card">
           <div
-            className="flex min-w-0 items-center gap-1.5 overflow-x-auto overscroll-x-contain p-2 snap-x snap-mandatory scroll-px-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden xl:grid xl:grid-cols-5 xl:gap-2 xl:overflow-visible xl:overscroll-auto xl:snap-none"
+            className="flex min-w-0 items-center gap-1.5 overflow-x-auto overscroll-x-contain p-2 snap-x snap-mandatory scroll-px-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden xl:grid xl:gap-2 xl:overflow-visible xl:overscroll-auto xl:snap-none"
+            style={{ gridTemplateColumns: `repeat(${stepOrder.length}, minmax(0, 1fr))` }}
             role="tablist"
             aria-label="Form steps"
           >
@@ -1025,8 +1091,17 @@ export default function AddProjectPage() {
       <form id="transaction-form" onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 xl:grid-cols-12 xl:gap-6">
         <div className="order-2 space-y-4 xl:order-1 xl:col-span-8 2xl:col-span-9">
           {/* General */}
-          <Section title="General" tone="core" visible={currentStep === "core"} open={open.general} onToggle={() => toggle("general")}>
+          <Section title="General" tone="core" visible={currentStep === "general"} open={open.general} onToggle={() => toggle("general")}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <Field label="Property Address *" className="md:col-span-2" invalid={showFieldError("address")}>
+                <Input
+                  value={property.address}
+                  onChange={e => setProperty(p => ({ ...p, address: e.target.value }))}
+                  placeholder="123 Main St"
+                  required
+                  aria-invalid={showFieldError("address")}
+                />
+              </Field>
               <Field label="Next Step *" invalid={showFieldError("next-step")}>
                 <Input
                   value={nextStep}
@@ -1039,18 +1114,41 @@ export default function AddProjectPage() {
               <Field label="Next Step Date">
                 <Input type="date" value={nextStepDate} onChange={e => setNextStepDate(e.target.value)} />
               </Field>
+              {isListing && isEditMode && (
+                <div className="md:col-span-2 flex items-start gap-3 rounded-md border border-border/70 bg-secondary/20 p-3">
+                  <Checkbox
+                    id="contract-accepted"
+                    checked={contractAccepted}
+                    onCheckedChange={(v) => setContractAccepted(!!v)}
+                  />
+                  <div className="space-y-1">
+                    <Label htmlFor="contract-accepted" className="cursor-pointer text-sm font-medium">
+                      Contract accepted
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Unlocks Transaction Details, Timeline, Buyer&apos;s Agent, Lender, and Buyers for this listing.
+                    </p>
+                  </div>
+                </div>
+              )}
+              {isListing && !isEditMode && (
+                <p className="md:col-span-2 text-xs text-muted-foreground rounded-md border border-dashed border-border/70 bg-secondary/10 px-3 py-2">
+                  Transaction Details and Timeline unlock after a contract is accepted — edit this transaction to enable them.
+                </p>
+              )}
             </div>
           </Section>
 
           {/* Transaction Details */}
-          <Section title="Transaction Details" tone="financial" visible={currentStep === "core"} open={open.transaction} onToggle={() => toggle("transaction")}>
+          {showPostContractSections && (
+          <Section title="Transaction Details" tone="financial" visible={currentStep === "transaction"} open={open.transaction} onToggle={() => toggle("transaction")}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <Field label="Purchase Price ($) *" invalid={showFieldError("price")}>
                 <Input
                   value={transaction.purchasePrice}
                   onChange={e => setTransaction(p => ({ ...p, purchasePrice: sanitizeDecimal(e.target.value) }))}
                   placeholder="$1,250,000"
-                  required
+                  required={showPostContractSections}
                   aria-invalid={showFieldError("price")}
                 />
               </Field>
@@ -1166,9 +1264,10 @@ export default function AddProjectPage() {
               </Field>
             </div>
           </Section>
+          )}
 
           {/* Property Details */}
-          <Section title="Property Details" tone="property" visible={currentStep === "core"} open={open.property} onToggle={() => toggle("property")}>
+          <Section title="Property Details" tone="property" visible={currentStep === "property"} open={open.property} onToggle={() => toggle("property")}>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
               <Field label="MLS #" labelHelp={TX_FIELD_HELP.mlsNumber} className="xl:col-span-1">
                 <Input value={property.mlsNumber} onChange={e => setProperty(p => ({ ...p, mlsNumber: sanitizeDigits(e.target.value) }))} />
@@ -1182,14 +1281,6 @@ export default function AddProjectPage() {
                     ))}
                   </SelectContent>
                 </Select>
-              </Field>
-              <Field label="Property Address *" className="md:col-span-2 xl:col-span-2" invalid={showFieldError("address")}>
-                <Input
-                  value={property.address}
-                  onChange={e => setProperty(p => ({ ...p, address: e.target.value }))}
-                  required
-                  aria-invalid={showFieldError("address")}
-                />
               </Field>
               <Field label="City" className="xl:col-span-1"><Input value={property.city} onChange={e => setProperty(p => ({ ...p, city: e.target.value }))} /></Field>
               <Field label="State" className="xl:col-span-1"><Input value={property.state} onChange={e => setProperty(p => ({ ...p, state: e.target.value }))} /></Field>
@@ -1263,6 +1354,7 @@ export default function AddProjectPage() {
           )}
 
           {/* Timeline */}
+          {showPostContractSections && (
           <Section title="Timeline" tone="timeline" visible={currentStep === "timeline"} open={open.timeline} onToggle={() => toggle("timeline")}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <DateRow label="Contract Date" value={timeline.contractDate} onChange={v => setTimeline(p => ({ ...p, contractDate: v }))} />
@@ -1334,6 +1426,7 @@ export default function AddProjectPage() {
             )}
             </div>
           </Section>
+          )}
 
           {currentStep === "review" && (
             <div className="rounded-lg border border-border bg-card p-4 space-y-4">
@@ -1355,26 +1448,40 @@ export default function AddProjectPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
+              <div className={cn("grid grid-cols-1 gap-3", showPostContractSections ? "xl:grid-cols-3" : "xl:grid-cols-2")}>
                 <div className="rounded-md border border-border/70 bg-secondary/20 p-3 space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Transaction</p>
                   <ReviewItem label="Type" value={type} />
                   <ReviewItem label="Primary Contact" value={linkedPrimaryContact ? labelFromClient(linkedPrimaryContact) : "Not selected"} />
                   <ReviewItem label="Address" value={property.address || "Not set"} />
-                  <ReviewItem label="Purchase Price" value={transaction.purchasePrice || "Not set"} />
-                  <ReviewItem label="Loan Type" value={transaction.loanType} />
+                  {showPostContractSections && (
+                    <>
+                      <ReviewItem label="Purchase Price" value={transaction.purchasePrice || "Not set"} />
+                      <ReviewItem label="Loan Type" value={transaction.loanType} />
+                    </>
+                  )}
+                  {isListing && (
+                    <ReviewItem label="Contract accepted" value={contractAccepted ? "Yes" : "No"} />
+                  )}
                 </div>
 
                 <div className="rounded-md border border-border/70 bg-secondary/20 p-3 space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Parties</p>
-                  <ReviewItem label="Buyer's Agent" value={buyerAgents[0]?.name || "Not set"} />
+                  {showPostContractSections && (
+                    <ReviewItem label="Buyer's Agent" value={buyerAgents[0]?.name || "Not set"} />
+                  )}
                   <ReviewItem label="Listing Agent" value={listingAgents[0]?.name || "Not set"} />
                   <ReviewItem label="Escrow Officer" value={escrow.name || "Not set"} />
-                  <ReviewItem label="Lender" value={lender.name || "Not set"} />
+                  {showPostContractSections && (
+                    <>
+                      <ReviewItem label="Lender" value={lender.name || "Not set"} />
+                      <ReviewItem label="Buyers" value={`${buyers.filter((b) => b.name || b.email).length}/${buyers.length}`} />
+                    </>
+                  )}
                   <ReviewItem label="Sellers" value={`${sellers.filter((s) => s.name || s.email).length}/${sellers.length}`} />
-                  <ReviewItem label="Buyers" value={`${buyers.filter((b) => b.name || b.email).length}/${buyers.length}`} />
                 </div>
 
+                {showPostContractSections && (
                 <div className="rounded-md border border-border/70 bg-secondary/20 p-3 space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Timeline</p>
                   <ReviewItem label="Contract Date" value={timeline.contractDate || "Not set"} />
@@ -1390,6 +1497,7 @@ export default function AddProjectPage() {
                     value={isAllCash ? "N/A — All Cash" : timeline.loanContingency || "Not set"}
                   />
                 </div>
+                )}
               </div>
 
               {missingRequiredItems.length > 0 && (
@@ -1417,6 +1525,7 @@ export default function AddProjectPage() {
           {/* Parties */}
           <Section title="Parties" tone="parties" visible={currentStep === "parties"} open={open.parties} onToggle={() => toggle("parties")}>
           <div className="flex flex-col gap-6">
+            {showPostContractSections && (
             <div className={cn("flex flex-col gap-6", isListing ? "order-2" : "order-1")}>
             <PartyGroup title="Buyer's Agent">
               <div className="mb-3">
@@ -1554,6 +1663,7 @@ export default function AddProjectPage() {
               </PartyGroup>
             </div>
             </div>
+            )}
 
             <div className={cn("flex flex-col gap-6", isListing ? "order-1" : "order-2")}>
             <PartyGroup title="Listing Agent">
@@ -1674,12 +1784,18 @@ export default function AddProjectPage() {
                   options={clientOptions}
                   onValueChange={(cid) => {
                     const opts = mergePartyClientOptions();
+                    const officer = opts.find((x) => x.id === cid);
                     setEscrow((prev) => applyEscrowContact(prev, cid, opts));
+                    const assistantFill = applyEscrowAssistantFromOfficer(officer, opts, escrowAssistant);
+                    if (assistantFill) setEscrowAssistant(assistantFill);
                   }}
                 />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <Field label="Name"><Input value={escrow.name} onChange={e => setEscrow({ ...escrow, name: e.target.value })} /></Field>
+                <Field label="Preferred Name" hint="Optional. Shown in emails and Overview when different from legal name.">
+                  <Input value={escrow.preferredName} onChange={e => setEscrow({ ...escrow, preferredName: e.target.value })} />
+                </Field>
                 <Field label="Email"><Input type="email" value={escrow.email} onChange={e => setEscrow({ ...escrow, email: e.target.value })} /></Field>
                 <Field label="Phone"><Input value={escrow.phone} onChange={e => setEscrow({ ...escrow, phone: sanitizeDigits(e.target.value) })} /></Field>
                 <Field label="Company"><Input value={escrow.company} onChange={e => setEscrow({ ...escrow, company: e.target.value })} /></Field>
@@ -1706,6 +1822,7 @@ export default function AddProjectPage() {
             </PartyGroup>
             </div>
 
+            {showPostContractSections && (
             <PartyGroup title="Lender">
               <div className="mb-3">
                 <Label className="text-xs text-muted-foreground">Saved contact</Label>
@@ -1723,9 +1840,13 @@ export default function AddProjectPage() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <Field label="Name"><Input value={lender.name} onChange={e => setLender({ ...lender, name: e.target.value })} /></Field>
+                <Field label="Preferred Name" hint="Optional. Shown in Overview when different from legal name.">
+                  <Input value={lender.preferredName} onChange={e => setLender({ ...lender, preferredName: e.target.value })} />
+                </Field>
                 <Field label="Company"><Input value={lender.company} onChange={e => setLender({ ...lender, company: e.target.value })} /></Field>
               </div>
             </PartyGroup>
+            )}
 
             {/* Sellers */}
             <PartyGroup
@@ -1774,6 +1895,7 @@ export default function AddProjectPage() {
             </PartyGroup>
 
             {/* Buyers */}
+            {showPostContractSections && (
             <PartyGroup
               title={`Buyers (${buyers.length}/4)`}
               action={buyers.length < 4 && (
@@ -1818,6 +1940,7 @@ export default function AddProjectPage() {
                 ))}
               </div>
             </PartyGroup>
+            )}
           </div>
           </Section>
         </div>
@@ -2174,15 +2297,38 @@ function YesNoField({
   );
 }
 
-function PartyGroup({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
+function PartyGroup({
+  title,
+  action,
+  children,
+  defaultOpen = true,
+}: {
+  title: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="rounded-lg border border-accent/30 bg-accent/5 p-3">
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-sm font-semibold text-foreground">{title}</p>
-        {action}
+    <Collapsible open={open} onOpenChange={setOpen} className="rounded-lg border border-accent/30 bg-accent/5">
+      <div className="flex items-center justify-between gap-2 px-3 py-2">
+        <CollapsibleTrigger asChild>
+          <button type="button" className="flex min-w-0 flex-1 items-center gap-2 text-left">
+            <ChevronDown
+              className={cn(
+                "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200",
+                open && "rotate-180",
+              )}
+            />
+            <span className="text-sm font-semibold text-foreground">{title}</span>
+          </button>
+        </CollapsibleTrigger>
+        {action ? <div className="shrink-0" onClick={(e) => e.stopPropagation()}>{action}</div> : null}
       </div>
-      {children}
-    </div>
+      <CollapsibleContent>
+        <div className="border-t border-accent/20 px-3 pb-3 pt-3">{children}</div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -2200,6 +2346,9 @@ function AgentForm({ value, onChange }: { value: AgentParty; onChange: (v: Agent
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
       <Field label="Name"><Input value={value.name} onChange={e => set("name", e.target.value)} /></Field>
+      <Field label="Preferred Name" hint="Optional. Shown in emails and Overview when different from legal name.">
+        <Input value={value.preferredName} onChange={e => set("preferredName", e.target.value)} />
+      </Field>
       <Field label="Email"><Input type="email" value={value.email} onChange={e => set("email", e.target.value)} /></Field>
       <Field label="Phone"><Input value={value.phone} onChange={e => set("phone", sanitizeDigits(e.target.value))} /></Field>
       <Field label="License Number"><Input value={value.licenseNumber} onChange={e => set("licenseNumber", sanitizeDigits(e.target.value))} /></Field>
@@ -2216,6 +2365,9 @@ function SimpleForm({ value, onChange }: { value: SimpleParty; onChange: (v: Sim
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
       <Field label="Name"><Input value={value.name} onChange={e => onChange({ ...value, name: e.target.value })} /></Field>
+      <Field label="Preferred Name" hint="Optional. Shown in emails and Overview when different from legal name.">
+        <Input value={value.preferredName} onChange={e => onChange({ ...value, preferredName: e.target.value })} />
+      </Field>
       <Field label="Email"><Input type="email" value={value.email} onChange={e => onChange({ ...value, email: e.target.value })} /></Field>
     </div>
   );
@@ -2226,6 +2378,9 @@ function PersonForm({ value, onChange }: { value: PersonParty; onChange: (v: Per
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
       <Field label="Name"><Input value={value.name} onChange={e => set("name", e.target.value)} /></Field>
+      <Field label="Preferred Name" hint="Optional. Shown in emails and Overview when different from legal name.">
+        <Input value={value.preferredName} onChange={e => set("preferredName", e.target.value)} />
+      </Field>
       <Field label="Email"><Input type="email" value={value.email} onChange={e => set("email", e.target.value)} /></Field>
       <Field label="Salutation"><Input value={value.salutation} onChange={e => set("salutation", e.target.value)} placeholder="Mr., Mrs., Dr." /></Field>
       <Field label="Title"><Input value={value.title} onChange={e => set("title", e.target.value)} /></Field>

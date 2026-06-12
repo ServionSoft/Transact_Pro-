@@ -1,6 +1,6 @@
 /**
- * Applies SQL files in backend/db/migration/ once each, in lexical order.
- * Run from backend: npm run db:migrate
+ * Apply migrations using only backend/.env (ignores .env.render).
+ * Use when local Postgres and Render use different DATABASE_URL values.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -12,14 +12,7 @@ import { splitSqlStatements } from "./sqlSplit.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const backendRoot = path.resolve(__dirname, "..");
 dotenv.config({ path: path.join(backendRoot, ".env") });
-const renderEnvPath = path.join(backendRoot, ".env.render");
-if (fs.existsSync(renderEnvPath)) {
-  dotenv.config({ path: renderEnvPath, override: true });
-}
 
-const migrationDir = path.join(__dirname, "migration");
-
-/** Remove `-- …` lines so semicolons inside comments cannot break splitting. */
 function stripFullLineComments(sql: string): string {
   return sql
     .split("\n")
@@ -55,14 +48,11 @@ async function main(): Promise<void> {
     throw new Error("DATABASE_URL is missing. Set it in backend/.env");
   }
 
+  const migrationDir = path.join(__dirname, "migration");
   const files = fs
     .readdirSync(migrationDir)
     .filter((f) => f.endsWith(".sql"))
     .sort();
-
-  if (files.length === 0) {
-    throw new Error(`No .sql files in ${migrationDir}`);
-  }
 
   const pool = new pg.Pool({ connectionString: databaseUrl });
   const client = await pool.connect();
@@ -101,14 +91,8 @@ async function main(): Promise<void> {
   }
 }
 
-const isDirectRun =
-  process.argv[1] != null &&
-  path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
-
-if (isDirectRun) {
-  main().catch((err) => {
-    // eslint-disable-next-line no-console
-    console.error(err instanceof Error ? err.message : err);
-    process.exit(1);
-  });
-}
+main().catch((err) => {
+  // eslint-disable-next-line no-console
+  console.error(err instanceof Error ? err.message : err);
+  process.exit(1);
+});

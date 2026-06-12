@@ -14,6 +14,7 @@ export type ClientApiRow = {
   state: string;
   zip: string;
   notes: string;
+  assistantContactId: string;
   createdAt: string;
   projectCount: number;
 };
@@ -31,6 +32,7 @@ export type ClientUpsertInput = {
   state?: string;
   zip?: string;
   notes?: string;
+  assistantContactId?: string;
 };
 
 export type ServiceError = {
@@ -98,9 +100,33 @@ type ClientDbRow = {
   state: string | null;
   zip: string | null;
   notes: string | null;
+  assistant_contact_id: string | null;
   created_at: Date;
   project_count: number | string | null;
 };
+
+async function validateAssistantContactId(
+  pool: Pool,
+  assistantContactId: string | undefined,
+  officerContactId?: string
+): Promise<ServiceError | null> {
+  const raw = normalizeText(assistantContactId);
+  if (!raw) return null;
+  if (!/^\d+$/.test(raw)) {
+    return { status: 400, code: "CLIENT_ASSISTANT_INVALID", message: "Default assistant contact is invalid." };
+  }
+  if (officerContactId && raw === officerContactId) {
+    return { status: 400, code: "CLIENT_ASSISTANT_SELF", message: "Escrow officer cannot be their own assistant." };
+  }
+  const { rows } = await pool.query<{ id: string }>(
+    `SELECT id::text FROM public.contacts WHERE id = $1::bigint AND deleted_at IS NULL LIMIT 1`,
+    [raw]
+  );
+  if (!rows[0]?.id) {
+    return { status: 400, code: "CLIENT_ASSISTANT_NOT_FOUND", message: "Default assistant contact was not found." };
+  }
+  return null;
+}
 
 function rowToClient(row: ClientDbRow): ClientApiRow {
   const createdAt =
@@ -119,6 +145,7 @@ function rowToClient(row: ClientDbRow): ClientApiRow {
     state: row.state ?? "",
     zip: row.zip ?? "",
     notes: row.notes ?? "",
+    assistantContactId: row.assistant_contact_id ?? "",
     createdAt,
     projectCount: Number(row.project_count ?? 0),
   };
@@ -187,6 +214,7 @@ export async function listClients(
        c.state,
        c.zip,
        c.notes,
+       c.assistant_contact_id::text,
        c.created_at,
        COUNT(p.id)::int AS project_count
      FROM public.contacts c
@@ -221,6 +249,7 @@ export async function getClientById(
        c.state,
        c.zip,
        c.notes,
+       c.assistant_contact_id::text,
        c.created_at,
        COUNT(p.id)::int AS project_count
      FROM public.contacts c
@@ -242,6 +271,9 @@ export async function createClient(
   const validation = validateClientInput(input);
   if (validation) return { error: validation };
 
+  const assistantErr = await validateAssistantContactId(pool, input.assistantContactId);
+  if (assistantErr) return { error: assistantErr };
+
   const emailKey = normalizeText(input.email).toLowerCase();
   const existingId = await pool.query<{ id: string }>(
     `SELECT id::text FROM public.contacts
@@ -261,10 +293,10 @@ export async function createClient(
   const { rows } = await pool.query<{ id: string }>(
     `INSERT INTO public.contacts (
        name, preferred_name, email, phone, company, agent_role_text, status, notes,
-       primary_address, city, state, zip, created_by_user_id, created_at, updated_at
+       primary_address, city, state, zip, assistant_contact_id, created_by_user_id, created_at, updated_at
      ) VALUES (
        $1, $2, $3, $4, $5, $6, $7::public.client_status, $8,
-       $9, $10, $11, $12, $13, now(), now()
+       $9, $10, $11, $12, $13::bigint, $14, now(), now()
      )
      RETURNING id::text`,
     [
@@ -280,6 +312,7 @@ export async function createClient(
       normalizeText(input.city),
       normalizeText(input.state),
       normalizeText(input.zip),
+      normalizeText(input.assistantContactId) || null,
       createdBy,
     ]
   );
@@ -306,6 +339,9 @@ export async function updateClient(
   }
   const validation = validateClientInput(input);
   if (validation) return { error: validation };
+
+  const assistantErr = await validateAssistantContactId(pool, input.assistantContactId, id);
+  if (assistantErr) return { error: assistantErr };
 
   const emailNorm = normalizeText(input.email).toLowerCase();
   if (emailNorm) {
@@ -348,8 +384,9 @@ export async function updateClient(
            city = $10,
            state = $11,
            zip = $12,
+           assistant_contact_id = $13::bigint,
            updated_at = now()
-       WHERE id = $13::bigint
+       WHERE id = $14::bigint
          AND deleted_at IS NULL`,
       [
         normalizeText(input.name),
@@ -364,6 +401,7 @@ export async function updateClient(
         normalizeText(input.city),
         normalizeText(input.state),
         normalizeText(input.zip),
+        normalizeText(input.assistantContactId) || null,
         id,
       ]
     );

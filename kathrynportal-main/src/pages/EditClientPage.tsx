@@ -23,6 +23,7 @@ function toFormValues(client: {
   state: string;
   zip: string;
   notes: string;
+  assistantContactId?: string;
 }): ClientFormValues {
   return {
     name: client.name,
@@ -37,6 +38,7 @@ function toFormValues(client: {
     state: client.state,
     zip: client.zip,
     notes: client.notes,
+    assistantContactId: client.assistantContactId ?? "",
   };
 }
 
@@ -45,6 +47,7 @@ export default function EditClientPage() {
   const { id } = useParams();
   const user = useAuthStore((s) => s.user);
   const storeClient = useAppStore((s) => s.clients.find((c) => c.id === id));
+  const contactOptions = useAppStore((s) => s.clients);
   const updateClientLocal = useAppStore((s) => s.updateClient);
   const upsertClient = useAppStore((s) => s.upsertClient);
 
@@ -64,6 +67,7 @@ export default function EditClientPage() {
           state: "CA",
           zip: "",
           notes: "",
+          assistantContactId: "",
         }
   );
   const [loading, setLoading] = useState(!storeClient && Boolean(getApiBaseUrl()));
@@ -158,6 +162,8 @@ export default function EditClientPage() {
       ) : (
         <ClientForm
           values={form}
+          contactOptions={contactOptions}
+          excludeContactId={id}
           isSubmitting={isSubmitting}
           submitLabel="Save changes"
           onSubmit={handleSubmit}

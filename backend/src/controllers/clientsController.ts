@@ -28,6 +28,7 @@ function parseClientBody(body: unknown): ClientUpsertInput | null {
     state: typeof b.state === "string" ? b.state : "",
     zip: typeof b.zip === "string" ? b.zip : "",
     notes: typeof b.notes === "string" ? b.notes : "",
+    assistantContactId: typeof b.assistantContactId === "string" ? b.assistantContactId : "",
   };
 }
 
