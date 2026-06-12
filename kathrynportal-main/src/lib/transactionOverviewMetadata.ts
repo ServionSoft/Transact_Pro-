@@ -142,6 +142,8 @@ export function getListingDetailRows(metadata: Record<string, unknown> | undefin
   push(row("Target OMD", str(l.targetOMD)));
   push(row("Disclosure timing", str(l.disclosureTiming)));
   push(row("Questionnaires electronically", yesNo(l.questionnairesElectronically)));
+  push(row("Seller on listing agreement", str(l.sellerOnListingAgreement)));
+  push(row("Seller on prelim", str(l.sellerOnPrelim)));
   push(row("DocuSign", yesNo(l.docuSign)));
   push(row("NHD company", str(l.nhdCompany)));
   if (l.nhdEnvironmental === true) push({ label: "NHD environmental", value: "Yes" });

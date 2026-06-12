@@ -391,6 +391,8 @@ export default function AddProjectPage() {
     targetOMD: "", disclosureTiming: "",
     questionnairesElectronically: "" as YesNo,
     docuSign: "" as YesNo,
+    sellerOnListingAgreement: "",
+    sellerOnPrelim: "",
     nhdCompany: "", nhdEnvironmental: false,
   });
 
@@ -408,7 +410,7 @@ export default function AddProjectPage() {
     nhdRpa: "", homeWarranty: "", escrowNumber: "", notes: "",
   });
 
-  // Property Information
+  // Property Details
   const [property, setProperty] = useState({
     mlsNumber: "",
     propertyType: "SFR",
@@ -1052,12 +1054,14 @@ export default function AddProjectPage() {
                   aria-invalid={showFieldError("price")}
                 />
               </Field>
-              <YesNoField
-                label="DocuSign?"
-                labelHelp={TX_FIELD_HELP.docuSign}
-                value={transaction.docuSign}
-                onChange={(v) => setTransaction(p => ({ ...p, docuSign: v }))}
-              />
+              {!isListing && (
+                <YesNoField
+                  label="DocuSign?"
+                  labelHelp={TX_FIELD_HELP.docuSign}
+                  value={transaction.docuSign}
+                  onChange={(v) => setTransaction(p => ({ ...p, docuSign: v }))}
+                />
+              )}
               <Field label="Loan Type">
                 <Select value={transaction.loanType} onValueChange={(v) => setTransaction(p => ({ ...p, loanType: v as LoanType }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
@@ -1163,8 +1167,8 @@ export default function AddProjectPage() {
             </div>
           </Section>
 
-          {/* Property Information */}
-          <Section title="Property Information" tone="property" visible={currentStep === "core"} open={open.property} onToggle={() => toggle("property")}>
+          {/* Property Details */}
+          <Section title="Property Details" tone="property" visible={currentStep === "core"} open={open.property} onToggle={() => toggle("property")}>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
               <Field label="MLS #" labelHelp={TX_FIELD_HELP.mlsNumber} className="xl:col-span-1">
                 <Input value={property.mlsNumber} onChange={e => setProperty(p => ({ ...p, mlsNumber: sanitizeDigits(e.target.value) }))} />
@@ -1228,12 +1232,20 @@ export default function AddProjectPage() {
                   value={listing.questionnairesElectronically}
                   onChange={(v) => setListing(p => ({ ...p, questionnairesElectronically: v }))}
                 />
-                <YesNoField
-                  label="DocuSign?"
-                  labelHelp={TX_FIELD_HELP.docuSign}
-                  value={listing.docuSign}
-                  onChange={(v) => setListing(p => ({ ...p, docuSign: v }))}
-                />
+                <Field label="Seller name on Listing Agreement" labelHelp={TX_FIELD_HELP.sellerOnListingAgreement} hint="Optional. Seller name/vesting exactly as shown on the listing agreement.">
+                  <Input
+                    value={listing.sellerOnListingAgreement}
+                    onChange={e => setListing(p => ({ ...p, sellerOnListingAgreement: e.target.value }))}
+                    placeholder="e.g. John Smith and Jane Smith, Trustees..."
+                  />
+                </Field>
+                <Field label="Seller name on Prelim" labelHelp={TX_FIELD_HELP.sellerOnPrelim} hint="Optional. Seller name/vesting exactly as shown on the Preliminary Title Report.">
+                  <Input
+                    value={listing.sellerOnPrelim}
+                    onChange={e => setListing(p => ({ ...p, sellerOnPrelim: e.target.value }))}
+                    placeholder="e.g. John A Smith and Jane B Smith, Trustees..."
+                  />
+                </Field>
                 <Field label="NHD Company" labelHelp={TX_FIELD_HELP.nhdCompany}>
                   <Input value={listing.nhdCompany} onChange={e => setListing(p => ({ ...p, nhdCompany: e.target.value }))} />
                 </Field>
@@ -1404,7 +1416,8 @@ export default function AddProjectPage() {
 
           {/* Parties */}
           <Section title="Parties" tone="parties" visible={currentStep === "parties"} open={open.parties} onToggle={() => toggle("parties")}>
-          <div className="space-y-6">
+          <div className="flex flex-col gap-6">
+            <div className={cn("flex flex-col gap-6", isListing ? "order-2" : "order-1")}>
             <PartyGroup title="Buyer's Agent">
               <div className="mb-3">
                 <Label className="text-xs text-muted-foreground">Saved contact</Label>
@@ -1522,12 +1535,12 @@ export default function AddProjectPage() {
                 </div>
                 <SimpleForm value={buyerAgentTC} onChange={setBuyerAgentTC} />
               </PartyGroup>
-              <PartyGroup title="Buyer's Agent's Assistant">
+              <PartyGroup title="Buyer's Agent's Assistant/Team Member">
                 <div className="mb-3">
                   <Label className="text-xs text-muted-foreground">Saved contact</Label>
                   <ContactLinkPicker
                     variant="party"
-                    defaultCreateRole="Buyer's Agent's Assistant"
+                    defaultCreateRole="Buyer's Agent's Assistant/Team Member"
                     partyPlaceholder="Link assistant contact…"
                     value={buyerAgentAssistant.contactId ?? ""}
                     options={clientOptions}
@@ -1540,7 +1553,9 @@ export default function AddProjectPage() {
                 <SimpleForm value={buyerAgentAssistant} onChange={setBuyerAgentAssistant} />
               </PartyGroup>
             </div>
+            </div>
 
+            <div className={cn("flex flex-col gap-6", isListing ? "order-1" : "order-2")}>
             <PartyGroup title="Listing Agent">
               <div className="mb-3">
                 <Label className="text-xs text-muted-foreground">Saved contact</Label>
@@ -1645,6 +1660,7 @@ export default function AddProjectPage() {
               </div>
               <SimpleForm value={listingAgentTC} onChange={setListingAgentTC} />
             </PartyGroup>
+            </div>
 
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <PartyGroup title="Escrow Officer">
@@ -1671,12 +1687,12 @@ export default function AddProjectPage() {
                 <Field label="City, State, Zip" className="md:col-span-2"><Input value={escrow.cityStateZip} onChange={e => setEscrow({ ...escrow, cityStateZip: e.target.value })} /></Field>
               </div>
             </PartyGroup>
-            <PartyGroup title="Escrow Assistant">
+            <PartyGroup title="Escrow Assistant/Team Member">
               <div className="mb-3">
                 <Label className="text-xs text-muted-foreground">Saved contact</Label>
                 <ContactLinkPicker
                   variant="party"
-                  defaultCreateRole="Escrow Assistant"
+                  defaultCreateRole="Escrow Assistant/Team Member"
                   partyPlaceholder="Link escrow assistant…"
                   value={escrowAssistant.contactId ?? ""}
                   options={clientOptions}

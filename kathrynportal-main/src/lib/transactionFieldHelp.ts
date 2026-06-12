@@ -83,6 +83,16 @@ export const TX_FIELD_HELP = {
     fullName: "Disclosure timing",
     why: "Listing: when seller disclosures will be delivered (e.g. before offers, with marketing).",
   },
+  sellerOnListingAgreement: {
+    fullName: "Listing agreement — seller",
+    why: "Listing: seller name/vesting exactly as written on the listing agreement. Used to compare against title.",
+    example: "John Smith and Jane Smith, Trustees of the Smith Family Trust…",
+  },
+  sellerOnPrelim: {
+    fullName: "Preliminary title report — seller",
+    why: "Listing: seller name/vesting exactly as shown on the preliminary title report (prelim).",
+    example: "John A Smith and Jane B Smith, Trustees…",
+  },
   questionnairesElectronically: {
     fullName: "Questionnaires electronically",
     why: "Listing: whether seller questionnaires will be sent/completed electronically.",
