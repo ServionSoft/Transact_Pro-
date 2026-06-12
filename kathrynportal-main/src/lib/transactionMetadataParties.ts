@@ -1,3 +1,19 @@
+function str(v: unknown): string {
+  return typeof v === "string" ? v.trim() : "";
+}
+
+/** Escrow officer from project column, falling back to metadata.escrow (form-saved name). */
+export function resolveProjectEscrowOfficer(project: {
+  escrowOfficer?: string;
+  metadata?: unknown;
+}): string {
+  const fromColumn = str(project.escrowOfficer);
+  if (fromColumn) return fromColumn;
+  const escrow = asRecord(asRecord(project.metadata)?.escrow);
+  if (!escrow) return "";
+  return str(escrow.name) || str(escrow.preferredName);
+}
+
 export type PartyRow = { role: string; name: string; preferredName?: string; email?: string };
 
 export type PartyGroup = { title: string; rows: PartyRow[] };

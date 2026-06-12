@@ -7,6 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { dueDateBucket, dueDateClass, isBuyerTransaction, transactionTypeLabel } from "@/lib/transactionListUtils";
 import type { PartyGroup } from "@/lib/transactionMetadataParties";
+import { resolveProjectEscrowOfficer } from "@/lib/transactionMetadataParties";
 import {
   getListingDetailRows,
   getPropertyDetailRows,
@@ -117,7 +118,7 @@ export default function TransactionOverviewTab({
   const timelineRows = getTransactionTimelineRows(metadata, project.deadlines ?? []);
 
   const escrowStageRows = [
-    { label: "Escrow officer", value: project.escrowOfficer || "—" },
+    { label: "Escrow officer", value: resolveProjectEscrowOfficer(project) || "—" },
     { label: "Escrow company", value: project.escrowCompany || "—" },
     { label: "Stage", value: project.stage },
     { label: "Transaction type", value: transactionTypeLabel(project.type) },

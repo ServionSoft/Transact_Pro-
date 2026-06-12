@@ -24,22 +24,11 @@ import { getTransactionRecipientSuggestions } from "@/lib/transactionRecipientSu
 import {
   applyEmailTemplateToCompose,
   buildTransactionDocumentList,
+  TRANSACTION_EMAIL_TOKENS,
 } from "@/lib/emailTemplateTokens";
 import { cn } from "@/lib/utils";
 
-const EMAIL_TOKENS = [
-  "{{agent_name}}",
-  "{{client_name}}",
-  "{{property_address}}",
-  "{{stage_name}}",
-  "{{deadline_name}}",
-  "{{deadline_date}}",
-  "{{next_step}}",
-  "{{next_step_date}}",
-  "{{transaction_type}}",
-  "{{list_price}}",
-  "{{today_date}}",
-] as const;
+const EMAIL_TOKENS = TRANSACTION_EMAIL_TOKENS;
 
 function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());

@@ -13,6 +13,8 @@ import {
   updateProjectNote,
   deleteProjectNote,
   updateProjectDeadlineDate,
+  updateProjectTimelineFieldDate,
+  updateProjectCustomTimeline,
   deleteProjectDeadline,
   createProjectDeadline,
   createReminderDraft,
@@ -742,6 +744,35 @@ export function createProjectsController(pool: Pool, config: AppConfig) {
         res.json({ success: true, data: { project: result.project }, message: "" });
       } catch {
         res.status(500).json({ success: false, error: { code: "PROJECT_DEADLINE_UPDATE_FAILED", message: "Could not update deadline." } });
+      }
+    },
+
+    async patchTimelineField(req: Request, res: Response): Promise<void> {
+      const body = req.body as { date?: unknown };
+      const date = typeof body?.date === "string" ? body.date : "";
+      try {
+        const result = await updateProjectTimelineFieldDate(pool, req.params.id, req.params.fieldKey, date);
+        if ("error" in result) {
+          res.status(result.error.status).json({ success: false, error: { code: result.error.code, message: result.error.message } });
+          return;
+        }
+        res.json({ success: true, data: { project: result.project }, message: "" });
+      } catch {
+        res.status(500).json({ success: false, error: { code: "PROJECT_TIMELINE_FIELD_UPDATE_FAILED", message: "Could not update timeline field." } });
+      }
+    },
+
+    async patchCustomTimeline(req: Request, res: Response): Promise<void> {
+      const body = req.body as { customTimeline?: unknown };
+      try {
+        const result = await updateProjectCustomTimeline(pool, req.params.id, body?.customTimeline);
+        if ("error" in result) {
+          res.status(result.error.status).json({ success: false, error: { code: result.error.code, message: result.error.message } });
+          return;
+        }
+        res.json({ success: true, data: { project: result.project }, message: "" });
+      } catch {
+        res.status(500).json({ success: false, error: { code: "PROJECT_CUSTOM_TIMELINE_UPDATE_FAILED", message: "Could not update custom timeline." } });
       }
     },
 

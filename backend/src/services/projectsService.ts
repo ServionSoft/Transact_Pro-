@@ -303,6 +303,25 @@ function parseDateString(raw: string | undefined): string | null {
   return d.toISOString().split("T")[0];
 }
 
+/** Sat → Fri; Sun → Mon — deadline dates must not fall on weekends. */
+function adjustDeadlineOffWeekend(iso: string): string {
+  const match = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return iso;
+  const year = Number(match[1]);
+  const month = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  const d = new Date(year, month, day);
+  if (Number.isNaN(d.getTime())) return iso;
+  const dow = d.getDay();
+  if (dow === 6) d.setDate(d.getDate() - 1);
+  else if (dow === 0) d.setDate(d.getDate() + 1);
+  else return iso;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${dd}`;
+}
+
 /** Titles seeded from Add Project → Timeline / COP / SPRP; removed on re-sync so custom deadlines keep other titles. */
 const MANAGED_FORM_DEADLINE_TITLES = [
   "Contract Date",
@@ -333,7 +352,7 @@ function collectDeadlineRowsFromProjectMetadata(metadata: unknown): { title: str
   const pushDate = (raw: unknown, title: string) => {
     if (typeof raw !== "string") return;
     const d = parseDateString(raw);
-    if (d) out.push({ title, dueDate: d });
+    if (d) out.push({ title, dueDate: adjustDeadlineOffWeekend(d) });
   };
 
   const timeline = md.timeline;
@@ -366,7 +385,35 @@ function collectDeadlineRowsFromProjectMetadata(metadata: unknown): { title: str
     pushDate(s.coe, "SPRP — COE");
   }
 
+  const customTimeline = md.customTimeline;
+  if (Array.isArray(customTimeline)) {
+    for (const entry of customTimeline) {
+      if (!entry || typeof entry !== "object") continue;
+      const row = entry as Record<string, unknown>;
+      if (row.kind !== "date") continue;
+      const title = typeof row.title === "string" ? row.title.trim() : "";
+      if (!title) continue;
+      pushDate(row.value, title);
+    }
+  }
+
   return out;
+}
+
+function collectCustomTimelineDateTitles(metadata: unknown): string[] {
+  if (!metadata || typeof metadata !== "object") return [];
+  const md = metadata as Record<string, unknown>;
+  const customTimeline = md.customTimeline;
+  if (!Array.isArray(customTimeline)) return [];
+  const titles: string[] = [];
+  for (const entry of customTimeline) {
+    if (!entry || typeof entry !== "object") continue;
+    const row = entry as Record<string, unknown>;
+    if (row.kind !== "date") continue;
+    const title = typeof row.title === "string" ? row.title.trim() : "";
+    if (title) titles.push(title);
+  }
+  return titles;
 }
 
 const FORM_DEADLINE_TITLE_TO_FIELD: Record<
@@ -397,6 +444,27 @@ function isFormManagedDeadlineTitle(title: string): boolean {
   return (MANAGED_FORM_DEADLINE_TITLES as readonly string[]).includes(title);
 }
 
+const FORM_TIMELINE_FIELD_KEY_TO_TITLE: Record<string, string> = {
+  contractDate: "Contract Date",
+  acceptanceDate: "Acceptance Date",
+  preapproval: "Preapproval",
+  verificationOfFunds: "Verification of Funds",
+  emdToEscrow: "EMD to Escrow",
+  sellerDisclosuresToBuyer: "Seller Disclosures to Buyer",
+  investigationContingency: "Investigation Contingency Removal",
+  insuranceContingency: "Insurance Contingency Removal",
+  reviewSellerDocs: "Review of Seller Docs Contingency Removal",
+  reviewPrelim: "Review of Prelim Contingency Removal",
+  reviewCommIntDiscl: "Review of Comm Int Discl Contingency Removal",
+  appraisalContingency: "Appraisal Contingency Removal",
+  loanContingency: "Loan Contingency Removal",
+  estimatedCOE: "Estimated COE",
+  copIntoContract: "COP — Into Contract",
+  copCoe: "COP — COE",
+  sprpIntoContract: "SPRP — Into Contract",
+  sprpCoe: "SPRP — COE",
+};
+
 function applyFormDeadlineDateToMetadata(
   metadata: unknown,
   title: string,
@@ -409,12 +477,18 @@ function applyFormDeadlineDateToMetadata(
       : {};
   if (!mapping) return md;
 
+  let storedDate = dateValue.trim();
+  if (storedDate) {
+    const parsed = parseDateString(storedDate);
+    if (parsed) storedDate = adjustDeadlineOffWeekend(parsed);
+  }
+
   if (mapping.scope === "timeline") {
     const timeline =
       md.timeline && typeof md.timeline === "object" && !Array.isArray(md.timeline)
         ? { ...(md.timeline as Record<string, unknown>) }
         : {};
-    timeline[mapping.field] = dateValue;
+    timeline[mapping.field] = storedDate;
     return { ...md, timeline };
   }
   if (mapping.scope === "cop") {
@@ -422,14 +496,14 @@ function applyFormDeadlineDateToMetadata(
       md.cop && typeof md.cop === "object" && !Array.isArray(md.cop)
         ? { ...(md.cop as Record<string, unknown>) }
         : {};
-    cop[mapping.field] = dateValue;
+    cop[mapping.field] = storedDate;
     return { ...md, showCOP: true, cop };
   }
   const sprp =
     md.sprp && typeof md.sprp === "object" && !Array.isArray(md.sprp)
       ? { ...(md.sprp as Record<string, unknown>) }
       : {};
-  sprp[mapping.field] = dateValue;
+  sprp[mapping.field] = storedDate;
   return { ...md, showSPRP: true, sprp };
 }
 
@@ -453,18 +527,28 @@ async function saveProjectMetadataAndSyncDeadlines(
   await syncProjectDeadlinesFromFormMetadata(pool, projectId, metadata);
 }
 
-/** Replaces only form-managed deadline rows; leaves ad-hoc deadlines (other titles) intact. */
+/** Replaces form-managed and metadata custom timeline deadline rows; leaves other ad-hoc deadlines intact. */
 async function syncProjectDeadlinesFromFormMetadata(
   pool: Pool,
   projectId: string,
   metadata: unknown
 ): Promise<void> {
+  const customTitles = collectCustomTimelineDateTitles(metadata);
   await pool.query(
     `DELETE FROM public.project_deadlines
      WHERE project_id = $1::bigint
        AND title = ANY($2::text[])`,
     [projectId, [...MANAGED_FORM_DEADLINE_TITLES]]
   );
+  if (customTitles.length > 0) {
+    await pool.query(
+      `DELETE FROM public.project_deadlines
+       WHERE project_id = $1::bigint
+         AND title = ANY($2::text[])
+         AND NOT (title = ANY($3::text[]))`,
+      [projectId, customTitles, [...MANAGED_FORM_DEADLINE_TITLES]]
+    );
+  }
   const rows = collectDeadlineRowsFromProjectMetadata(metadata);
   for (const r of rows) {
     await pool.query(
@@ -476,6 +560,60 @@ async function syncProjectDeadlinesFromFormMetadata(
       [projectId, r.title, r.dueDate]
     );
   }
+}
+
+function strMeta(v: unknown): string {
+  return typeof v === "string" ? v.trim() : "";
+}
+
+function validateTimelineMetadata(
+  type: string,
+  metadata: Record<string, unknown> | undefined,
+): ServiceError | null {
+  const md = metadata ?? {};
+  const isListing = type === "Listing";
+  const contractAccepted = md.contractAccepted === true;
+  const timelineApplies = !isListing || contractAccepted;
+  if (!timelineApplies) return null;
+
+  const tx =
+    md.transaction && typeof md.transaction === "object" && !Array.isArray(md.transaction)
+      ? (md.transaction as Record<string, unknown>)
+      : null;
+  const prop =
+    md.property && typeof md.property === "object" && !Array.isArray(md.property)
+      ? (md.property as Record<string, unknown>)
+      : null;
+  const tl =
+    md.timeline && typeof md.timeline === "object" && !Array.isArray(md.timeline)
+      ? (md.timeline as Record<string, unknown>)
+      : {};
+
+  const isAllCash = strMeta(tx?.loanType) === "All Cash";
+  const hoaYes = strMeta(prop?.hoa) === "yes";
+
+  const required: Array<{ key: string; title: string }> = [
+    { key: "contractDate", title: "Contract Date" },
+    { key: "acceptanceDate", title: "Acceptance Date" },
+  ];
+  if (!isListing) {
+    required.push({ key: "estimatedCOE", title: "Estimated COE" });
+  }
+  if (!isAllCash) {
+    required.push({ key: "preapproval", title: "Preapproval" });
+    required.push({ key: "loanContingency", title: "Loan Contingency Removal" });
+  }
+  if (hoaYes) {
+    required.push({ key: "reviewCommIntDiscl", title: "Review of Comm Int Discl Contingency Removal" });
+  }
+
+  const missing = required.filter(({ key }) => !strMeta(tl[key]));
+  if (missing.length === 0) return null;
+  return {
+    status: 400,
+    code: "PROJECT_TIMELINE_REQUIRED",
+    message: `Missing required timeline fields: ${missing.map((m) => m.title).join(", ")}.`,
+  };
 }
 
 function validateCreateInput(input: ProjectCreateInput): ServiceError | null {
@@ -494,14 +632,26 @@ function validateCreateInput(input: ProjectCreateInput): ServiceError | null {
   if (!normalizeText(input.nextStep)) {
     return { status: 400, code: "PROJECT_NEXT_STEP_REQUIRED", message: "Next step is required." };
   }
+  if (!parseDateString(input.nextStepDate)) {
+    return { status: 400, code: "PROJECT_NEXT_STEP_DATE_REQUIRED", message: "Next step date is required." };
+  }
   if (parseMoneyToNumber(input.listPrice) == null) {
     return { status: 400, code: "PROJECT_PRICE_REQUIRED", message: "Purchase price is required and must be a valid number." };
   }
   if (input.stage && !mapStageToDb(input.stage)) {
     return { status: 400, code: "PROJECT_STAGE_INVALID", message: "Project stage is invalid." };
   }
+  const timelineValidation = validateTimelineMetadata(input.type, input.metadata);
+  if (timelineValidation) return timelineValidation;
   return null;
 }
+
+/** Contact link name, then metadata.escrow from the New Project form. */
+const ESCROW_OFFICER_NAME_SQL = `COALESCE(
+  NULLIF(trim(co.full_name), ''),
+  NULLIF(trim(p.metadata_json->'escrow'->>'name'), ''),
+  NULLIF(trim(p.metadata_json->'escrow'->>'preferredName'), '')
+)`;
 
 type ProjectListRow = {
   id: string;
@@ -598,7 +748,7 @@ export async function listProjects(
        p.year_built,
        p.property_type,
        p.representation_side,
-       co.full_name AS escrow_officer_name,
+       ${ESCROW_OFFICER_NAME_SQL} AS escrow_officer_name,
        p.escrow_company,
        p.list_price,
        p.created_at,
@@ -616,7 +766,7 @@ export async function listProjects(
      LEFT JOIN public.project_deadlines pdl ON pdl.project_id = p.id
      LEFT JOIN public.stored_files sf ON sf.project_id = p.id
      WHERE ${where.join(" AND ")}
-     GROUP BY p.id, c.name, co.full_name
+     GROUP BY p.id, c.name, co.full_name, p.metadata_json
      ORDER BY p.created_at DESC
      LIMIT 1000`,
     params
@@ -1473,7 +1623,7 @@ export async function getProjectById(pool: Pool, projectId: string): Promise<Pro
        p.year_built,
        p.property_type,
        p.representation_side,
-       co.full_name AS escrow_officer_name,
+       ${ESCROW_OFFICER_NAME_SQL} AS escrow_officer_name,
        p.escrow_company,
        p.list_price,
        p.created_at,
@@ -2600,6 +2750,91 @@ export async function updateProjectDeadlineDate(
   return { project };
 }
 
+export async function updateProjectTimelineFieldDate(
+  pool: Pool,
+  projectId: string,
+  fieldKey: string,
+  date: string
+): Promise<{ project: ProjectDetailApi } | { error: ServiceError }> {
+  if (!/^\d+$/.test(projectId)) {
+    return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
+  }
+  const title = FORM_TIMELINE_FIELD_KEY_TO_TITLE[fieldKey.trim()];
+  if (!title) {
+    return {
+      error: { status: 400, code: "PROJECT_TIMELINE_FIELD_INVALID", message: "Unknown timeline field." },
+    };
+  }
+  const dueDate = parseDateString(date);
+  if (!dueDate) {
+    return { error: { status: 400, code: "PROJECT_DEADLINE_INVALID", message: "Deadline date is required." } };
+  }
+  const metadata = await loadProjectMetadata(pool, projectId);
+  if (metadata === null && !(await pool.query(`SELECT 1 FROM public.projects WHERE id = $1::bigint AND deleted_at IS NULL`, [projectId])).rows[0]) {
+    return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
+  }
+  const nextMeta = applyFormDeadlineDateToMetadata(metadata, title, date.trim());
+  await saveProjectMetadataAndSyncDeadlines(pool, projectId, nextMeta);
+  const project = await getProjectById(pool, projectId);
+  if (!project) return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
+  return { project };
+}
+
+type CustomTimelineInputItem = {
+  id: string;
+  title: string;
+  kind: "date" | "text";
+  value: string;
+};
+
+function parseCustomTimelineInput(raw: unknown): CustomTimelineInputItem[] | null {
+  if (!Array.isArray(raw)) return null;
+  const out: CustomTimelineInputItem[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const row = entry as Record<string, unknown>;
+    const id = typeof row.id === "string" ? row.id.trim() : "";
+    const title = typeof row.title === "string" ? row.title.trim() : "";
+    const kind = row.kind === "text" ? "text" : row.kind === "date" ? "date" : null;
+    const value = typeof row.value === "string" ? row.value.trim() : "";
+    if (!id || !title || !kind) continue;
+    out.push({ id, title, kind, value });
+  }
+  return out;
+}
+
+export async function updateProjectCustomTimeline(
+  pool: Pool,
+  projectId: string,
+  customTimeline: unknown
+): Promise<{ project: ProjectDetailApi } | { error: ServiceError }> {
+  if (!/^\d+$/.test(projectId)) {
+    return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
+  }
+  const parsed = parseCustomTimelineInput(customTimeline);
+  if (!parsed) {
+    return {
+      error: { status: 400, code: "PROJECT_CUSTOM_TIMELINE_INVALID", message: "Custom timeline must be an array." },
+    };
+  }
+  const metadata = await loadProjectMetadata(pool, projectId);
+  if (
+    metadata === null &&
+    !(await pool.query(`SELECT 1 FROM public.projects WHERE id = $1::bigint AND deleted_at IS NULL`, [projectId])).rows[0]
+  ) {
+    return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
+  }
+  const md =
+    metadata && typeof metadata === "object" && !Array.isArray(metadata)
+      ? { ...(metadata as Record<string, unknown>) }
+      : {};
+  md.customTimeline = parsed;
+  await saveProjectMetadataAndSyncDeadlines(pool, projectId, md);
+  const project = await getProjectById(pool, projectId);
+  if (!project) return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
+  return { project };
+}
+
 export async function deleteProjectDeadline(
   pool: Pool,
   projectId: string,
@@ -2622,12 +2857,27 @@ export async function deleteProjectDeadline(
     const nextMeta = applyFormDeadlineDateToMetadata(metadata, title, "");
     await saveProjectMetadataAndSyncDeadlines(pool, projectId, nextMeta);
   } else {
-    const { rowCount } = await pool.query(
-      `DELETE FROM public.project_deadlines WHERE id = $1::bigint AND project_id = $2::bigint`,
-      [deadlineId, projectId]
-    );
-    if (!rowCount) {
-      return { error: { status: 404, code: "PROJECT_DEADLINE_NOT_FOUND", message: "Deadline not found." } };
+    const metadata = await loadProjectMetadata(pool, projectId);
+    const md =
+      metadata && typeof metadata === "object" && !Array.isArray(metadata)
+        ? { ...(metadata as Record<string, unknown>) }
+        : {};
+    const customRaw = md.customTimeline;
+    if (Array.isArray(customRaw)) {
+      md.customTimeline = customRaw.filter((entry) => {
+        if (!entry || typeof entry !== "object") return true;
+        const row = entry as Record<string, unknown>;
+        return strMeta(row.title) !== title;
+      });
+      await saveProjectMetadataAndSyncDeadlines(pool, projectId, md);
+    } else {
+      const { rowCount } = await pool.query(
+        `DELETE FROM public.project_deadlines WHERE id = $1::bigint AND project_id = $2::bigint`,
+        [deadlineId, projectId]
+      );
+      if (!rowCount) {
+        return { error: { status: 404, code: "PROJECT_DEADLINE_NOT_FOUND", message: "Deadline not found." } };
+      }
     }
   }
 

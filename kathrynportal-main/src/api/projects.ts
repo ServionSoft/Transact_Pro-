@@ -710,6 +710,42 @@ export async function updateProjectDeadlineDateApi(
   return mapDetailRowToProject(row as ProjectDetailApiRow);
 }
 
+export async function updateProjectTimelineFieldDateApi(
+  projectId: string,
+  fieldKey: string,
+  date: string
+): Promise<Project> {
+  const json = await apiCall(
+    `/api/projects/${encodeURIComponent(projectId)}/timeline-fields/${encodeURIComponent(fieldKey)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date }),
+    }
+  );
+  const row = (json as { data?: { project?: unknown } }).data?.project;
+  if (!row || typeof row !== "object") {
+    throw new ApiRequestError("Invalid timeline field update response", 500, "");
+  }
+  return mapDetailRowToProject(row as ProjectDetailApiRow);
+}
+
+export async function updateProjectCustomTimelineApi(
+  projectId: string,
+  customTimeline: Array<{ id: string; title: string; kind: "date" | "text"; value: string }>
+): Promise<Project> {
+  const json = await apiCall(`/api/projects/${encodeURIComponent(projectId)}/custom-timeline`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ customTimeline }),
+  });
+  const row = (json as { data?: { project?: unknown } }).data?.project;
+  if (!row || typeof row !== "object") {
+    throw new ApiRequestError("Invalid custom timeline update response", 500, "");
+  }
+  return mapDetailRowToProject(row as ProjectDetailApiRow);
+}
+
 export async function deleteProjectDeadlineApi(projectId: string, deadlineId: string): Promise<Project> {
   const json = await apiCall(
     `/api/projects/${encodeURIComponent(projectId)}/deadlines/${encodeURIComponent(deadlineId)}`,

@@ -108,6 +108,12 @@ export function registerProjectsRoutes(app: Express, config: AppConfig, pool: Po
   router.patch("/projects/:id/deadlines/:deadlineId", requirePool(pool), auth, edit, (req, res) => {
     void ctrl.patchDeadline(req, res);
   });
+  router.patch("/projects/:id/timeline-fields/:fieldKey", requirePool(pool), auth, edit, (req, res) => {
+    void ctrl.patchTimelineField(req, res);
+  });
+  router.patch("/projects/:id/custom-timeline", requirePool(pool), auth, edit, (req, res) => {
+    void ctrl.patchCustomTimeline(req, res);
+  });
   router.delete("/projects/:id/deadlines/:deadlineId", requirePool(pool), auth, edit, (req, res) => {
     void ctrl.deleteDeadline(req, res);
   });

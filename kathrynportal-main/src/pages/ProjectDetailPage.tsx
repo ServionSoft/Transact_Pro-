@@ -1,12 +1,11 @@
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import {
   Mail, Calendar, Send,
-  PenLine, Plus, Save, MessageSquare, Trash2, Printer, Download,
+  PenLine, Save, MessageSquare, Printer, Download,
 } from "lucide-react";
 import { useState, useMemo, useLayoutEffect, useEffect, useRef } from "react";
 import { useAppStore } from "@/store/appStore";
 import {
-  createProjectDeadlineApi,
   createProjectReminderDraftApi,
   createProjectEmailApi,
   deleteProjectEmailApi,
@@ -14,6 +13,8 @@ import {
   updateProjectNoteApi,
   deleteProjectNoteApi,
   updateProjectDeadlineDateApi,
+  updateProjectTimelineFieldDateApi,
+  updateProjectCustomTimelineApi,
   deleteProjectDeadlineApi,
   createProjectTaskApi,
   updateProjectTaskApi,
@@ -40,10 +41,21 @@ import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { CRM_DOCUMENT_VAULT_PROJECT_ID, type EmailThread, type ProjectTask } from "@/data/mockData";
 import { listEmailTemplatesFromApi } from "@/api/emailTemplates";
-import { applyEmailTemplateToCompose } from "@/lib/emailTemplateTokens";
+import { applyEmailTemplateToCompose, buildTimelineEmailComposePrefill } from "@/lib/emailTemplateTokens";
 import { useAuthStore } from "@/store/authStore";
 import { hasPermission } from "@/lib/permissions";
-import { getTransactionPartyGroups } from "@/lib/transactionMetadataParties";
+import { getTransactionPartyGroups, resolveProjectEscrowOfficer } from "@/lib/transactionMetadataParties";
+import TransactionTimelineEditor from "@/components/transactions/TransactionTimelineEditor";
+import {
+  buildOverviewTimelineRows,
+  formatTimelineDisplayDate,
+  getTimelineEditorContext,
+  mergeCustomTimelineWithDeadlines,
+  parseTimelineFromMetadata,
+  serializeCustomTimelineForMetadata,
+  type CustomTimelineState,
+  type TimelineFieldDef,
+} from "@/lib/transactionTimelineFields";
 import { getTransactionRecipientSuggestions } from "@/lib/transactionRecipientSuggestions";
 import TransactionDetailHeader from "@/components/transactions/detail/TransactionDetailHeader";
 import TransactionEmailsTab from "@/components/transactions/detail/TransactionEmailsTab";
@@ -91,7 +103,6 @@ export default function ProjectDetailPage() {
   const addProjectTaskNoteStore = useAppStore((s) => s.addProjectTaskNote);
   const updateProjectTaskNoteStore = useAppStore((s) => s.updateProjectTaskNote);
   const deleteProjectTaskNoteStore = useAppStore((s) => s.deleteProjectTaskNote);
-  const addProjectDeadlineStore = useAppStore((s) => s.addProjectDeadline);
   const updateProjectNoteStore = useAppStore((s) => s.updateProjectNote);
   const deleteProjectNoteStore = useAppStore((s) => s.deleteProjectNote);
   const updateProjectDeadlineDateStore = useAppStore((s) => s.updateProjectDeadlineDate);
@@ -114,9 +125,6 @@ export default function ProjectDetailPage() {
   const setEmailTemplates = useAppStore((s) => s.setEmailTemplates);
 
   // Add-deadline form
-  const [showAddDeadline, setShowAddDeadline] = useState(false);
-  const [newDeadlineTitle, setNewDeadlineTitle] = useState("");
-  const [newDeadlineDate, setNewDeadlineDate] = useState("");
   const [showAddTask, setShowAddTask] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskDueDate, setNewTaskDueDate] = useState("");
@@ -253,6 +261,23 @@ export default function ProjectDetailPage() {
     navigate(location.pathname, { replace: true, state: {} });
   }, [project, location.key, location.state, location.pathname, navigate, clients]);
 
+  const metadataRecord =
+    project?.metadata && typeof project.metadata === "object" && !Array.isArray(project.metadata)
+      ? (project.metadata as Record<string, unknown>)
+      : undefined;
+  const timelineParsed = useMemo(
+    () => parseTimelineFromMetadata(metadataRecord),
+    [metadataRecord],
+  );
+  const timelineEditorContext = useMemo(
+    () => getTimelineEditorContext(metadataRecord),
+    [metadataRecord],
+  );
+  const customTimelineDisplay = useMemo(
+    () => mergeCustomTimelineWithDeadlines(timelineParsed.customTimeline, project?.deadlines ?? []),
+    [timelineParsed.customTimeline, project?.deadlines],
+  );
+
   /** Stale list cache can leave a row in the store after detail API returns 404. */
   const showUnavailableState = !project || (!loadingProject && loadFailure != null);
 
@@ -314,10 +339,6 @@ export default function ProjectDetailPage() {
       ? "No"
       : autoSellerMatch;
 
-  const metadataRecord =
-    project.metadata && typeof project.metadata === "object" && !Array.isArray(project.metadata)
-      ? (project.metadata as Record<string, unknown>)
-      : undefined;
   const partyGroups = getTransactionPartyGroups(metadataRecord);
   const nextDeadline = sortedDeadlines[0] ?? null;
   const tasksComplete = (project.tasks ?? []).filter((t) => t.status === "Complete").length;
@@ -338,6 +359,33 @@ export default function ProjectDetailPage() {
 
   const openTransactionEmail = (email?: string) => {
     openTransactionCompose({ email });
+  };
+
+  const handleEmailTimeline = () => {
+    const openWithTemplates = (templates: typeof emailTemplates) => {
+      const prefill = buildTimelineEmailComposePrefill(project, client, templates);
+      const suggestedTo =
+        emailRecipientSuggestions.find((s) => /agent|escrow|buyer|seller/i.test(s.label))?.email ||
+        emailRecipientSuggestions[0]?.email ||
+        client?.email?.trim() ||
+        "";
+      openTransactionCompose({
+        email: suggestedTo,
+        subject: prefill.subject,
+        body: prefill.body,
+        templateId: prefill.templateId,
+      });
+    };
+    if (apiOn && emailTemplates.length === 0) {
+      void listEmailTemplatesFromApi()
+        .then((rows) => {
+          setEmailTemplates(rows);
+          openWithTemplates(rows);
+        })
+        .catch(() => openWithTemplates(emailTemplates));
+      return;
+    }
+    openWithTemplates(emailTemplates);
   };
 
   const handleComposeEmailTask = (task: ProjectTask) => {
@@ -521,16 +569,35 @@ export default function ProjectDetailPage() {
       if (/[",\n]/.test(v)) return `"${v.replace(/"/g, "\"\"")}"`;
       return v;
     };
+    const escrowOfficer = resolveProjectEscrowOfficer(project);
+    const timelineRows = buildOverviewTimelineRows(metadataRecord, project.deadlines ?? []);
+    const showDaysColumn = timelineRows.some((r) => r.offsetLabel);
+    const header = showDaysColumn
+      ? ["Milestone", "Date/Value", "Days", "Transaction", "Property Address", "Client", "Escrow Officer"]
+      : ["Milestone", "Date/Value", "Transaction", "Property Address", "Client", "Escrow Officer"];
     const rows = [
-      ["Title", "Type", "Date", "Transaction", "Property Address", "Client"],
-      ...sortedDeadlines.map((dl) => [
-        dl.title,
-        dl.type,
-        dl.date,
-        project.name,
-        project.propertyAddress,
-        project.clientName,
-      ]),
+      header,
+      ...timelineRows.map((row) => {
+        const display = row.isTextField ? row.value : formatTimelineDisplayDate(row.value);
+        return showDaysColumn
+          ? [
+              row.title,
+              display,
+              row.offsetLabel ?? "",
+              project.name,
+              project.propertyAddress,
+              project.clientName,
+              escrowOfficer,
+            ]
+          : [
+              row.title,
+              display,
+              project.name,
+              project.propertyAddress,
+              project.clientName,
+              escrowOfficer,
+            ];
+      }),
     ];
     const csv = `${rows.map((r) => r.map((c) => escapeCsv(String(c ?? ""))).join(",")).join("\n")}\n`;
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -538,12 +605,12 @@ export default function ProjectDetailPage() {
     const a = document.createElement("a");
     const fileBase = project.propertyAddress.split(",")[0]?.trim().replace(/\s+/g, "-").toLowerCase() || "transaction";
     a.href = url;
-    a.download = `${fileBase}-deadlines.csv`;
+    a.download = `${fileBase}-timeline.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    toast.success("Deadlines CSV downloaded.");
+    toast.success("Timeline CSV downloaded.");
   };
 
   const handleSaveNewTask = () => {
@@ -969,6 +1036,41 @@ export default function ProjectDetailPage() {
     toast.success("Deadline updated.");
   };
 
+  const handleTimelineFieldDateChange = (fieldId: TimelineFieldDef["id"], date: string) => {
+    if (!date) {
+      toast.error("Deadline date is required.");
+      return;
+    }
+    if (apiOn) {
+      void updateProjectTimelineFieldDateApi(project.id, fieldId, date)
+        .then((updated) => {
+          upsertProject(updated);
+          toast.success("Timeline date updated.");
+        })
+        .catch((e) => {
+          toast.error(e instanceof Error ? e.message : "Could not update timeline date.");
+        });
+      return;
+    }
+    toast.error("Timeline dates require API mode.");
+  };
+
+  const handleCustomTimelineChange = (next: CustomTimelineState) => {
+    const serialized = serializeCustomTimelineForMetadata(next);
+    if (apiOn) {
+      void updateProjectCustomTimelineApi(project.id, serialized)
+        .then((updated) => {
+          upsertProject(updated);
+          toast.success("Custom timeline updated.");
+        })
+        .catch((e) => {
+          toast.error(e instanceof Error ? e.message : "Could not update custom timeline.");
+        });
+      return;
+    }
+    toast.error("Custom timeline requires API mode.");
+  };
+
   const handleDeleteDeadline = async (deadlineId: string, title: string, formManaged?: boolean) => {
     if (
       !(await confirm({
@@ -1193,89 +1295,30 @@ export default function ProjectDetailPage() {
                 <Button size="sm" variant="outline" className="gap-1 h-8" onClick={downloadDeadlinesCsv}>
                   <Download className="w-3.5 h-3.5" /> CSV
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => setShowAddDeadline((v) => !v)} className="gap-1 h-8">
-                  <Plus className="w-3 h-3" /> Add Deadline
-                </Button>
+                {canEditProject ? (
+                  <Button size="sm" variant="outline" className="gap-1 h-8" onClick={handleEmailTimeline}>
+                    <Mail className="w-3.5 h-3.5" /> Email timeline
+                  </Button>
+                ) : null}
               </div>
             </div>
-            {showAddDeadline && (
-              <div className="px-4 py-2.5 border-b border-border bg-secondary/20 flex items-center gap-2">
-                <Input placeholder="Title (e.g. Final Walkthrough)" value={newDeadlineTitle} onChange={(e) => setNewDeadlineTitle(e.target.value)} className="flex-1" />
-                <Input type="date" value={newDeadlineDate} onChange={(e) => setNewDeadlineDate(e.target.value)} className="w-44" />
-                <Button size="sm" onClick={() => {
-                  if (!newDeadlineTitle.trim() || !newDeadlineDate) { toast.error("Title and date required"); return; }
-                  if (apiOn) {
-                    void createProjectDeadlineApi(project.id, {
-                      title: newDeadlineTitle.trim(),
-                      date: newDeadlineDate,
-                      type: "deadline",
-                    })
-                      .then((updated) => {
-                        upsertProject(updated);
-                        setNewDeadlineTitle(""); setNewDeadlineDate(""); setShowAddDeadline(false);
-                        toast.success("Deadline added");
-                      })
-                      .catch((e) => {
-                        toast.error(e instanceof Error ? e.message : "Could not add deadline.");
-                      });
-                    return;
-                  }
-                  addProjectDeadlineStore(project.id, newDeadlineTitle.trim(), newDeadlineDate, "deadline");
-                  setNewDeadlineTitle(""); setNewDeadlineDate(""); setShowAddDeadline(false);
-                  toast.success("Deadline added");
-                }}>Save</Button>
-              </div>
-            )}
-            <div className={cn(embeddedTabBodyClass, "touch-pan-y divide-y divide-border")}>
-              {sortedDeadlines.map((dl) => (
-                <div
-                  key={dl.id}
-                  className="touch-pan-y flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:py-2.5"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="break-words text-sm font-medium text-foreground">{dl.title}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {dl.type === "deadline" ? "Deadline" : "Reminder"}
-                      {dl.formManaged ? " · From transaction form" : ""}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
-                    {canEditProject ? (
-                      <Input
-                        type="date"
-                        value={dl.date}
-                        className="h-8 min-w-0 flex-1 text-xs sm:w-36 sm:flex-none"
-                        onChange={(e) => {
-                          if (e.target.value && e.target.value !== dl.date) {
-                            handleDeadlineDateChange(dl.id, e.target.value);
-                          }
-                        }}
-                      />
-                    ) : (
-                      <span className="text-xs font-medium text-accent md:text-sm">{dl.date}</span>
-                    )}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-8 flex-1 px-2.5 text-xs sm:h-7 sm:flex-none"
-                      onClick={() => openReminderDraft(dl.id, dl.title, dl.date)}
-                    >
-                      Draft Reminder
-                    </Button>
-                    {canEditProject && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 w-8 shrink-0 p-0 text-destructive hover:text-destructive sm:h-7 sm:w-7"
-                        aria-label={dl.formManaged ? "Clear deadline date" : "Delete deadline"}
-                        onClick={() => void handleDeleteDeadline(dl.id, dl.title, dl.formManaged)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              ))}
+            <div className={cn(embeddedTabBodyClass, "touch-pan-y p-4")}>
+              <TransactionTimelineEditor
+                mode="detail"
+                timeline={timelineParsed.timeline}
+                cop={timelineParsed.cop}
+                sprp={timelineParsed.sprp}
+                timelineOffsets={timelineParsed.timelineOffsets}
+                context={timelineEditorContext}
+                customTimeline={customTimelineDisplay}
+                deadlines={project.deadlines ?? []}
+                canEdit={canEditProject}
+                onCustomTimelineChange={handleCustomTimelineChange}
+                onDeadlineDateChange={handleDeadlineDateChange}
+                onTimelineFieldDateChange={handleTimelineFieldDateChange}
+                onDeadlineDelete={(id, title, formManaged) => void handleDeleteDeadline(id, title, formManaged)}
+                onDraftReminder={openReminderDraft}
+              />
             </div>
           </div>
         </motion.div>

@@ -1,56 +1,97 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Download, Printer } from "lucide-react";
+import { ArrowLeft, Download, Mail, Printer } from "lucide-react";
 import { jsPDF } from "jspdf";
 import { getProjectFromApi } from "@/api/projects";
+import type { Project } from "@/data/mockData";
 import { useAppStore } from "@/store/appStore";
 import { getApiBaseUrl } from "@/lib/apiConfig";
+import { listEmailTemplatesFromApi } from "@/api/emailTemplates";
+import { buildTimelineEmailComposePrefill } from "@/lib/emailTemplateTokens";
+import { projectDetailState } from "@/lib/projectDetailNavigation";
+import { getTransactionRecipientSuggestions } from "@/lib/transactionRecipientSuggestions";
+import { resolveProjectEscrowOfficer } from "@/lib/transactionMetadataParties";
+import {
+  buildOverviewTimelineRows,
+  formatTimelineDisplayDate,
+  type TimelineOverviewRow,
+} from "@/lib/transactionTimelineFields";
+import TransactionTimelinePrintTable from "@/components/transactions/TransactionTimelinePrintTable";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import type { EmailTemplate } from "@/types/domain";
 
-function fmtDate(value: string): string {
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "2-digit" });
+function displayRowValue(row: TimelineOverviewRow): string {
+  if (row.isTextField) return row.value;
+  return formatTimelineDisplayDate(row.value);
+}
+
+function fileBaseFromProject(propertyAddress: string): string {
+  return propertyAddress.split(",")[0]?.trim().replace(/\s+/g, "-").toLowerCase() || "transaction";
 }
 
 export default function ProjectDeadlinesPrintPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const fromStore = useAppStore((s) => s.projects.find((p) => p.id === id));
   const upsertProject = useAppStore((s) => s.upsertProject);
-  const [loading, setLoading] = useState(!fromStore && Boolean(getApiBaseUrl()));
-  const [localProjectId, setLocalProjectId] = useState<string | null>(fromStore?.id ?? null);
+  const clients = useAppStore((s) => s.clients);
+  const [project, setProject] = useState<Project | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>([]);
 
   useEffect(() => {
-    if (fromStore?.id) setLocalProjectId(fromStore.id);
-  }, [fromStore?.id]);
+    if (!id) {
+      setLoading(false);
+      return;
+    }
 
-  useEffect(() => {
-    if (!id || fromStore || !getApiBaseUrl()) return;
     let cancelled = false;
     setLoading(true);
-    void getProjectFromApi(id)
-      .then((p) => {
-        if (cancelled) return;
-        upsertProject(p);
-        setLocalProjectId(p.id);
-      })
-      .catch((e) => {
-        if (!cancelled) toast.error(e instanceof Error ? e.message : "Could not load transaction.");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+
+    if (getApiBaseUrl()) {
+      void getProjectFromApi(id)
+        .then((p) => {
+          if (cancelled) return;
+          upsertProject(p);
+          setProject(p);
+        })
+        .catch((e) => {
+          if (!cancelled) {
+            toast.error(e instanceof Error ? e.message : "Could not load transaction.");
+            const cached = useAppStore.getState().projects.find((p) => p.id === id) ?? null;
+            setProject(cached);
+          }
+        })
+        .finally(() => {
+          setLoading(false);
+        });
+    } else {
+      const cached = useAppStore.getState().projects.find((p) => p.id === id) ?? null;
+      setProject(cached);
+      setLoading(false);
+    }
+
     return () => {
       cancelled = true;
     };
-  }, [fromStore, id, upsertProject]);
+  }, [id, upsertProject]);
 
-  const project = useAppStore((s) => s.projects.find((p) => p.id === (localProjectId ?? id)));
-  const deadlines = useMemo(
-    () => [...(project?.deadlines ?? [])].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
-    [project?.deadlines]
+  const client = useMemo(
+    () => (project ? clients.find((c) => c.id === project.clientId) : undefined),
+    [clients, project],
+  );
+  const metadataRecord =
+    project?.metadata && typeof project.metadata === "object" && !Array.isArray(project.metadata)
+      ? (project.metadata as Record<string, unknown>)
+      : undefined;
+  const timelineRows = useMemo(
+    () => buildOverviewTimelineRows(metadataRecord, project?.deadlines ?? []),
+    [metadataRecord, project?.deadlines],
+  );
+  const showDaysColumn = timelineRows.some((r) => r.offsetLabel);
+  const escrowOfficer = useMemo(
+    () => (project ? resolveProjectEscrowOfficer(project) : ""),
+    [project],
   );
 
   const exportCsv = () => {
@@ -60,32 +101,85 @@ export default function ProjectDeadlinesPrintPage() {
       if (/[",\n]/.test(v)) return `"${v.replace(/"/g, "\"\"")}"`;
       return v;
     };
+    const header = showDaysColumn
+      ? ["Milestone", "Date/Value", "Days", "Transaction", "Property Address", "Client", "Escrow Officer"]
+      : ["Milestone", "Date/Value", "Transaction", "Property Address", "Client", "Escrow Officer"];
     const rows = [
-      ["Title", "Type", "Date", "Transaction", "Property Address", "Client"],
-      ...deadlines.map((dl) => [dl.title, dl.type, dl.date, project.name, project.propertyAddress, project.clientName]),
+      header,
+      ...timelineRows.map((row) =>
+        showDaysColumn
+          ? [
+              row.title,
+              displayRowValue(row),
+              row.offsetLabel ?? "",
+              project.name,
+              project.propertyAddress,
+              project.clientName,
+              escrowOfficer,
+            ]
+          : [
+              row.title,
+              displayRowValue(row),
+              project.name,
+              project.propertyAddress,
+              project.clientName,
+              escrowOfficer,
+            ],
+      ),
     ];
     const csv = `${rows.map((r) => r.map((c) => escapeCsv(String(c ?? ""))).join(",")).join("\n")}\n`;
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    const fileBase = project.propertyAddress.split(",")[0]?.trim().replace(/\s+/g, "-").toLowerCase() || "transaction";
     a.href = url;
-    a.download = `${fileBase}-deadlines.csv`;
+    a.download = `${fileBaseFromProject(project.propertyAddress)}-timeline.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 
+  const handleEmailTimeline = () => {
+    if (!project) return;
+    const openWithTemplates = (templates: EmailTemplate[]) => {
+      const prefill = buildTimelineEmailComposePrefill(project, client, templates);
+      const suggestions = getTransactionRecipientSuggestions(project, client);
+      const suggestedTo =
+        suggestions.find((s) => /agent|escrow|buyer|seller/i.test(s.label))?.email ||
+        suggestions[0]?.email ||
+        client?.email?.trim() ||
+        "";
+      navigate(`/projects/${project.id}`, {
+        state: projectDetailState("emails", {
+          composeEmail: suggestedTo,
+          composeSubject: prefill.subject,
+          composeBody: prefill.body,
+          composeTemplateId: prefill.templateId,
+        }),
+      });
+    };
+    if (getApiBaseUrl() && emailTemplates.length === 0) {
+      void listEmailTemplatesFromApi()
+        .then((rows) => {
+          setEmailTemplates(rows);
+          openWithTemplates(rows);
+        })
+        .catch(() => openWithTemplates(emailTemplates));
+      return;
+    }
+    openWithTemplates(emailTemplates);
+  };
+
   const savePdfFile = () => {
     if (!project) return;
     const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
-    const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     const margin = 40;
     const rowHeight = 22;
-    const cols = { idx: 36, deadline: 260, type: 120, date: 110 };
-    const tableWidth = cols.idx + cols.deadline + cols.type + cols.date;
+    const cols = showDaysColumn
+      ? { idx: 28, milestone: 200, value: 90, days: 150 }
+      : { idx: 36, milestone: 260, value: 130, days: 0 };
+    const tableWidth = cols.idx + cols.milestone + cols.value + (showDaysColumn ? cols.days : 0);
     const startX = margin;
     let y = margin;
 
@@ -93,7 +187,7 @@ export default function ProjectDeadlinesPrintPage() {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(10);
       doc.setTextColor(100);
-      doc.text("TRANSACTION DEADLINE SCHEDULE", startX, y);
+      doc.text("TRANSACTION TIMELINE", startX, y);
       y += 20;
 
       doc.setFont("helvetica", "bold");
@@ -110,6 +204,7 @@ export default function ProjectDeadlinesPrintPage() {
 
       const summary = [
         `Client: ${project.clientName || "—"}`,
+        `Escrow: ${escrowOfficer || "—"}${project.escrowCompany ? ` · ${project.escrowCompany}` : ""}`,
         `Type: ${project.type || "—"}`,
         `Stage: ${project.stage || "—"}`,
         `Generated: ${new Date().toLocaleDateString()}`,
@@ -129,9 +224,11 @@ export default function ProjectDeadlinesPrintPage() {
       doc.setFontSize(10);
       doc.setTextColor(35);
       doc.text("#", startX + 8, y);
-      doc.text("Deadline", startX + cols.idx + 8, y);
-      doc.text("Type", startX + cols.idx + cols.deadline + 8, y);
-      doc.text("Date", startX + cols.idx + cols.deadline + cols.type + 8, y);
+      doc.text("Milestone", startX + cols.idx + 8, y);
+      doc.text("Date / Value", startX + cols.idx + cols.milestone + 8, y);
+      if (showDaysColumn) {
+        doc.text("Days", startX + cols.idx + cols.milestone + cols.value + 8, y);
+      }
       y += rowHeight;
       doc.setFont("helvetica", "normal");
     };
@@ -139,11 +236,13 @@ export default function ProjectDeadlinesPrintPage() {
     drawHeader();
     drawTableHeader();
 
-    deadlines.forEach((dl, idx) => {
-      const deadlineLines = doc.splitTextToSize(dl.title || "—", cols.deadline - 12);
-      const typeLines = doc.splitTextToSize(dl.type || "—", cols.type - 12);
-      const dateText = fmtDate(dl.date);
-      const contentLines = Math.max(deadlineLines.length, typeLines.length, 1);
+    timelineRows.forEach((row, idx) => {
+      const milestoneLines = doc.splitTextToSize(row.title || "—", cols.milestone - 12);
+      const valueLines = doc.splitTextToSize(displayRowValue(row) || "—", cols.value - 12);
+      const daysLines = showDaysColumn
+        ? doc.splitTextToSize(row.offsetLabel || "—", cols.days - 12)
+        : [""];
+      const contentLines = Math.max(milestoneLines.length, valueLines.length, daysLines.length, 1);
       const blockHeight = contentLines * 12 + 10;
 
       if (y + blockHeight + 20 > pageHeight - margin) {
@@ -159,25 +258,28 @@ export default function ProjectDeadlinesPrintPage() {
       const colX = [
         startX,
         startX + cols.idx,
-        startX + cols.idx + cols.deadline,
-        startX + cols.idx + cols.deadline + cols.type,
+        startX + cols.idx + cols.milestone,
+        startX + cols.idx + cols.milestone + cols.value,
       ];
       doc.line(colX[1], y - 14, colX[1], y - 14 + blockHeight);
       doc.line(colX[2], y - 14, colX[2], y - 14 + blockHeight);
-      doc.line(colX[3], y - 14, colX[3], y - 14 + blockHeight);
+      if (showDaysColumn) {
+        doc.line(colX[3], y - 14, colX[3], y - 14 + blockHeight);
+      }
 
       doc.setFontSize(10);
       doc.setTextColor(30);
       doc.text(String(idx + 1), startX + 8, y);
-      doc.text(deadlineLines, startX + cols.idx + 8, y);
-      doc.text(typeLines, startX + cols.idx + cols.deadline + 8, y);
-      doc.text(dateText, startX + cols.idx + cols.deadline + cols.type + 8, y);
+      doc.text(milestoneLines, startX + cols.idx + 8, y);
+      doc.text(valueLines, startX + cols.idx + cols.milestone + 8, y);
+      if (showDaysColumn) {
+        doc.text(daysLines, startX + cols.idx + cols.milestone + cols.value + 8, y);
+      }
 
       y += blockHeight;
     });
 
-    const fileBase = project.propertyAddress.split(",")[0]?.trim().replace(/\s+/g, "-").toLowerCase() || "transaction";
-    doc.save(`${fileBase}-deadlines.pdf`);
+    doc.save(`${fileBaseFromProject(project.propertyAddress)}-timeline.pdf`);
     toast.success("PDF downloaded.");
   };
 
@@ -219,7 +321,7 @@ export default function ProjectDeadlinesPrintPage() {
         >
           <ArrowLeft className="h-3.5 w-3.5 shrink-0" /> Back to transaction
         </Button>
-        <div className="grid min-w-0 grid-cols-3 gap-2 sm:flex sm:items-center sm:gap-2">
+        <div className="grid min-w-0 grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-2">
           <Button variant="outline" size="sm" className="h-10 gap-1 px-2 text-xs sm:px-3 sm:text-sm" onClick={() => window.print()}>
             <Printer className="h-3.5 w-3.5 shrink-0" />
             <span className="truncate">Print</span>
@@ -232,18 +334,24 @@ export default function ProjectDeadlinesPrintPage() {
             <Download className="h-3.5 w-3.5 shrink-0" />
             <span className="truncate">CSV</span>
           </Button>
+          <Button variant="outline" size="sm" className="h-10 gap-1 px-2 text-xs sm:px-3 sm:text-sm" onClick={handleEmailTimeline}>
+            <Mail className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">Email timeline</span>
+          </Button>
         </div>
       </div>
 
       <article className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 text-slate-900 sm:p-6 md:p-8 print:rounded-none print:border-0 print:p-0">
         <header className="mb-5 border-b border-slate-200 pb-4">
-          <p className="text-[10px] uppercase tracking-[0.15em] text-slate-500 sm:text-xs">Transaction Deadline Schedule</p>
+          <p className="text-[10px] uppercase tracking-[0.15em] text-slate-500 sm:text-xs">Transaction Timeline</p>
           <h1 className="mt-1 break-words text-xl font-semibold sm:text-2xl">
             {project.propertyAddress.split(",")[0]}
           </h1>
           <p className="mt-1 break-words text-sm text-slate-600">{project.name}</p>
-          <div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+          <div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
             <InfoCell label="Client" value={project.clientName} />
+            <InfoCell label="Escrow officer" value={escrowOfficer} />
+            <InfoCell label="Escrow company" value={project.escrowCompany} />
             <InfoCell label="Type" value={project.type} />
             <InfoCell label="Stage" value={project.stage} />
             <InfoCell label="Generated" value={new Date().toLocaleDateString()} />
@@ -251,47 +359,7 @@ export default function ProjectDeadlinesPrintPage() {
         </header>
 
         <section className="min-w-0">
-          {deadlines.length === 0 ? (
-            <p className="rounded-lg border border-slate-200 px-3 py-4 text-sm text-slate-500">No deadlines available.</p>
-          ) : (
-            <>
-              <ul className="space-y-3 md:hidden print:hidden">
-                {deadlines.map((dl, idx) => (
-                  <li key={dl.id} className="rounded-lg border border-slate-200 bg-slate-50/40 p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <span className="shrink-0 text-xs font-semibold text-slate-500">#{idx + 1}</span>
-                      <span className="shrink-0 text-xs font-medium text-slate-700">{fmtDate(dl.date)}</span>
-                    </div>
-                    <p className="mt-2 break-words text-sm font-medium text-slate-900">{dl.title}</p>
-                    <p className="mt-1 text-xs capitalize text-slate-600">{dl.type}</p>
-                  </li>
-                ))}
-              </ul>
-
-              <div className="hidden min-w-0 overflow-x-auto overscroll-x-contain md:block print:block">
-                <table className="w-full min-w-[36rem] border-collapse text-sm">
-                  <thead>
-                    <tr className="bg-slate-50">
-                      <th className="w-14 border border-slate-200 px-3 py-2 text-left">#</th>
-                      <th className="min-w-[12rem] border border-slate-200 px-3 py-2 text-left">Deadline</th>
-                      <th className="w-36 border border-slate-200 px-3 py-2 text-left">Type</th>
-                      <th className="w-36 border border-slate-200 px-3 py-2 text-left">Date</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {deadlines.map((dl, idx) => (
-                      <tr key={dl.id}>
-                        <td className="border border-slate-200 px-3 py-2 text-slate-600">{idx + 1}</td>
-                        <td className="border border-slate-200 px-3 py-2 font-medium break-words">{dl.title}</td>
-                        <td className="border border-slate-200 px-3 py-2 whitespace-nowrap">{dl.type}</td>
-                        <td className="border border-slate-200 px-3 py-2 whitespace-nowrap">{fmtDate(dl.date)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
+          <TransactionTimelinePrintTable rows={timelineRows} />
         </section>
 
         <footer className="mt-6 flex flex-col gap-2 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
@@ -313,4 +381,3 @@ function InfoCell({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
-

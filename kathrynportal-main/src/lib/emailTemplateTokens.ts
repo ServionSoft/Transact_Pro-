@@ -1,5 +1,33 @@
 import type { Project } from "@/data/mockData";
 import type { EmailTemplate } from "@/types/domain";
+import { resolveProjectEscrowOfficer } from "@/lib/transactionMetadataParties";
+import { buildTimelineTableText } from "@/lib/transactionTimelineFields";
+
+/** Tokens available in email templates (Settings / Email page). */
+export const TRANSACTION_EMAIL_TOKENS = [
+  "{{agent_name}}",
+  "{{client_name}}",
+  "{{property_address}}",
+  "{{property_street}}",
+  "{{property_city}}",
+  "{{property_state}}",
+  "{{property_zip}}",
+  "{{transaction_name}}",
+  "{{transaction_type}}",
+  "{{stage_name}}",
+  "{{deadline_name}}",
+  "{{deadline_date}}",
+  "{{next_step}}",
+  "{{next_step_date}}",
+  "{{list_price}}",
+  "{{escrow_officer}}",
+  "{{escrow_company}}",
+  "{{property_type}}",
+  "{{document_list}}",
+  "{{timeline_table}}",
+  "{{update_details}}",
+  "{{today_date}}",
+] as const;
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -27,9 +55,14 @@ export function buildTransactionDocumentList(
 export function buildTransactionEmailTokenMap(
   project: Project,
   client?: { name?: string } | null,
-  documentListOverride?: string
+  documentListOverride?: string,
+  timelineTableOverride?: string,
 ): Record<string, string> {
   const parts = (project.propertyAddress || "").split(",").map((x) => x.trim());
+  const metadata =
+    project.metadata && typeof project.metadata === "object" && !Array.isArray(project.metadata)
+      ? (project.metadata as Record<string, unknown>)
+      : undefined;
   return {
     agent_name: client?.name || project.clientName || "",
     client_name: project.clientName || "",
@@ -46,10 +79,12 @@ export function buildTransactionEmailTokenMap(
     next_step: project.nextStep || "",
     next_step_date: project.nextStepDate || "",
     list_price: project.listPrice || "",
-    escrow_officer: project.escrowOfficer || "",
+    escrow_officer: resolveProjectEscrowOfficer(project),
     escrow_company: project.escrowCompany || "",
     property_type: project.propertyType || "",
     document_list: documentListOverride ?? buildTransactionDocumentList(project),
+    timeline_table:
+      timelineTableOverride ?? buildTimelineTableText(metadata, project.deadlines ?? []),
     update_details: "[Update details here]",
     today_date: new Date().toLocaleDateString(),
   };
@@ -59,11 +94,42 @@ export function applyEmailTemplateToCompose(
   template: EmailTemplate,
   project: Project,
   client?: { name?: string } | null,
-  documentListOverride?: string
+  documentListOverride?: string,
+  timelineTableOverride?: string
 ): { subject: string; body: string } {
-  const tokenMap = buildTransactionEmailTokenMap(project, client, documentListOverride);
+  const tokenMap = buildTransactionEmailTokenMap(project, client, documentListOverride, timelineTableOverride);
   return {
     subject: applyEmailTemplateTokens(template.subject, tokenMap),
     body: applyEmailTemplateTokens(template.body, tokenMap),
+  };
+}
+
+export function findTimelineEmailTemplate(templates: EmailTemplate[]): EmailTemplate | undefined {
+  return (
+    templates.find((t) => /\{\{\s*timeline_table\s*\}\}/i.test(t.body)) ||
+    templates.find((t) => /timeline/i.test(t.name))
+  );
+}
+
+export function buildTimelineEmailComposePrefill(
+  project: Project,
+  client?: { name?: string; email?: string } | null,
+  templates: EmailTemplate[] = [],
+): { subject: string; body: string; templateId?: string } {
+  const street = (project.propertyAddress || "").split(",")[0]?.trim() || project.name || "Transaction";
+  const timelineTable = buildTimelineTableText(
+    project.metadata && typeof project.metadata === "object" && !Array.isArray(project.metadata)
+      ? (project.metadata as Record<string, unknown>)
+      : undefined,
+    project.deadlines ?? [],
+  );
+  const tpl = findTimelineEmailTemplate(templates);
+  if (tpl) {
+    const applied = applyEmailTemplateToCompose(tpl, project, client);
+    return { subject: applied.subject, body: applied.body, templateId: tpl.id };
+  }
+  return {
+    subject: `Timeline — ${street}`,
+    body: `Hi,\n\nPlease find the transaction timeline for ${project.propertyAddress || street} below:\n\n${timelineTable}\n\nBest regards,`,
   };
 }

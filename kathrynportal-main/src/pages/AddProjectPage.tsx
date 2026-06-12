@@ -1,6 +1,6 @@
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, ChevronDown, ChevronRight, Plus, X, Info } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { ArrowLeft, ChevronDown, ChevronRight, Plus, X, Info, Printer } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppStore } from "@/store/appStore";
 import { createProjectApi, getProjectFromApi, updateProjectApi } from "@/api/projects";
 import { listClientsFromApi } from "@/api/clients";
@@ -29,6 +29,22 @@ import { toast } from "sonner";
 import { useIsCompactNav } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import TransactionTimelineEditor from "@/components/transactions/TransactionTimelineEditor";
+import TransactionTimelinePrintTable from "@/components/transactions/TransactionTimelinePrintTable";
+import TransactionTimelinePreviewDialog from "@/components/transactions/TransactionTimelinePreviewDialog";
+import type { TimelineOffsetsState } from "@/lib/transactionTimelineFields";
+import {
+  buildOverviewTimelineRows,
+  getTimelineRequiredValidationItems,
+  parseCustomTimelineFromMetadata,
+  parseTimelineOffsetsFromMetadata,
+  readTimelineFieldValue,
+  serializeCustomTimelineForMetadata,
+  type CustomTimelineState,
+  type TimelineFieldId,
+  type TimelineFormState,
+  type TimelineRequiredContext,
+} from "@/lib/transactionTimelineFields";
 
 type TxType = "Listing" | "Buyer File";
 type LoanType = "Conventional" | "FHA/VA" | "All Cash" | "Other";
@@ -72,6 +88,7 @@ type TransactionFormValidationInput = {
   clientId: string;
   propertyAddress: string;
   nextStep: string;
+  nextStepDate: string;
   purchasePrice: string;
   requirePurchasePrice: boolean;
   property: {
@@ -85,6 +102,7 @@ type TransactionFormValidationInput = {
   escrow: { phone: string };
   emailsToValidate: string[];
   textFields: string[];
+  timelineRequiredItems?: Array<{ key: string; label: string; valid: boolean; message: string }>;
 };
 
 type RequiredFormItem = { key: string; label: string; valid: boolean; step: WorkflowStep; message: string };
@@ -118,6 +136,13 @@ function getTransactionFormValidation(input: TransactionFormValidationInput): {
       step: "general",
       message: "Next step is required.",
     },
+    {
+      key: "next-step-date",
+      label: "Next Step Date",
+      valid: Boolean(input.nextStepDate.trim()),
+      step: "general",
+      message: "Next step date is required.",
+    },
     ...(input.requirePurchasePrice
       ? [{
           key: "price",
@@ -127,6 +152,13 @@ function getTransactionFormValidation(input: TransactionFormValidationInput): {
           message: "Purchase price is required and must be a valid number.",
         }]
       : []),
+    ...(input.timelineRequiredItems ?? []).map((item) => ({
+      key: item.key,
+      label: item.label,
+      valid: item.valid,
+      step: "timeline" as WorkflowStep,
+      message: item.message,
+    })),
   ];
   const missingRequired = requiredItems.filter((item) => !item.valid);
 
@@ -400,6 +432,7 @@ export default function AddProjectPage() {
   // General
   const [nextStep, setNextStep] = useState("");
   const [nextStepDate, setNextStepDate] = useState("");
+  const [timelinePreviewOpen, setTimelinePreviewOpen] = useState(false);
 
   // Timeline
   const [timeline, setTimeline] = useState({
@@ -415,6 +448,8 @@ export default function AddProjectPage() {
   const [cop, setCop] = useState({ intoContract: "", coe: "" });
   const [showSPRP, setShowSPRP] = useState(false);
   const [sprp, setSprp] = useState({ intoContract: "", coe: "" });
+  const [timelineOffsets, setTimelineOffsets] = useState<TimelineOffsetsState>({});
+  const [customTimeline, setCustomTimeline] = useState<CustomTimelineState>([]);
 
   // Parties
   const [buyerAgents, setBuyerAgents] = useState<AgentParty[]>([blankAgent()]);
@@ -473,7 +508,12 @@ export default function AddProjectPage() {
 
   const isAllCash = transaction.loanType === "All Cash";
   const noHOA = property.hoa === "no";
+  const hoaYes = property.hoa === "yes";
   const isListing = type === "Listing";
+  const timelineContext = useMemo(
+    () => ({ isAllCash, noHOA, hoaYes, showCOP, showSPRP }),
+    [isAllCash, noHOA, hoaYes, showCOP, showSPRP],
+  );
   const autoSellerNameMatch: YesNo =
     transaction.rpaSeller.trim() && transaction.prelimSeller.trim()
       ? normalizeSellerName(transaction.rpaSeller) === normalizeSellerName(transaction.prelimSeller)
@@ -492,6 +532,53 @@ export default function AddProjectPage() {
   const [contractAccepted, setContractAccepted] = useState(false);
   const compactNav = useIsCompactNav();
   const showPostContractSections = !isListing || contractAccepted;
+  const timelineRequiredContext = useMemo<TimelineRequiredContext>(
+    () => ({
+      ...timelineContext,
+      timelineApplies: showPostContractSections,
+      isBuyerFile: !isListing,
+    }),
+    [timelineContext, showPostContractSections, isListing],
+  );
+  const timelineRequiredItems = useMemo(
+    () =>
+      showPostContractSections
+        ? getTimelineRequiredValidationItems({ timeline, cop, sprp }, timelineRequiredContext)
+        : [],
+    [showPostContractSections, timeline, cop, sprp, timelineRequiredContext],
+  );
+  const reviewTimelinePreview = useMemo(() => {
+    if (!showPostContractSections) return [];
+    const metadata: Record<string, unknown> = {
+      timeline,
+      cop,
+      sprp,
+      timelineOffsets,
+      customTimeline: serializeCustomTimelineForMetadata(customTimeline),
+      showCOP,
+      showSPRP,
+      transaction: { loanType: transaction.loanType, type },
+      property: { hoa: property.hoa },
+      ...(isListing ? { contractAccepted } : {}),
+    };
+    return buildOverviewTimelineRows(metadata, []);
+  }, [
+    showPostContractSections,
+    timeline,
+    cop,
+    sprp,
+    timelineOffsets,
+    customTimeline,
+    showCOP,
+    showSPRP,
+    transaction.loanType,
+    type,
+    property.hoa,
+    isListing,
+    contractAccepted,
+  ]);
+  const timelineRequiredDone = timelineRequiredItems.filter((item) => item.valid).length;
+  const timelineRequiredTotal = timelineRequiredItems.length;
   const stepOrder: WorkflowStep[] = isListing
     ? showPostContractSections
       ? ["general", "parties", "property", "listing", "transaction", "timeline", "review"]
@@ -511,6 +598,7 @@ export default function AddProjectPage() {
     clientId,
     propertyAddress: property.address,
     nextStep,
+    nextStepDate,
     purchasePrice: transaction.purchasePrice,
     requirePurchasePrice: showPostContractSections,
     property,
@@ -540,6 +628,7 @@ export default function AddProjectPage() {
       property.city,
       property.county,
     ],
+    timelineRequiredItems,
   });
   const { requiredItems, missingRequired: missingRequiredItems, canSubmit: formCanSubmit } = formValidation;
   const requiredDone = requiredItems.filter((item) => item.valid).length;
@@ -547,6 +636,16 @@ export default function AddProjectPage() {
   const linkedPrimaryContact = clientOptions.find((c) => c.id === clientId);
   const showFieldError = (key: string) =>
     submitAttempted && missingRequiredItems.some((item) => item.key === key);
+  const invalidTimelineFieldIds = useMemo((): Partial<Record<TimelineFieldId, boolean>> => {
+    if (!submitAttempted) return {};
+    const out: Partial<Record<TimelineFieldId, boolean>> = {};
+    for (const item of missingRequiredItems) {
+      if (item.key.startsWith("timeline-")) {
+        out[item.key.slice("timeline-".length) as TimelineFieldId] = true;
+      }
+    }
+    return out;
+  }, [submitAttempted, missingRequiredItems]);
 
   useEffect(() => {
     if (hasListingAgent2Data) setShowListingAgent2(true);
@@ -667,6 +766,8 @@ export default function AddProjectPage() {
       if (md.timeline && typeof md.timeline === "object") {
         setTimeline((prev) => ({ ...prev, ...(md.timeline as typeof prev) }));
       }
+      setTimelineOffsets(parseTimelineOffsetsFromMetadata(md));
+      setCustomTimeline(parseCustomTimelineFromMetadata(md));
       if (md.cop && typeof md.cop === "object") {
         setShowCOP(true);
         setCop((md.cop as typeof cop) ?? { intoContract: "", coe: "" });
@@ -856,6 +957,8 @@ export default function AddProjectPage() {
     const metadata = {
       contractAccepted: isListing ? contractAccepted : undefined,
       timeline,
+      timelineOffsets,
+      customTimeline: serializeCustomTimelineForMetadata(customTimeline),
       cop,
       showCOP,
       sprp,
@@ -1111,8 +1214,14 @@ export default function AddProjectPage() {
                   aria-invalid={showFieldError("next-step")}
                 />
               </Field>
-              <Field label="Next Step Date">
-                <Input type="date" value={nextStepDate} onChange={e => setNextStepDate(e.target.value)} />
+              <Field label="Next Step Date *" invalid={showFieldError("next-step-date")}>
+                <Input
+                  type="date"
+                  value={nextStepDate}
+                  onChange={e => setNextStepDate(e.target.value)}
+                  required
+                  aria-invalid={showFieldError("next-step-date")}
+                />
               </Field>
               {isListing && isEditMode && (
                 <div className="md:col-span-2 flex items-start gap-3 rounded-md border border-border/70 bg-secondary/20 p-3">
@@ -1356,75 +1465,26 @@ export default function AddProjectPage() {
           {/* Timeline */}
           {showPostContractSections && (
           <Section title="Timeline" tone="timeline" visible={currentStep === "timeline"} open={open.timeline} onToggle={() => toggle("timeline")}>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <DateRow label="Contract Date" value={timeline.contractDate} onChange={v => setTimeline(p => ({ ...p, contractDate: v }))} />
-            <DateRow label="Acceptance Date" value={timeline.acceptanceDate} onChange={v => setTimeline(p => ({ ...p, acceptanceDate: v }))} />
-            <DateRow
-              label="Preapproval"
-              value={timeline.preapproval}
-              onChange={v => setTimeline(p => ({ ...p, preapproval: v }))}
-              disabled={isAllCash}
-              disabledHint="Auto N/A — All Cash"
+            <TransactionTimelineEditor
+              mode="form"
+              timeline={timeline}
+              cop={cop}
+              sprp={sprp}
+              timelineOffsets={timelineOffsets}
+              context={timelineContext}
+              requiredContext={timelineRequiredContext}
+              invalidFieldIds={invalidTimelineFieldIds}
+              showCOP={showCOP}
+              showSPRP={showSPRP}
+              onTimelineChange={setTimeline}
+              onCopChange={setCop}
+              onSprpChange={setSprp}
+              onTimelineOffsetsChange={setTimelineOffsets}
+              customTimeline={customTimeline}
+              onCustomTimelineChange={setCustomTimeline}
+              onShowCOPChange={setShowCOP}
+              onShowSPRPChange={setShowSPRP}
             />
-            <DateRow label="Verification of Funds" value={timeline.verificationOfFunds} onChange={v => setTimeline(p => ({ ...p, verificationOfFunds: v }))} />
-            <DateRow label="EMD to Escrow" labelHelp={TX_FIELD_HELP.emdToEscrow} value={timeline.emdToEscrow} onChange={v => setTimeline(p => ({ ...p, emdToEscrow: v }))} />
-            <DateRow label="Estimated COE" labelHelp={TX_FIELD_HELP.estimatedCoe} value={timeline.estimatedCOE} onChange={v => setTimeline(p => ({ ...p, estimatedCOE: v }))} />
-            <DateRow label="Seller Disclosures to Buyer" value={timeline.sellerDisclosuresToBuyer} onChange={v => setTimeline(p => ({ ...p, sellerDisclosuresToBuyer: v }))} />
-            <DateRow label="Investigation Contingency Removal" value={timeline.investigationContingency} onChange={v => setTimeline(p => ({ ...p, investigationContingency: v }))} />
-            <DateRow label="Insurance Contingency Removal" value={timeline.insuranceContingency} onChange={v => setTimeline(p => ({ ...p, insuranceContingency: v }))} />
-            <DateRow label="Review of Seller Docs Contingency Removal" value={timeline.reviewSellerDocs} onChange={v => setTimeline(p => ({ ...p, reviewSellerDocs: v }))} />
-            <DateRow label="Review of Prelim Contingency Removal" labelHelp={TX_FIELD_HELP.reviewPrelim} value={timeline.reviewPrelim} onChange={v => setTimeline(p => ({ ...p, reviewPrelim: v }))} />
-            <DateRow
-              label="Review of Comm Int Discl Contingency Removal"
-              labelHelp={TX_FIELD_HELP.reviewCommIntDiscl}
-              value={timeline.reviewCommIntDiscl}
-              onChange={v => setTimeline(p => ({ ...p, reviewCommIntDiscl: v }))}
-              disabled={noHOA}
-              disabledHint="Auto N/A — No HOA"
-            />
-            <DateRow label="Appraisal Contingency Removal" value={timeline.appraisalContingency} onChange={v => setTimeline(p => ({ ...p, appraisalContingency: v }))} />
-            <DateRow
-              label="Loan Contingency Removal"
-              value={timeline.loanContingency}
-              onChange={v => setTimeline(p => ({ ...p, loanContingency: v }))}
-              disabled={isAllCash}
-              disabledHint="Auto N/A — All Cash"
-            />
-            <Field label="Verification of Property Condition" hint="Default: Within 5 days prior to COE">
-              <Input value={timeline.verificationOfPropertyCondition} onChange={e => setTimeline(p => ({ ...p, verificationOfPropertyCondition: e.target.value }))} />
-            </Field>
-            <Field label="Possession" hint="Default: Upon notice of recordation">
-              <Input value={timeline.possession} onChange={e => setTimeline(p => ({ ...p, possession: e.target.value }))} />
-            </Field>
-          </div>
-
-          {/* Conditional COP / SPRP */}
-          <div className="mt-5 pt-5 border-t border-border space-y-4">
-            <div className="flex items-center gap-2">
-              <Checkbox id="cop-toggle" checked={showCOP} onCheckedChange={(v) => setShowCOP(!!v)} />
-              <Label htmlFor="cop-toggle" className="cursor-pointer text-sm">
-                Add <strong>Contingency for the Sale of the Buyer's Property (COP)</strong> dates
-              </Label>
-            </div>
-            {showCOP && (
-              <div className="grid grid-cols-1 gap-4 pl-0 sm:pl-6 md:grid-cols-2">
-                <DateRow label="COP — Into Contract" labelHelp={TX_FIELD_HELP.copIntoContract} value={cop.intoContract} onChange={v => setCop(p => ({ ...p, intoContract: v }))} />
-                <DateRow label="COP — COE" labelHelp={TX_FIELD_HELP.copCoe} value={cop.coe} onChange={v => setCop(p => ({ ...p, coe: v }))} />
-              </div>
-            )}
-            <div className="flex items-center gap-2">
-              <Checkbox id="sprp-toggle" checked={showSPRP} onCheckedChange={(v) => setShowSPRP(!!v)} />
-              <Label htmlFor="sprp-toggle" className="cursor-pointer text-sm">
-                Add <strong>Seller Purchase of Replacement Property (SPRP)</strong> dates
-              </Label>
-            </div>
-            {showSPRP && (
-              <div className="grid grid-cols-1 gap-4 pl-0 sm:pl-6 md:grid-cols-2">
-                <DateRow label="SPRP — Into Contract" labelHelp={TX_FIELD_HELP.sprpIntoContract} value={sprp.intoContract} onChange={v => setSprp(p => ({ ...p, intoContract: v }))} />
-                <DateRow label="SPRP — COE" labelHelp={TX_FIELD_HELP.sprpCoe} value={sprp.coe} onChange={v => setSprp(p => ({ ...p, coe: v }))} />
-              </div>
-            )}
-            </div>
           </Section>
           )}
 
@@ -1454,6 +1514,8 @@ export default function AddProjectPage() {
                   <ReviewItem label="Type" value={type} />
                   <ReviewItem label="Primary Contact" value={linkedPrimaryContact ? labelFromClient(linkedPrimaryContact) : "Not selected"} />
                   <ReviewItem label="Address" value={property.address || "Not set"} />
+                  <ReviewItem label="Next Step" value={nextStep || "Not set"} />
+                  <ReviewItem label="Next Step Date" value={nextStepDate || "Not set"} highlight={!nextStepDate.trim()} />
                   {showPostContractSections && (
                     <>
                       <ReviewItem label="Purchase Price" value={transaction.purchasePrice || "Not set"} />
@@ -1484,18 +1546,49 @@ export default function AddProjectPage() {
                 {showPostContractSections && (
                 <div className="rounded-md border border-border/70 bg-secondary/20 p-3 space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Timeline</p>
-                  <ReviewItem label="Contract Date" value={timeline.contractDate || "Not set"} />
-                  <ReviewItem label="Acceptance Date" value={timeline.acceptanceDate || "Not set"} />
-                  <ReviewItem
-                    label="Preapproval"
-                    value={isAllCash ? "N/A — All Cash" : timeline.preapproval || "Not set"}
-                  />
-                  <ReviewItem label="EMD to Escrow" value={timeline.emdToEscrow || "Not set"} />
-                  <ReviewItem label="Estimated COE" value={timeline.estimatedCOE || "Not set"} />
-                  <ReviewItem
-                    label="Loan Contingency"
-                    value={isAllCash ? "N/A — All Cash" : timeline.loanContingency || "Not set"}
-                  />
+                  <p className="text-xs text-muted-foreground">
+                    {timelineRequiredDone}/{timelineRequiredTotal} required timeline dates set.
+                    {timelineRequiredDone < timelineRequiredTotal
+                      ? " Complete missing dates before submitting."
+                      : " Required timeline dates are complete."}
+                  </p>
+                  {timelineRequiredItems.map((item) => (
+                    <ReviewItem
+                      key={item.key}
+                      label={item.label}
+                      value={
+                        item.valid
+                          ? readTimelineReviewValue(item.fieldId, timeline, cop, sprp, isAllCash, noHOA)
+                          : "Not set"
+                      }
+                      highlight={!item.valid}
+                    />
+                  ))}
+                  {reviewTimelinePreview.length > 0 ? (
+                    <div className="mt-3 space-y-2 border-t border-border/60 pt-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Timeline preview ({reviewTimelinePreview.length} items)
+                        </p>
+                        {!isEditMode ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 gap-1 text-xs"
+                            onClick={() => setTimelinePreviewOpen(true)}
+                          >
+                            <Printer className="h-3 w-3" /> Preview timeline
+                          </Button>
+                        ) : (
+                          <p className="text-[11px] text-muted-foreground">
+                            Print / PDF / CSV on Timeline tab after save
+                          </p>
+                        )}
+                      </div>
+                      <TransactionTimelinePrintTable rows={reviewTimelinePreview} compact />
+                    </div>
+                  ) : null}
                 </div>
                 )}
               </div>
@@ -2137,6 +2230,18 @@ export default function AddProjectPage() {
           ) : null}
         </div>
       </div>
+
+      <TransactionTimelinePreviewDialog
+        open={timelinePreviewOpen}
+        onOpenChange={setTimelinePreviewOpen}
+        rows={reviewTimelinePreview}
+        propertyAddress={[property.address, property.city, property.state, property.zip].filter(Boolean).join(", ")}
+        transactionName={[property.address, type].filter(Boolean).join(" — ")}
+        clientName={linkedPrimaryContact ? labelFromClient(linkedPrimaryContact) : undefined}
+        escrowOfficer={escrow.name || escrow.preferredName}
+        escrowCompany={escrow.company}
+        transactionType={type}
+      />
     </div>
   );
 }
@@ -2332,11 +2437,39 @@ function PartyGroup({
   );
 }
 
-function ReviewItem({ label, value }: { label: string; value: string }) {
+function readTimelineReviewValue(
+  fieldId: TimelineFieldId,
+  timeline: TimelineFormState,
+  cop: { intoContract: string; coe: string },
+  sprp: { intoContract: string; coe: string },
+  isAllCash: boolean,
+  noHOA: boolean,
+): string {
+  if ((fieldId === "preapproval" || fieldId === "loanContingency") && isAllCash) return "N/A — All Cash";
+  if (fieldId === "reviewCommIntDiscl" && noHOA) return "N/A — No HOA";
+  return readTimelineFieldValue(fieldId, timeline, cop, sprp) || "Not set";
+}
+
+function ReviewItem({
+  label,
+  value,
+  highlight = false,
+}: {
+  label: string;
+  value: string;
+  highlight?: boolean;
+}) {
   return (
     <div className="flex items-center justify-between gap-2 text-xs">
       <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium text-foreground text-right">{value}</span>
+      <span
+        className={cn(
+          "font-medium text-right",
+          highlight ? "text-amber-700 dark:text-amber-300" : "text-foreground",
+        )}
+      >
+        {value}
+      </span>
     </div>
   );
 }
