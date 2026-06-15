@@ -591,9 +591,9 @@ export default function ProjectDetailPage() {
               row.title,
               display,
               row.offsetLabel ?? "",
-              project.name,
-              project.propertyAddress,
-              project.clientName,
+        project.name,
+        project.propertyAddress,
+        project.clientName,
               escrowOfficer,
             ]
           : [
@@ -676,8 +676,8 @@ export default function ProjectDetailPage() {
                         const nextStatus = isComplete ? "Pending" : "Complete";
                         if (apiOn) {
       void patchProjectTaskStatusApi(project.id, taskId, nextStatus)
-                            .then((updated) => {
-                              upsertProject(updated);
+                              .then((updated) => {
+                                upsertProject(updated);
                               toast.success(isComplete ? "Task unchecked" : "Task completed!");
                             })
                             .catch((e) => {
@@ -691,42 +691,42 @@ export default function ProjectDetailPage() {
 
   const handleMarkAllTasksComplete = () => {
     const taskIds = (project.tasks ?? []).map((t) => t.id);
-    if (taskIds.length === 0) return;
-    if (apiOn) {
-      void patchProjectTasksBulkStatusApi(project.id, taskIds, "Complete")
-        .then((updated) => {
-          upsertProject(updated);
-          toast.success("All tasks marked complete.");
-        })
-        .catch((e) => {
-          toast.error(e instanceof Error ? e.message : "Could not update tasks.");
-        });
-      return;
-    }
+                    if (taskIds.length === 0) return;
+                    if (apiOn) {
+                      void patchProjectTasksBulkStatusApi(project.id, taskIds, "Complete")
+                        .then((updated) => {
+                          upsertProject(updated);
+                          toast.success("All tasks marked complete.");
+                        })
+                        .catch((e) => {
+                          toast.error(e instanceof Error ? e.message : "Could not update tasks.");
+                        });
+                      return;
+                    }
     for (const task of project.tasks ?? []) {
-      setTaskStatusStore(project.id, task.id, "Complete");
-    }
-    toast.success("All tasks marked complete.");
+                      setTaskStatusStore(project.id, task.id, "Complete");
+                    }
+                    toast.success("All tasks marked complete.");
   };
 
   const handleResetAllTasks = () => {
     const taskIds = (project.tasks ?? []).map((t) => t.id);
-    if (taskIds.length === 0) return;
-    if (apiOn) {
-      void patchProjectTasksBulkStatusApi(project.id, taskIds, "Pending")
-        .then((updated) => {
-          upsertProject(updated);
-          toast.success("All tasks reset to pending.");
-        })
-        .catch((e) => {
-          toast.error(e instanceof Error ? e.message : "Could not update tasks.");
-        });
-      return;
-    }
+                    if (taskIds.length === 0) return;
+                    if (apiOn) {
+                      void patchProjectTasksBulkStatusApi(project.id, taskIds, "Pending")
+                        .then((updated) => {
+                          upsertProject(updated);
+                          toast.success("All tasks reset to pending.");
+                        })
+                        .catch((e) => {
+                          toast.error(e instanceof Error ? e.message : "Could not update tasks.");
+                        });
+                      return;
+                    }
     for (const task of project.tasks ?? []) {
-      setTaskStatusStore(project.id, task.id, "Pending");
-    }
-    toast.success("All tasks reset to pending.");
+                      setTaskStatusStore(project.id, task.id, "Pending");
+                    }
+                    toast.success("All tasks reset to pending.");
   };
 
   const handleUpdateTask = (
@@ -764,9 +764,9 @@ export default function ProjectDetailPage() {
     const trimmed = body.trim();
     if (!trimmed) {
       toast.error("Note text is required.");
-      return;
-    }
-    if (apiOn) {
+                      return;
+                    }
+                    if (apiOn) {
       setTaskNoteBusy(`add:${taskId}`);
       void createProjectTaskNoteApi(project.id, taskId, trimmed)
         .then((updated) => {
@@ -800,18 +800,18 @@ export default function ProjectDetailPage() {
     if (apiOn) {
       setTaskNoteBusy(`edit:${taskId}:${noteId}`);
       void updateProjectTaskNoteApi(project.id, taskId, noteId, trimmed)
-        .then((updated) => {
-          upsertProject(updated);
+                        .then((updated) => {
+                          upsertProject(updated);
           toast.success("Note updated.");
-        })
-        .catch((e) => {
+                        })
+                        .catch((e) => {
           toast.error(e instanceof Error ? e.message : "Could not update note.");
         })
         .finally(() => {
           setTaskNoteBusy(null);
-        });
-      return;
-    }
+                        });
+                      return;
+                    }
     updateProjectTaskNoteStore(project.id, taskId, noteId, trimmed);
     toast.success("Note updated.");
   };
@@ -861,17 +861,17 @@ export default function ProjectDetailPage() {
     ) {
       return;
     }
-    if (apiOn) {
+                        if (apiOn) {
       void deleteProjectTaskApi(project.id, taskId)
-        .then((updated) => {
-          upsertProject(updated);
+                            .then((updated) => {
+                              upsertProject(updated);
           toast.success("Task deleted.");
-        })
-        .catch((e) => {
+                            })
+                            .catch((e) => {
           toast.error(e instanceof Error ? e.message : "Could not delete task.");
-        });
-      return;
-    }
+                            });
+                          return;
+                        }
     deleteProjectTaskStore(project.id, taskId);
     toast.success("Task deleted.");
   };
@@ -937,7 +937,7 @@ export default function ProjectDetailPage() {
     ) {
       return;
     }
-    if (apiOn) {
+                            if (apiOn) {
       void deleteProjectEmailApi(project.id, emailId)
                                 .then((updated) => {
                                   upsertProject(updated);
@@ -953,32 +953,32 @@ export default function ProjectDetailPage() {
   };
 
   const handleAddNote = () => {
-    const body = newNoteBody.trim();
-    if (!body) {
-      toast.error("Note text is required.");
-      return;
-    }
-    if (apiOn) {
-      void createProjectNoteApi(project.id, body)
-        .then((updated) => {
-          upsertProject(updated);
-          setNewNoteBody("");
-          toast.success("Note added.");
-        })
-        .catch((e) => {
-          toast.error(e instanceof Error ? e.message : "Could not add note.");
-        });
-      return;
-    }
-    const localNote = {
-      id: `n-${Date.now()}`,
-      body,
-      author: user?.name ?? "Kathryn",
-      createdAt: new Date().toISOString().split("T")[0],
-    };
-    upsertProject({ ...project, notes: [localNote, ...(project.notes ?? [])] });
-    setNewNoteBody("");
-    toast.success("Note added.");
+              const body = newNoteBody.trim();
+              if (!body) {
+                toast.error("Note text is required.");
+                return;
+              }
+              if (apiOn) {
+                void createProjectNoteApi(project.id, body)
+                  .then((updated) => {
+                    upsertProject(updated);
+                    setNewNoteBody("");
+                    toast.success("Note added.");
+                  })
+                  .catch((e) => {
+                    toast.error(e instanceof Error ? e.message : "Could not add note.");
+                  });
+                return;
+              }
+              const localNote = {
+                id: `n-${Date.now()}`,
+                body,
+                author: user?.name ?? "Kathryn",
+                createdAt: new Date().toISOString().split("T")[0],
+              };
+              upsertProject({ ...project, notes: [localNote, ...(project.notes ?? [])] });
+              setNewNoteBody("");
+              toast.success("Note added.");
   };
 
   const handleUpdateNote = (noteId: string, body: string) => {
@@ -1305,7 +1305,7 @@ export default function ProjectDetailPage() {
                 {canEditProject ? (
                   <Button size="sm" variant="outline" className="gap-1 h-8" onClick={handleEmailTimeline}>
                     <Mail className="w-3.5 h-3.5" /> Email timeline
-                  </Button>
+                </Button>
                 ) : null}
               </div>
             </div>
