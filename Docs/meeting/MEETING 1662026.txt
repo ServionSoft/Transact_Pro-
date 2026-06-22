@@ -1,0 +1,19 @@
+MEETING 16/6/2026:
+
+notes aren't visible in doc chk list. (make it hover)
+escrow officer & escrow asstant connection is done if same company (done) 
+
+order in parties:
+listing agent 
+sellers
+escrow officer & escrow asstant 
+
+auto make task just select 
+
+contact creation in directly in dropdown (done)
+in address adding  pop alert google 
+required fields chkr close (done)
+number of days thing in timeline (done)
+weekdays condition  work (done)
+in transaction email section have ability to choose diff contact (done)
+signature sent and receive (done)
