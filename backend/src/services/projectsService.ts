@@ -573,13 +573,23 @@ function strMeta(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
+function listingContractAccepted(metadata: Record<string, unknown> | undefined): boolean {
+  return metadata?.contractAccepted === true;
+}
+
+/** Purchase price is post-contract for listings; always required for buyer files. */
+function requiresPurchasePrice(type: string, metadata: Record<string, unknown> | undefined): boolean {
+  if (type === "Listing") return listingContractAccepted(metadata);
+  return true;
+}
+
 function validateTimelineMetadata(
   type: string,
   metadata: Record<string, unknown> | undefined,
 ): ServiceError | null {
   const md = metadata ?? {};
   const isListing = type === "Listing";
-  const contractAccepted = md.contractAccepted === true;
+  const contractAccepted = listingContractAccepted(md);
   const timelineApplies = !isListing || contractAccepted;
   if (!timelineApplies) return null;
 
@@ -642,7 +652,7 @@ function validateCreateInput(input: ProjectCreateInput): ServiceError | null {
   if (!parseDateString(input.nextStepDate)) {
     return { status: 400, code: "PROJECT_NEXT_STEP_DATE_REQUIRED", message: "Next step date is required." };
   }
-  if (parseMoneyToNumber(input.listPrice) == null) {
+  if (requiresPurchasePrice(input.type, input.metadata) && parseMoneyToNumber(input.listPrice) == null) {
     return { status: 400, code: "PROJECT_PRICE_REQUIRED", message: "Purchase price is required and must be a valid number." };
   }
   if (input.stage && !mapStageToDb(input.stage)) {
