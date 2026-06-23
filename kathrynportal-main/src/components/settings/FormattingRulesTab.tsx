@@ -26,7 +26,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { useAuthStore } from "@/store/authStore";
@@ -41,6 +41,14 @@ const triggerFieldOptions: { value: RuleTriggerField; label: string; values: str
   { value: "dualAgency", label: "Dual Agency", values: ["Yes", "No"] },
   { value: "financing", label: "Financing", values: ["All Cash", "Conventional", "FHA", "VA", "FHA/VA", "Other"] },
 ];
+
+/** Standard rules: transaction type only. Conditional rules: all other triggers. */
+const conditionalTriggerFieldOptions = triggerFieldOptions.filter((o) => o.value !== "transactionType");
+
+const defaultConditionalTrigger = (): RuleTrigger => ({
+  field: "hoa",
+  value: conditionalTriggerFieldOptions.find((o) => o.value === "hoa")?.values[0] ?? "Yes",
+});
 
 const actionLabels: Record<RuleAction, string> = {
   "add-required": "Add as Required",
@@ -103,10 +111,22 @@ const blankForm = (kind: RuleKind = "conditional"): FormState => ({
   name: "",
   kind,
   isActive: true,
-  triggers: [{ field: "transactionType", value: "Listing" }],
+  triggers: kind === "standard" ? [{ field: "transactionType", value: "Listing" }] : [defaultConditionalTrigger()],
   documents: kind === "standard" ? [newDocSlot()] : [],
   actions: kind === "conditional" ? [newActionSlot()] : [],
 });
+
+function standardTransactionTypeValue(triggers: RuleTrigger[]): string {
+  return triggers.find((t) => t.field === "transactionType")?.value ?? "Listing";
+}
+
+function normalizeTriggersForForm(kind: RuleKind, triggers: RuleTrigger[]): RuleTrigger[] {
+  if (kind === "standard") {
+    return [{ field: "transactionType", value: standardTransactionTypeValue(triggers) }];
+  }
+  const filtered = triggers.filter((t) => t.field !== "transactionType");
+  return filtered.length > 0 ? filtered : [defaultConditionalTrigger()];
+}
 
 export default function FormattingRulesTab() {
   const canManageRules = useAuthStore(
@@ -205,7 +225,7 @@ export default function FormattingRulesTab() {
       name: rule.name,
       kind: rule.kind,
       isActive: rule.isActive,
-      triggers: rule.triggers.length ? [...rule.triggers] : [{ field: "transactionType", value: "Listing" }],
+      triggers: normalizeTriggersForForm(rule.kind, rule.triggers),
       documents: docs,
       actions: acts,
     });
@@ -220,17 +240,24 @@ export default function FormattingRulesTab() {
     }));
   };
   const addTrigger = () =>
-    setForm((p) => ({
-      ...p,
-      triggers: [
-        ...p.triggers,
-        {
-          field: "propertyType",
-          value: triggerFieldOptions.find((o) => o.value === "propertyType")?.values[0] ?? "SFR",
-        },
-      ],
-    }));
-  const removeTrigger = (idx: number) => setForm(p => ({ ...p, triggers: p.triggers.filter((_, i) => i !== idx) }));
+    setForm((p) => {
+      if (p.kind !== "conditional") return p;
+      const used = new Set(p.triggers.map((t) => t.field));
+      const next = conditionalTriggerFieldOptions.find((o) => !used.has(o.value));
+      if (!next) {
+        toast.error("All condition types are already in use.");
+        return p;
+      }
+      return {
+        ...p,
+        triggers: [...p.triggers, { field: next.value, value: next.values[0] ?? "" }],
+      };
+    });
+  const removeTrigger = (idx: number) =>
+    setForm((p) => {
+      if (p.kind !== "conditional" || p.triggers.length <= 1) return p;
+      return { ...p, triggers: p.triggers.filter((_, i) => i !== idx) };
+    });
 
   const updateDocument = (id: string, patch: Partial<DocumentRule>) => {
     setForm((p) => ({
@@ -271,9 +298,27 @@ export default function FormattingRulesTab() {
 
   const saveRule = () => {
     if (!form.name.trim()) { toast.error("Rule name is required."); return; }
-    if (form.triggers.length === 0) { toast.error("Add at least one trigger condition."); return; }
 
-    const triggerErr = triggerFieldsUnique(form.triggers);
+    if (form.kind === "standard") {
+      const tx = standardTransactionTypeValue(form.triggers);
+      if (!tx) {
+        toast.error("Select Listing or Buyer File.");
+        return;
+      }
+    } else if (form.triggers.length === 0) {
+      toast.error("Add at least one trigger condition.");
+      return;
+    } else if (form.triggers.some((t) => t.field === "transactionType")) {
+      toast.error("Conditional rules use property fields only. Create a Standard rule for Listing or Buyer File checklists.");
+      return;
+    }
+
+    const triggersForSave =
+      form.kind === "standard"
+        ? [{ field: "transactionType" as const, value: standardTransactionTypeValue(form.triggers) }]
+        : form.triggers;
+
+    const triggerErr = triggerFieldsUnique(triggersForSave);
     if (triggerErr) {
       toast.error(triggerErr);
       return;
@@ -314,6 +359,7 @@ export default function FormattingRulesTab() {
     const payload = {
       ...form,
       name: form.name.trim(),
+      triggers: triggersForSave,
       documents: documentsClean,
       actions: actionsClean,
     };
@@ -638,28 +684,6 @@ export default function FormattingRulesTab() {
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">Kind</label>
-              <Select
-                value={form.kind}
-                onValueChange={(v) => {
-                  const k = v as RuleKind;
-                  setForm((p) => ({
-                    ...p,
-                    kind: k,
-                    documents: k === "standard" ? [newDocSlot()] : [],
-                    actions: k === "conditional" ? [newActionSlot()] : [],
-                  }));
-                }}
-              >
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="standard">Standard — baseline checklist</SelectItem>
-                  <SelectItem value="conditional">Conditional — overlay actions</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
               <label className="text-sm font-medium">Status</label>
               <Select
                 value={form.isActive ? "active" : "inactive"}
@@ -676,39 +700,78 @@ export default function FormattingRulesTab() {
               </p>
             </div>
 
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-medium">Trigger Conditions (ALL must match)</label>
-                <Button variant="ghost" size="sm" onClick={addTrigger} className="gap-1 h-7"><Plus className="w-3 h-3" /> Add</Button>
-              </div>
+            {form.kind === "standard" ? (
               <div className="space-y-2">
-                {form.triggers.map((t, idx) => {
-                  const opts = triggerFieldOptions.find(o => o.value === t.field)?.values ?? [];
-                  return (
-                    <div key={idx} className="flex flex-wrap items-center gap-2 w-full min-w-0">
-                      <Select value={t.field} onValueChange={v => updateTrigger(idx, { field: v as RuleTriggerField, value: triggerFieldOptions.find(o => o.value === v)?.values[0] ?? "" })}>
-                        <SelectTrigger className="min-w-0 flex-1 basis-[min(100%,10rem)]"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {triggerFieldOptions.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                      <span className="text-muted-foreground text-sm shrink-0">=</span>
-                      <Select value={t.value} onValueChange={v => updateTrigger(idx, { value: v })}>
-                        <SelectTrigger className="min-w-0 flex-1 basis-[min(100%,8rem)]"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {opts.map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                      {form.triggers.length > 1 && (
-                        <button type="button" onClick={() => removeTrigger(idx)} className="text-destructive p-1.5 hover:bg-destructive/10 rounded-md shrink-0">
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
+                <label className="text-sm font-medium">Transaction Type *</label>
+                <p className="text-xs text-muted-foreground">
+                  Baseline checklist for every new transaction of this type. Use Conditional rules to add or remove
+                  documents when HOA, exempt seller, and similar fields apply.
+                </p>
+                <Select
+                  value={standardTransactionTypeValue(form.triggers)}
+                  onValueChange={(v) => setForm((p) => ({ ...p, triggers: [{ field: "transactionType", value: v }] }))}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Listing">Listing</SelectItem>
+                    <SelectItem value="Buyer File">Buyer File</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-            </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium">When these conditions match (ALL must match)</label>
+                  <Button variant="ghost" size="sm" onClick={addTrigger} className="gap-1 h-7">
+                    <Plus className="w-3 h-3" /> Add
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Pick property or transaction details — not Listing vs Buyer File (use a Standard rule for that).
+                </p>
+                <div className="space-y-2">
+                  {form.triggers.map((t, idx) => {
+                    const opts = conditionalTriggerFieldOptions.find((o) => o.value === t.field)?.values ?? [];
+                    return (
+                      <div key={idx} className="flex flex-wrap items-center gap-2 w-full min-w-0">
+                        <Select
+                          value={t.field}
+                          onValueChange={(v) =>
+                            updateTrigger(idx, {
+                              field: v as RuleTriggerField,
+                              value: conditionalTriggerFieldOptions.find((o) => o.value === v)?.values[0] ?? "",
+                            })
+                          }
+                        >
+                          <SelectTrigger className="min-w-0 flex-1 basis-[min(100%,10rem)]"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {conditionalTriggerFieldOptions.map((o) => (
+                              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <span className="text-muted-foreground text-sm shrink-0">=</span>
+                        <Select value={t.value} onValueChange={(v) => updateTrigger(idx, { value: v })}>
+                          <SelectTrigger className="min-w-0 flex-1 basis-[min(100%,8rem)]"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {opts.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                        {form.triggers.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeTrigger(idx)}
+                            className="text-destructive p-1.5 hover:bg-destructive/10 rounded-md shrink-0"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {form.kind === "standard" && (
               <div className="space-y-2">
