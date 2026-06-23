@@ -251,7 +251,8 @@ export function createProjectsController(pool: Pool, config: AppConfig) {
           return;
         }
         res.json({ success: true, data: { project }, message: "" });
-      } catch {
+      } catch (err) {
+        console.error("[projects.getById]", req.params.id, err);
         res.status(500).json({
           success: false,
           error: { code: "PROJECT_LOAD_FAILED", message: "Could not load project." },

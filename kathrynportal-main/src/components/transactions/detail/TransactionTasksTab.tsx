@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { CheckSquare, Mail, MessageSquare, Pencil, Plus, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { CheckSquare, ExternalLink, Mail, MessageSquare, Pencil, Plus, Trash2 } from "lucide-react";
 import type { Project, ProjectTask } from "@/data/mockData";
 import { listEmailTemplatesFromApi } from "@/api/emailTemplates";
 import { ALL_STAGES } from "@/types/domain";
@@ -23,6 +23,7 @@ import {
 import { listPageBodyClass, transactionTabCardClass } from "@/lib/listPageLayout";
 import { cn } from "@/lib/utils";
 import { dueDateBucket, dueDateClass } from "@/lib/transactionListUtils";
+import { groupTasksBySection, hasTaskSections } from "@/lib/taskSectionGroups";
 
 type TaskFilter = "All" | "Pending" | "In Progress" | "Complete";
 
@@ -152,6 +153,8 @@ export default function TransactionTasksTab({
   const [editTaskNoteBody, setEditTaskNoteBody] = useState("");
 
   const allTasks = project.tasks ?? [];
+  const sectionGroups = useMemo(() => groupTasksBySection(tasks), [tasks]);
+  const showSectionHeaders = hasTaskSections(tasks);
   const pendingCount = allTasks.filter((t) => t.status === "Pending").length;
   const inProgressCount = allTasks.filter((t) => t.status === "In Progress").length;
   const completeCount = allTasks.filter((t) => t.status === "Complete").length;
@@ -399,8 +402,18 @@ export default function TransactionTasksTab({
             <p className="mt-1 text-xs text-muted-foreground">Add a task or change the filter above.</p>
           </div>
         ) : (
-          <ul className="divide-y divide-border">
-            {tasks.map((task) => {
+          <div className="divide-y divide-border">
+            {sectionGroups.map((group) => (
+              <div key={group.section}>
+                {showSectionHeaders ? (
+                  <div className="border-b border-border bg-secondary/25 px-4 py-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      {group.section}
+                    </p>
+                  </div>
+                ) : null}
+                <ul className="divide-y divide-border">
+                  {group.tasks.map((task) => {
               const isComplete = task.status === "Complete";
               const dueBucket = dueDateBucket(task.dueDate);
               const isEditing = editingId === task.id;
@@ -529,6 +542,21 @@ export default function TransactionTasksTab({
                             onClick={() => onComposeEmailTask(task)}
                           >
                             <Mail className="h-3.5 w-3.5 text-info" />
+                          </Button>
+                        ) : null}
+                        {task.instructionUrl?.trim() ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            aria-label="Open task instructions"
+                            title="Open instructions"
+                            asChild
+                          >
+                            <a href={task.instructionUrl} target="_blank" rel="noopener noreferrer">
+                              <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+                            </a>
                           </Button>
                         ) : null}
                         <Popover>
@@ -688,7 +716,10 @@ export default function TransactionTasksTab({
                 </li>
               );
             })}
-          </ul>
+                </ul>
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </div>

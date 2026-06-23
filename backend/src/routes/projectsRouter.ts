@@ -24,6 +24,9 @@ export function registerProjectsRoutes(app: Express, config: AppConfig, pool: Po
   router.get("/projects", requirePool(pool), auth, view, (req, res) => {
     void ctrl.list(req, res);
   });
+  router.get("/projects/assignment-options", requirePool(pool), auth, assign, (req, res) => {
+    void ctrl.listAssignmentOptions(req, res);
+  });
   router.get("/nav/badge-counts", requirePool(pool), auth, view, (req, res) => {
     void ctrl.getNavBadgeCounts(req, res);
   });
@@ -134,9 +137,6 @@ export function registerProjectsRoutes(app: Express, config: AppConfig, pool: Po
   });
   router.delete("/projects/:id/notes/:noteId", requirePool(pool), auth, edit, (req, res) => {
     void ctrl.deleteNote(req, res);
-  });
-  router.get("/projects/assignment-options", requirePool(pool), auth, assign, (req, res) => {
-    void ctrl.listAssignmentOptions(req, res);
   });
   router.put("/projects/:id/assignments", requirePool(pool), auth, assign, (req, res) => {
     void ctrl.setAssignments(req, res);

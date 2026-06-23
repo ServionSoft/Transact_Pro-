@@ -2,6 +2,10 @@ import type { Pool } from "pg";
 import type { AppConfig } from "../config/env.js";
 import type { AuthUser } from "../middleware/auth.js";
 import { getSmtpSettings, sendMailWithStoredSettings } from "./smtpSettingsService.js";
+import {
+  isContractAcceptedInMetadata,
+  seedCompassProjectTasks,
+} from "./compassTaskSeedService.js";
 
 export type ProjectStageUi = "Listing Prep" | "Listing Complete" | "In Escrow" | "Ready to Close" | "Closed";
 export type ProjectTypeUi = "Listing" | "Buyer File";
@@ -58,6 +62,9 @@ export type ProjectTaskApi = {
   taskType: ProjectTaskTypeUi;
   emailTemplateId?: string;
   recipientEmail?: string;
+  taskSection?: string;
+  sortOrder?: number;
+  instructionUrl?: string;
   notes: ProjectTaskNoteApi[];
 };
 
@@ -1051,7 +1058,7 @@ export async function dismissReminderDraft(
 }
 
 async function getProjectTasks(pool: Pool, projectId: string): Promise<ProjectTaskApi[]> {
-  const { rows } = await pool.query<{
+  type TaskRow = {
     id: string;
     title: string;
     stage: string;
@@ -1061,14 +1068,36 @@ async function getProjectTasks(pool: Pool, projectId: string): Promise<ProjectTa
     task_type: string;
     email_template_id: string | null;
     recipient_email: string | null;
-  }>(
-    `SELECT id::text, title, stage::text, status::text, due_date::text, completed_at,
-            task_type::text, email_template_id::text, recipient_email
-     FROM public.project_tasks
-     WHERE project_id = $1::bigint
-     ORDER BY created_at ASC`,
-    [projectId]
-  );
+    task_section?: string | null;
+    sort_order?: number;
+    instruction_url?: string | null;
+  };
+
+  let rows: TaskRow[];
+  try {
+    const result = await pool.query<TaskRow>(
+      `SELECT id::text, title, stage::text, status::text, due_date::text, completed_at,
+              task_type::text, email_template_id::text, recipient_email,
+              task_section, sort_order, instruction_url
+       FROM public.project_tasks
+       WHERE project_id = $1::bigint
+       ORDER BY sort_order ASC, created_at ASC`,
+      [projectId]
+    );
+    rows = result.rows;
+  } catch (err: unknown) {
+    const pgErr = err as { code?: string };
+    if (pgErr?.code !== "42703") throw err;
+    const legacy = await pool.query<TaskRow>(
+      `SELECT id::text, title, stage::text, status::text, due_date::text, completed_at,
+              task_type::text, email_template_id::text, recipient_email
+       FROM public.project_tasks
+       WHERE project_id = $1::bigint
+       ORDER BY created_at ASC`,
+      [projectId]
+    );
+    rows = legacy.rows;
+  }
   const noteRows = await pool.query<{
     id: string;
     project_task_id: string;
@@ -1114,6 +1143,9 @@ async function getProjectTasks(pool: Pool, projectId: string): Promise<ProjectTa
     taskType: TASK_TYPE_DB_TO_UI[r.task_type] ?? "general",
     ...(r.email_template_id ? { emailTemplateId: r.email_template_id } : {}),
     ...(r.recipient_email?.trim() ? { recipientEmail: r.recipient_email.trim() } : {}),
+    ...(r.task_section?.trim() ? { taskSection: r.task_section.trim() } : {}),
+    ...(r.sort_order != null ? { sortOrder: r.sort_order } : {}),
+    ...(r.instruction_url?.trim() ? { instructionUrl: r.instruction_url.trim() } : {}),
     ...(r.completed_at ? { completedDate: r.completed_at.toISOString().split("T")[0] } : {}),
     notes: notesByTaskId.get(r.id) ?? [],
   }));
@@ -1733,6 +1765,11 @@ export async function createProject(
     await insertProjectDocumentFromInput(pool, projectId, d, createdByUserId && /^\d+$/.test(createdByUserId) ? createdByUserId : null);
   }
   await syncProjectDeadlinesFromFormMetadata(pool, projectId, input.metadata ?? null);
+  if (typeDb === "buyer_file") {
+    await seedCompassProjectTasks(pool, projectId, "Buyer File", "buyer_all");
+  } else if (typeDb === "listing") {
+    await seedCompassProjectTasks(pool, projectId, "Listing", "listing_pre_contract");
+  }
   const created = await getProjectById(pool, projectId);
   if (!created) {
     return { error: { status: 500, code: "PROJECT_LOAD_FAILED", message: "Project was created but could not be loaded." } };
@@ -1763,6 +1800,15 @@ export async function updateProject(
   if (clientCheck.rows.length === 0) {
     return { error: { status: 404, code: "CLIENT_NOT_FOUND", message: "Linked client was not found." } };
   }
+  const priorRow = await pool.query<{ metadata_json: unknown; transaction_type: string }>(
+    `SELECT metadata_json, transaction_type::text AS transaction_type
+     FROM public.projects
+     WHERE id = $1::bigint AND deleted_at IS NULL
+     LIMIT 1`,
+    [projectId]
+  );
+  const priorMeta = priorRow.rows[0]?.metadata_json;
+  const priorTypeDb = priorRow.rows[0]?.transaction_type;
   const price = parseMoneyToNumber(input.listPrice);
   const { rowCount } = await pool.query(
     `UPDATE public.projects
@@ -1823,6 +1869,13 @@ export async function updateProject(
   }
   if (input.metadata !== undefined) {
     await syncProjectDeadlinesFromFormMetadata(pool, projectId, input.metadata ?? null);
+    if (priorTypeDb === "listing" && input.metadata) {
+      const wasAccepted = isContractAcceptedInMetadata(priorMeta);
+      const nowAccepted = isContractAcceptedInMetadata(input.metadata);
+      if (!wasAccepted && nowAccepted) {
+        await seedCompassProjectTasks(pool, projectId, "Listing", "listing_post_contract");
+      }
+    }
   }
   const updated = await getProjectById(pool, projectId);
   if (!updated) {

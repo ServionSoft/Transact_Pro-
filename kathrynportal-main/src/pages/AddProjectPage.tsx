@@ -1033,10 +1033,18 @@ export default function AddProjectPage() {
           ? await updateProjectApi(id, payload)
           : await createProjectApi(payload);
         upsertProject(saved);
+        const priorContractAccepted =
+          isEditMode &&
+          existingProject?.metadata &&
+          typeof existingProject.metadata === "object" &&
+          (existingProject.metadata as Record<string, unknown>).contractAccepted === true;
+        const postContractTasksAdded = isEditMode && isListing && contractAccepted && !priorContractAccepted;
         toast.success(isEditMode ? "Transaction updated!" : "Transaction created!", {
           description: isEditMode
-            ? `${type} for ${property.address}`
-            : `${type} for ${property.address} · ${documents.length} docs auto-loaded from rules`,
+            ? postContractTasksAdded
+              ? `${type} for ${property.address} · Post-contract Compass tasks added`
+              : `${type} for ${property.address}`
+            : `${type} for ${property.address} · Compass workflow tasks loaded · ${documents.length} docs from rules`,
         });
         navigate(`/projects/${saved.id}`);
         return;

@@ -51,6 +51,9 @@ type ProjectDetailApiRow = Omit<ProjectListItem, "documentsCompleteCount" | "doc
     taskType?: ProjectTask["taskType"];
     emailTemplateId?: string;
     recipientEmail?: string;
+    taskSection?: string;
+    sortOrder?: number;
+    instructionUrl?: string;
     notes?: Array<{ id?: string; body?: string; createdAt?: string; updatedAt?: string; author?: string }>;
   }>;
   emails: Array<{
@@ -223,6 +226,9 @@ function mapDetailRowToProject(row: ProjectDetailApiRow): Project {
     tasks: (row.tasks ?? []).map((t) => ({
       ...t,
       taskType: t.taskType ?? "general",
+      ...(t.taskSection ? { taskSection: t.taskSection } : {}),
+      ...(t.sortOrder != null ? { sortOrder: t.sortOrder } : {}),
+      ...(t.instructionUrl ? { instructionUrl: t.instructionUrl } : {}),
       notes: (t.notes ?? []).map((n, index) => ({
         id: n.id ?? `legacy-${t.id}-${index}`,
         date: n.createdAt ?? "",

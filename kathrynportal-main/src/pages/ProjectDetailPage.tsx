@@ -285,7 +285,8 @@ export default function ProjectDetailPage() {
 
   if (showUnavailableState) {
     const deleted = loadFailure?.code === "PROJECT_DELETED";
-    const notFound = loadFailure?.code === "PROJECT_NOT_FOUND" || !project;
+    const notFound = loadFailure?.code === "PROJECT_NOT_FOUND";
+    const serverError = loadFailure?.code === "PROJECT_LOAD_FAILED";
     return (
       <div className="mx-auto flex min-h-[50vh] w-full max-w-7xl flex-col items-center justify-center p-8 text-center">
         <p className="text-muted-foreground">
@@ -308,6 +309,13 @@ export default function ProjectDetailPage() {
           <p className="mt-2 max-w-md text-xs text-muted-foreground">
             This ID may not exist on the server you are connected to (for example, a link from local data opened on
             production).
+          </p>
+        ) : null}
+        {!loadingProject && serverError ? (
+          <p className="mt-2 max-w-md text-xs text-muted-foreground">
+            The API returned a server error while loading this transaction. If you recently pulled Compass task changes,
+            run <code className="rounded bg-muted px-1">npm run db:migrate</code> in{" "}
+            <code className="rounded bg-muted px-1">backend/</code>, then restart the API and refresh this page.
           </p>
         ) : null}
         {!loadingProject ? (

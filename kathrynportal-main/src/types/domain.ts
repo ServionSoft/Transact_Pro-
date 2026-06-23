@@ -97,6 +97,9 @@ export interface ProjectTask {
   taskType?: ProjectTaskType;
   emailTemplateId?: string;
   recipientEmail?: string;
+  taskSection?: string;
+  sortOrder?: number;
+  instructionUrl?: string;
   notes?: { id: string; date: string; text: string; author: string; updatedAt?: string }[];
 }
 
