@@ -1,12 +1,11 @@
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import {
-  Mail, Calendar, Send,
-  PenLine, Save, MessageSquare, Printer, Download,
+  Mail, Calendar,
+  PenLine, MessageSquare, Printer, Download, Plus,
 } from "lucide-react";
 import { useState, useMemo, useLayoutEffect, useEffect, useRef } from "react";
 import { useAppStore } from "@/store/appStore";
 import {
-  createProjectReminderDraftApi,
   createProjectEmailApi,
   deleteProjectEmailApi,
   createProjectNoteApi,
@@ -22,6 +21,9 @@ import {
   createProjectTaskNoteApi,
   updateProjectTaskNoteApi,
   deleteProjectTaskNoteApi,
+  createProjectTimelineNoteApi,
+  updateProjectTimelineNoteApi,
+  deleteProjectTimelineNoteApi,
   deleteProjectApi,
   getProjectFromApi,
   listProjectAssignmentOptionsApi,
@@ -36,7 +38,6 @@ import TransactionDocumentsWorkspace from "@/components/documents/TransactionDoc
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { CRM_DOCUMENT_VAULT_PROJECT_ID, type EmailThread, type ProjectTask } from "@/data/mockData";
@@ -105,6 +106,9 @@ export default function ProjectDetailPage() {
   const addProjectTaskNoteStore = useAppStore((s) => s.addProjectTaskNote);
   const updateProjectTaskNoteStore = useAppStore((s) => s.updateProjectTaskNote);
   const deleteProjectTaskNoteStore = useAppStore((s) => s.deleteProjectTaskNote);
+  const addProjectTimelineNoteStore = useAppStore((s) => s.addProjectTimelineNote);
+  const updateProjectTimelineNoteStore = useAppStore((s) => s.updateProjectTimelineNote);
+  const deleteProjectTimelineNoteStore = useAppStore((s) => s.deleteProjectTimelineNote);
   const updateProjectNoteStore = useAppStore((s) => s.updateProjectNote);
   const deleteProjectNoteStore = useAppStore((s) => s.deleteProjectNote);
   const updateProjectDeadlineDateStore = useAppStore((s) => s.updateProjectDeadlineDate);
@@ -116,6 +120,8 @@ export default function ProjectDetailPage() {
 
   const [savingNextStep, setSavingNextStep] = useState(false);
   const [taskNoteBusy, setTaskNoteBusy] = useState<string | null>(null);
+  const [timelineNoteBusy, setTimelineNoteBusy] = useState<string | null>(null);
+  const [showAddCustomTimeline, setShowAddCustomTimeline] = useState(false);
 
   // Email compose
   const [showComposeEmail, setShowComposeEmail] = useState(false);
@@ -129,7 +135,6 @@ export default function ProjectDetailPage() {
   // Add-deadline form
   const [showAddTask, setShowAddTask] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
-  const [newTaskDueDate, setNewTaskDueDate] = useState("");
   const [newTaskType, setNewTaskType] = useState<ProjectTask["taskType"]>("general");
   const [newTaskEmailTemplateId, setNewTaskEmailTemplateId] = useState("");
   const [newTaskRecipientEmail, setNewTaskRecipientEmail] = useState("");
@@ -138,13 +143,6 @@ export default function ProjectDetailPage() {
   const [assignmentOptions, setAssignmentOptions] = useState<Array<{ id: string; name: string; email: string; designation?: string | null }>>([]);
   const [savingAssignments, setSavingAssignments] = useState(false);
 
-  // Reminder draft modal
-  const [reminderDraft, setReminderDraft] = useState<{ deadlineId?: string; title: string; date: string } | null>(null);
-  const [reminderSubject, setReminderSubject] = useState("");
-  const [reminderBody, setReminderBody] = useState("");
-  const [reminderTo, setReminderTo] = useState("");
-  const [sendingReminder, setSendingReminder] = useState(false);
-  const [savingReminderDraft, setSavingReminderDraft] = useState(false);
   const [loadingProject, setLoadingProject] = useState(() => Boolean(getApiBaseUrl() && id));
   const [loadFailure, setLoadFailure] = useState<{ code?: string; message: string } | null>(null);
   const [deletingProject, setDeletingProject] = useState(false);
@@ -461,87 +459,6 @@ export default function ProjectDetailPage() {
     setNextStepStore(project.id, text, date);
   };
 
-  const openReminderDraft = (deadlineId: string, title: string, date: string) => {
-    setReminderDraft({ deadlineId, title, date });
-    setReminderTo(client?.email || "");
-    setReminderSubject(`Upcoming Deadline - ${title} - ${project.propertyAddress.split(",")[0]}`);
-    setReminderBody(
-      `Hi ${client?.name || ""},\n\nThis is a reminder that the ${title} for ${project.propertyAddress} is due on ${date}.\n\nPlease ensure all required items are submitted before this date.\n\nBest regards,\nKathryn Santos`
-    );
-  };
-
-  const sendReminder = () => {
-    if (!project) return;
-    const payload = {
-      to: reminderTo.trim(),
-      subject: reminderSubject.trim(),
-      body: reminderBody.trim(),
-    };
-    if (!payload.to || !payload.subject || !payload.body) {
-      toast.error("To, subject, and email are required.");
-      return;
-    }
-    if (!isValidEmail(payload.to)) {
-      toast.error("Recipient email is invalid.");
-      return;
-    }
-    if (apiOn) {
-      setSendingReminder(true);
-      void createProjectEmailApi(project.id, payload)
-        .then(({ project: updated, emailSendFailed, emailSendError }) => {
-          upsertProject(updated);
-          if (emailSendFailed) {
-            toast.warning("Reminder saved; sending failed", {
-              description: emailSendError ?? "Check SMTP settings and the Communications thread.",
-            });
-          } else {
-            toast.success("Reminder sent", { description: `For "${reminderDraft?.title}" â†’ ${payload.to}` });
-          }
-          setReminderDraft(null);
-        })
-        .catch((e) => {
-          toast.error(e instanceof Error ? e.message : "Could not send reminder.");
-        })
-        .finally(() => {
-          setSendingReminder(false);
-        });
-      return;
-    }
-    sendEmailStore({ ...payload, projectId: project.id });
-    toast.success("Reminder sent", { description: `For "${reminderDraft?.title}" â†’ ${payload.to}` });
-    setReminderDraft(null);
-  };
-
-  const saveReminderDraft = () => {
-    if (!project || !apiOn || !reminderDraft) return;
-    const payload = {
-      projectDeadlineId: reminderDraft.deadlineId,
-      reminderType: reminderDraft.title,
-      to: reminderTo.trim(),
-      subject: reminderSubject.trim(),
-      body: reminderBody.trim(),
-    };
-    if (!payload.to || !payload.subject || !payload.body) {
-      toast.error("To, subject, and email are required.");
-      return;
-    }
-    if (!isValidEmail(payload.to)) {
-      toast.error("Recipient email is invalid.");
-      return;
-    }
-    setSavingReminderDraft(true);
-    void createProjectReminderDraftApi(project.id, payload)
-      .then(() => {
-        toast.success("Reminder draft saved.");
-      })
-      .catch((e) => {
-        toast.error(e instanceof Error ? e.message : "Could not save reminder draft.");
-      })
-      .finally(() => {
-        setSavingReminderDraft(false);
-      });
-  };
-
   const handleDeleteProject = async () => {
     if (!project || deletingProject) return;
     if (!canDeleteProject) {
@@ -628,6 +545,14 @@ export default function ProjectDetailPage() {
     toast.success("Timeline CSV downloaded.");
   };
 
+  const resetNewTaskForm = () => {
+    setNewTaskTitle("");
+    setNewTaskType("general");
+    setNewTaskEmailTemplateId("");
+    setNewTaskRecipientEmail("");
+    setShowAddTask(false);
+  };
+
   const handleSaveNewTask = () => {
     const title = newTaskTitle.trim();
     if (!title) {
@@ -642,19 +567,10 @@ export default function ProjectDetailPage() {
             recipientEmail: newTaskRecipientEmail.trim() || undefined,
           }
         : {};
-    const resetNewTaskForm = () => {
-      setNewTaskTitle("");
-      setNewTaskDueDate("");
-      setNewTaskType("general");
-      setNewTaskEmailTemplateId("");
-      setNewTaskRecipientEmail("");
-      setShowAddTask(false);
-    };
     if (apiOn) {
       void createProjectTaskApi(project.id, {
         title,
         stage: project.stage,
-        dueDate: newTaskDueDate || undefined,
         taskType,
         ...emailFields,
       })
@@ -672,7 +588,7 @@ export default function ProjectDetailPage() {
       title,
       stage: project.stage,
       status: "Pending",
-      dueDate: newTaskDueDate || new Date().toISOString().split("T")[0],
+      dueDate: "",
       taskType,
       ...emailFields,
     });
@@ -743,7 +659,6 @@ export default function ProjectDetailPage() {
       title: string;
       stage: string;
       status: "Pending" | "In Progress" | "Complete";
-      dueDate: string;
       taskType?: ProjectTask["taskType"];
       emailTemplateId?: string;
       recipientEmail?: string;
@@ -852,6 +767,94 @@ export default function ProjectDetailPage() {
       return;
     }
     deleteProjectTaskNoteStore(project.id, taskId, noteId);
+    toast.success("Note deleted.");
+  };
+
+  const handleAddTimelineNote = (fieldKey: string, body: string) => {
+    if (!project) return;
+    const trimmed = body.trim();
+    if (!trimmed) {
+      toast.error("Note text is required.");
+      return;
+    }
+    if (apiOn) {
+      setTimelineNoteBusy(`add:${fieldKey}`);
+      void createProjectTimelineNoteApi(project.id, fieldKey, trimmed)
+        .then((updated) => {
+          upsertProject(updated);
+          toast.success("Note added.");
+        })
+        .catch((e) => {
+          toast.error(e instanceof Error ? e.message : "Could not add note.");
+        })
+        .finally(() => {
+          setTimelineNoteBusy(null);
+        });
+      return;
+    }
+    addProjectTimelineNoteStore(project.id, fieldKey, {
+      id: `tln-${Date.now()}`,
+      date: new Date().toISOString().split("T")[0],
+      text: trimmed,
+      author: user?.name ?? "Kathryn",
+    });
+    toast.success("Note added.");
+  };
+
+  const handleUpdateTimelineNote = (fieldKey: string, noteId: string, body: string) => {
+    if (!project) return;
+    const trimmed = body.trim();
+    if (!trimmed) {
+      toast.error("Note text is required.");
+      return;
+    }
+    if (apiOn) {
+      setTimelineNoteBusy(`edit:${fieldKey}:${noteId}`);
+      void updateProjectTimelineNoteApi(project.id, fieldKey, noteId, trimmed)
+        .then((updated) => {
+          upsertProject(updated);
+          toast.success("Note updated.");
+        })
+        .catch((e) => {
+          toast.error(e instanceof Error ? e.message : "Could not update note.");
+        })
+        .finally(() => {
+          setTimelineNoteBusy(null);
+        });
+      return;
+    }
+    updateProjectTimelineNoteStore(project.id, fieldKey, noteId, trimmed);
+    toast.success("Note updated.");
+  };
+
+  const handleDeleteTimelineNote = async (fieldKey: string, noteId: string) => {
+    if (!project) return;
+    if (
+      !(await confirm({
+        title: "Delete note",
+        description: "Delete this timeline note? This cannot be undone.",
+        confirmLabel: "Delete",
+        destructive: true,
+      }))
+    ) {
+      return;
+    }
+    if (apiOn) {
+      setTimelineNoteBusy(`delete:${fieldKey}:${noteId}`);
+      void deleteProjectTimelineNoteApi(project.id, fieldKey, noteId)
+        .then((updated) => {
+          upsertProject(updated);
+          toast.success("Note deleted.");
+        })
+        .catch((e) => {
+          toast.error(e instanceof Error ? e.message : "Could not delete note.");
+        })
+        .finally(() => {
+          setTimelineNoteBusy(null);
+        });
+      return;
+    }
+    deleteProjectTimelineNoteStore(project.id, fieldKey, noteId);
     toast.success("Note deleted.");
   };
 
@@ -1212,10 +1215,9 @@ export default function ProjectDetailPage() {
             onTaskFilterChange={setTaskFilter}
             showAddTask={showAddTask}
             onToggleAddTask={() => setShowAddTask((v) => !v)}
+            onCancelAddTask={resetNewTaskForm}
             newTaskTitle={newTaskTitle}
             onNewTaskTitleChange={setNewTaskTitle}
-            newTaskDueDate={newTaskDueDate}
-            onNewTaskDueDateChange={setNewTaskDueDate}
             newTaskType={newTaskType}
             onNewTaskTypeChange={setNewTaskType}
             newTaskEmailTemplateId={newTaskEmailTemplateId}
@@ -1297,7 +1299,7 @@ export default function ProjectDetailPage() {
         >
           <div className={cn(transactionTabCardClass, "overflow-x-hidden rounded-lg")}>
             <div className="flex flex-col gap-2 border-b border-border px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-              <h3 className="font-display font-semibold text-foreground">Deadlines & Reminders</h3>
+              <h3 className="font-display font-semibold text-foreground">Deadlines & Timeline</h3>
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   size="sm"
@@ -1311,9 +1313,19 @@ export default function ProjectDetailPage() {
                   <Download className="w-3.5 h-3.5" /> CSV
                 </Button>
                 {canEditProject ? (
-                  <Button size="sm" variant="outline" className="gap-1 h-8" onClick={handleEmailTimeline}>
-                    <Mail className="w-3.5 h-3.5" /> Email timeline
-                </Button>
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1 h-8"
+                      onClick={() => setShowAddCustomTimeline(true)}
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Add custom timeline item
+                    </Button>
+                    <Button size="sm" variant="outline" className="gap-1 h-8" onClick={handleEmailTimeline}>
+                      <Mail className="w-3.5 h-3.5" /> Email timeline
+                    </Button>
+                  </>
                 ) : null}
               </div>
             </div>
@@ -1328,11 +1340,18 @@ export default function ProjectDetailPage() {
                 customTimeline={customTimelineDisplay}
                 deadlines={project.deadlines ?? []}
                 canEdit={canEditProject}
+                timelineNotesByField={project.timelineNotes ?? {}}
+                timelineNoteBusy={timelineNoteBusy}
+                onAddTimelineNote={canEditProject ? handleAddTimelineNote : undefined}
+                onUpdateTimelineNote={canEditProject ? handleUpdateTimelineNote : undefined}
+                onDeleteTimelineNote={canEditProject ? handleDeleteTimelineNote : undefined}
                 onCustomTimelineChange={handleCustomTimelineChange}
                 onDeadlineDateChange={handleDeadlineDateChange}
                 onTimelineFieldDateChange={handleTimelineFieldDateChange}
                 onDeadlineDelete={(id, title, formManaged) => void handleDeleteDeadline(id, title, formManaged)}
-                onDraftReminder={openReminderDraft}
+                addCustomTrigger="external"
+                showAddCustom={showAddCustomTimeline}
+                onShowAddCustomChange={setShowAddCustomTimeline}
               />
             </div>
           </div>
@@ -1341,42 +1360,6 @@ export default function ProjectDetailPage() {
 
       </TransactionTabPanel>
 
-      {/* Reminder Draft Modal */}
-      <Dialog open={!!reminderDraft} onOpenChange={() => setReminderDraft(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Mail className="w-5 h-5 text-accent" />
-              Auto-Drafted Reminder
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">To</label>
-              <Input value={reminderTo} onChange={e => setReminderTo(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Subject</label>
-              <Input value={reminderSubject} onChange={e => setReminderSubject(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Email</label>
-              <Textarea value={reminderBody} onChange={e => setReminderBody(e.target.value)} rows={8} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setReminderDraft(null)}>Cancel</Button>
-            {apiOn && (
-              <Button variant="outline" onClick={saveReminderDraft} disabled={savingReminderDraft || sendingReminder} className="gap-2">
-                <Save className="w-4 h-4" /> Save Draft
-              </Button>
-            )}
-            <Button onClick={sendReminder} className="gap-2" disabled={sendingReminder}>
-              <Send className="w-4 h-4" /> Send Reminder
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
       <ConfirmDialogHost />
     </div>
   );

@@ -1,4 +1,4 @@
-import { Info, Mail, Plus, Trash2 } from "lucide-react";
+import { Info, Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { toast } from "sonner";
@@ -24,9 +24,7 @@ import {
   applyCustomTimelineItemChange,
   buildTimelineEditorRows,
   createCustomTimelineItem,
-  getAnchorFieldLabel,
   removeCustomTimelineItem,
-  TIMELINE_FIELD_DEFS,
   type CopSprpState,
   type CustomTimelineItem,
   type CustomTimelineState,
@@ -38,6 +36,12 @@ import {
   type TimelineRequiredContext,
 } from "@/lib/transactionTimelineFields";
 import { cn } from "@/lib/utils";
+import ThreadNotesPreview from "@/components/shared/ThreadNotesPreview";
+import TimelineNotesPopover, {
+  timelineCustomNoteKey,
+  timelineFieldNoteKey,
+} from "@/components/transactions/detail/TimelineNotesPopover";
+import type { ThreadNote } from "@/types/threadNote";
 
 type DeadlineRef = {
   id: string;
@@ -55,6 +59,7 @@ type FormModeProps = {
   context: TimelineEditorContext;
   requiredContext?: TimelineRequiredContext;
   invalidFieldIds?: Partial<Record<TimelineFieldId, boolean>>;
+  suggestedFieldIds?: Partial<Record<TimelineFieldId, boolean>>;
   onTimelineChange: Dispatch<SetStateAction<TimelineFormState>>;
   onCopChange: Dispatch<SetStateAction<CopSprpState>>;
   onSprpChange: Dispatch<SetStateAction<CopSprpState>>;
@@ -77,11 +82,19 @@ type DetailModeProps = {
   customTimeline: CustomTimelineState;
   deadlines: DeadlineRef[];
   canEdit?: boolean;
+  timelineNotesByField?: Record<string, ThreadNote[]>;
+  onAddTimelineNote?: (fieldKey: string, body: string) => void;
+  onUpdateTimelineNote?: (fieldKey: string, noteId: string, body: string) => void;
+  onDeleteTimelineNote?: (fieldKey: string, noteId: string) => void;
+  timelineNoteBusy?: string | null;
   onCustomTimelineChange?: (next: CustomTimelineState) => void;
   onDeadlineDateChange?: (deadlineId: string, date: string) => void;
   onTimelineFieldDateChange?: (fieldId: TimelineFieldDef["id"], date: string) => void;
   onDeadlineDelete?: (deadlineId: string, title: string, formManaged?: boolean) => void;
-  onDraftReminder?: (deadlineId: string, title: string, date: string) => void;
+  /** When "external", the trigger button is rendered outside this component (e.g. tab header). */
+  addCustomTrigger?: "inline" | "external";
+  showAddCustom?: boolean;
+  onShowAddCustomChange?: (show: boolean) => void;
 };
 
 export type TransactionTimelineEditorProps = FormModeProps | DetailModeProps;
@@ -110,25 +123,11 @@ function FieldLabel({
   );
 }
 
-function anchorOptions(context: TimelineEditorContext): TimelineFieldDef[] {
-  return TIMELINE_FIELD_DEFS.filter((def) => {
-    if (def.kind !== "date") return false;
-    if (def.section === "cop" && !context.showCOP) return false;
-    if (def.section === "sprp" && !context.showSPRP) return false;
-    if (def.isDisabled?.(context)) return false;
-    return true;
-  });
-}
-
-function formatOffsetLabel(offset: NonNullable<ReturnType<typeof buildTimelineEditorRows>[number]["offset"]>) {
-  const unit = offset.dayType === "business" ? "business" : "calendar";
-  return `+${offset.days} ${unit} from ${getAnchorFieldLabel(offset.anchorField)}`;
-}
-
 export default function TransactionTimelineEditor(props: TransactionTimelineEditorProps) {
   const { timeline, cop, sprp, context } = props;
   const timelineOffsets = props.mode === "form" ? props.timelineOffsets : (props.timelineOffsets ?? {});
   const invalidFieldIds = props.mode === "form" ? (props.invalidFieldIds ?? {}) : {};
+  const suggestedFieldIds = props.mode === "form" ? (props.suggestedFieldIds ?? {}) : {};
   const [weekendNotes, setWeekendNotes] = useState<Partial<Record<TimelineFieldId, string>>>({});
 
   const rows = buildTimelineEditorRows({
@@ -150,12 +149,78 @@ export default function TransactionTimelineEditor(props: TransactionTimelineEdit
   }, [props.mode, props.customTimeline]);
 
   const customRows = props.mode === "form" ? props.customTimeline : detailCustomDraft;
-  const [showAddCustom, setShowAddCustom] = useState(false);
+  const [showAddCustomInternal, setShowAddCustomInternal] = useState(false);
+  const addCustomTriggerExternal =
+    props.mode === "detail" && props.addCustomTrigger === "external";
+  const showAddCustom =
+    addCustomTriggerExternal && props.showAddCustom !== undefined
+      ? props.showAddCustom
+      : showAddCustomInternal;
+  const setShowAddCustom = (next: boolean) => {
+    if (addCustomTriggerExternal && props.onShowAddCustomChange) {
+      props.onShowAddCustomChange(next);
+    } else {
+      setShowAddCustomInternal(next);
+    }
+  };
   const [newCustomTitle, setNewCustomTitle] = useState("");
   const [newCustomKind, setNewCustomKind] = useState<"date" | "text">("date");
   const [newCustomValue, setNewCustomValue] = useState("");
 
-  const dateAnchorOptions = anchorOptions(context);
+  const [timelineNoteDrafts, setTimelineNoteDrafts] = useState<Record<string, string>>({});
+  const [editingTimelineNote, setEditingTimelineNote] = useState<{ fieldKey: string; noteId: string } | null>(null);
+  const [editTimelineNoteBody, setEditTimelineNoteBody] = useState("");
+  const [openTimelineNotesKey, setOpenTimelineNotesKey] = useState<string | null>(null);
+
+  const timelineNotesByField = props.mode === "detail" ? (props.timelineNotesByField ?? {}) : {};
+  const timelineNoteBusy = props.mode === "detail" ? (props.timelineNoteBusy ?? null) : null;
+  const canEditTimelineNotes = props.mode === "detail" && Boolean(props.canEdit);
+
+  const notesForKey = (fieldKey: string): ThreadNote[] => timelineNotesByField[fieldKey] ?? [];
+
+  const renderDetailNotesCell = (fieldKey: string, title: string) => (
+    <td className="min-w-[140px] max-w-[220px] px-3 py-2 align-middle">
+      <ThreadNotesPreview
+        notes={notesForKey(fieldKey)}
+        onOpenAllNotes={() => setOpenTimelineNotesKey(fieldKey)}
+      />
+    </td>
+  );
+
+  const renderDetailNotesAction = (fieldKey: string, title: string) => (
+    <TimelineNotesPopover
+      fieldKey={fieldKey}
+      title={title}
+      notes={notesForKey(fieldKey)}
+      noteDraft={timelineNoteDrafts[fieldKey] ?? ""}
+      onNoteDraftChange={(value) =>
+        setTimelineNoteDrafts((prev) => ({ ...prev, [fieldKey]: value }))
+      }
+      editingNote={editingTimelineNote}
+      editNoteBody={editTimelineNoteBody}
+      onEditNoteBodyChange={setEditTimelineNoteBody}
+      noteActionKey={timelineNoteBusy}
+      canEdit={canEditTimelineNotes}
+      open={openTimelineNotesKey === fieldKey}
+      onOpenChange={(next) => setOpenTimelineNotesKey(next ? fieldKey : null)}
+      onStartEdit={(key, note) => {
+        setEditingTimelineNote({ fieldKey: key, noteId: note.id });
+        setEditTimelineNoteBody(note.text);
+      }}
+      onCancelEdit={() => {
+        setEditingTimelineNote(null);
+        setEditTimelineNoteBody("");
+      }}
+      onUpdateNote={(key, noteId) => props.onUpdateTimelineNote?.(key, noteId, editTimelineNoteBody)}
+      onDeleteNote={(key, noteId) => props.onDeleteTimelineNote?.(key, noteId)}
+      onSaveNote={(key) => {
+        const body = (timelineNoteDrafts[key] ?? "").trim();
+        if (!body) return;
+        props.onAddTimelineNote?.(key, body);
+        setTimelineNoteDrafts((prev) => ({ ...prev, [key]: "" }));
+      }}
+    />
+  );
 
   const applyCustomTimelineState = (next: CustomTimelineState, persist = false) => {
     if (props.mode === "form") {
@@ -164,6 +229,14 @@ export default function TransactionTimelineEditor(props: TransactionTimelineEdit
     }
     setDetailCustomDraft(next);
     if (persist) props.onCustomTimelineChange?.(next);
+  };
+
+  const applyBundle = (bundle: ReturnType<typeof applyTimelineDateInput>) => {
+    if (props.mode !== "form") return;
+    props.onTimelineChange(bundle.timeline);
+    props.onCopChange(bundle.cop);
+    props.onSprpChange(bundle.sprp);
+    props.onTimelineOffsetsChange(bundle.offsets);
   };
 
   const flushDetailCustomTimeline = (draft: CustomTimelineState) => {
@@ -243,14 +316,6 @@ export default function TransactionTimelineEditor(props: TransactionTimelineEdit
     handleCustomItemChange(item, { kind, value: "" }, true);
   };
 
-  const applyBundle = (bundle: ReturnType<typeof applyTimelineDateInput>) => {
-    if (props.mode !== "form") return;
-    props.onTimelineChange(bundle.timeline);
-    props.onCopChange(bundle.cop);
-    props.onSprpChange(bundle.sprp);
-    props.onTimelineOffsetsChange(bundle.offsets);
-  };
-
   const handleFormTextChange = (fieldId: TimelineFieldId, value: string) => {
     if (props.mode !== "form") return;
     if (fieldId === "copIntoContract" || fieldId === "copCoe") {
@@ -328,9 +393,10 @@ export default function TransactionTimelineEditor(props: TransactionTimelineEdit
           <thead>
             <tr className="border-b border-border bg-muted/40 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               <th className="px-3 py-2">Field</th>
-              <th className="w-52 px-3 py-2">Offset</th>
+              {props.mode === "form" ? <th className="w-52 px-3 py-2">Offset</th> : null}
               <th className="w-44 px-3 py-2">Date / Value</th>
-              {props.mode === "detail" ? <th className="w-36 px-3 py-2 text-right">Actions</th> : null}
+              {props.mode === "detail" ? <th className="min-w-[140px] px-3 py-2">Notes</th> : null}
+              {props.mode === "detail" ? <th className="w-24 px-3 py-2 text-right">Actions</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -353,9 +419,9 @@ export default function TransactionTimelineEditor(props: TransactionTimelineEdit
                     {row.textHint ? <span className="text-[10px] text-muted-foreground">{row.textHint}</span> : null}
                   </div>
                 </td>
+                {props.mode === "form" ? (
                 <td className="px-3 py-2 align-middle">
                   {row.kind === "date" && !row.disabled ? (
-                    props.mode === "form" ? (
                       <div className="flex flex-wrap items-center gap-1">
                         <Input
                           type="number"
@@ -382,35 +448,12 @@ export default function TransactionTimelineEditor(props: TransactionTimelineEdit
                             <SelectItem value="business">Business</SelectItem>
                           </SelectContent>
                         </Select>
-                        <Select
-                          value={row.offset?.anchorField ?? row.defaultAnchorField ?? "acceptanceDate"}
-                          onValueChange={(v) => {
-                            const days = row.offset?.days ?? row.suggestedOffsetDays;
-                            if (!days) return;
-                            handleFormOffsetChange(row.fieldId, { anchorField: v as TimelineFieldId });
-                          }}
-                        >
-                          <SelectTrigger className="h-8 min-w-[120px] flex-1 text-xs">
-                            <SelectValue placeholder="Anchor" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {dateAnchorOptions.map((opt) => (
-                              <SelectItem key={opt.id} value={opt.id}>
-                                from {opt.title}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
                       </div>
-                    ) : row.offset ? (
-                      <span className="text-[10px] text-muted-foreground">{formatOffsetLabel(row.offset)}</span>
-                    ) : (
-                      <span className="text-[10px] text-muted-foreground">Manual</span>
-                    )
                   ) : (
                     <span className="text-[10px] text-muted-foreground">—</span>
                   )}
                 </td>
+                ) : null}
                 <td className="px-3 py-2 align-middle">
                   <div className="space-y-0.5">
                     {props.mode === "form" ? (
@@ -428,6 +471,7 @@ export default function TransactionTimelineEditor(props: TransactionTimelineEdit
                           className={cn(
                             "h-8 text-xs",
                             invalidFieldIds[row.fieldId] && "border-destructive focus-visible:ring-destructive",
+                            !invalidFieldIds[row.fieldId] && suggestedFieldIds[row.fieldId] && "border-amber-500/60 bg-amber-500/10 focus-visible:ring-amber-500/40",
                           )}
                         />
                       ) : (
@@ -460,21 +504,13 @@ export default function TransactionTimelineEditor(props: TransactionTimelineEdit
                     ) : null}
                   </div>
                 </td>
+                {props.mode === "detail"
+                  ? renderDetailNotesCell(timelineFieldNoteKey(row.fieldId), row.title)
+                  : null}
                 {props.mode === "detail" ? (
                   <td className="px-3 py-2 align-middle">
                     <div className="flex items-center justify-end gap-1">
-                      {row.kind === "date" && row.deadlineId && row.value && !row.disabled ? (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="h-7 px-2 text-[11px]"
-                          onClick={() => props.onDraftReminder?.(row.deadlineId!, row.title, row.value)}
-                        >
-                          <Mail className="mr-1 h-3 w-3" />
-                          Remind
-                        </Button>
-                      ) : null}
+                      {renderDetailNotesAction(timelineFieldNoteKey(row.fieldId), row.title)}
                       {props.canEdit && row.deadlineId && row.kind === "date" ? (
                         <Button
                           type="button"
@@ -525,7 +561,28 @@ export default function TransactionTimelineEditor(props: TransactionTimelineEdit
                       </Button>
                     )}
                   </div>
+                  {props.mode === "detail" ? (
+                    <div className="mt-1">
+                      {props.mode === "detail" && props.canEdit && !item.legacy ? (
+                        <Select
+                          value={item.kind}
+                          onValueChange={(v) => handleCustomKindChange(item, v as "date" | "text")}
+                        >
+                          <SelectTrigger className="h-8 w-[92px] text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="date">Date</SelectItem>
+                            <SelectItem value="text">Text</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground">{item.kind === "date" ? "Date" : "Text"}</span>
+                      )}
+                    </div>
+                  ) : null}
                 </td>
+                {props.mode === "form" ? (
                 <td className="px-3 py-2 align-middle">
                   {props.mode === "form" || (props.mode === "detail" && props.canEdit && !item.legacy) ? (
                     <Select
@@ -544,6 +601,7 @@ export default function TransactionTimelineEditor(props: TransactionTimelineEdit
                     <span className="text-[10px] text-muted-foreground">{item.kind === "date" ? "Date" : "Text"}</span>
                   )}
                 </td>
+                ) : null}
                 <td className="px-3 py-2 align-middle">
                   {item.kind === "date" ? (
                     props.mode === "form" || (props.mode === "detail" && props.canEdit) ? (
@@ -570,21 +628,13 @@ export default function TransactionTimelineEditor(props: TransactionTimelineEdit
                     <span className="text-xs font-medium text-foreground">{item.value || "—"}</span>
                   )}
                 </td>
+                {props.mode === "detail"
+                  ? renderDetailNotesCell(timelineCustomNoteKey(item.id), item.title)
+                  : null}
                 {props.mode === "detail" ? (
                   <td className="px-3 py-2 align-middle">
                     <div className="flex items-center justify-end gap-1">
-                      {item.kind === "date" && item.value && item.deadlineId ? (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="h-7 px-2 text-[11px]"
-                          onClick={() => props.onDraftReminder?.(item.deadlineId!, item.title, item.value)}
-                        >
-                          <Mail className="mr-1 h-3 w-3" />
-                          Remind
-                        </Button>
-                      ) : null}
+                      {renderDetailNotesAction(timelineCustomNoteKey(item.id), item.title)}
                     </div>
                   </td>
                 ) : null}
@@ -594,7 +644,8 @@ export default function TransactionTimelineEditor(props: TransactionTimelineEdit
         </table>
       </div>
 
-      {(props.mode === "form" || (props.mode === "detail" && props.canEdit)) && (
+      {(props.mode === "form" || (props.mode === "detail" && props.canEdit)) &&
+      (showAddCustom || !addCustomTriggerExternal) ? (
         <div className="space-y-2">
           {showAddCustom ? (
             <div className="flex flex-wrap items-end gap-2 rounded-lg border border-dashed border-border/80 bg-muted/20 p-3">
@@ -644,14 +695,14 @@ export default function TransactionTimelineEditor(props: TransactionTimelineEdit
                 Cancel
               </Button>
             </div>
-          ) : (
+          ) : !addCustomTriggerExternal ? (
             <Button type="button" size="sm" variant="outline" className="h-8 gap-1 text-xs" onClick={() => setShowAddCustom(true)}>
               <Plus className="h-3.5 w-3.5" />
               Add custom timeline item
             </Button>
-          )}
+          ) : null}
         </div>
-      )}
+      ) : null}
 
       {props.mode === "form" ? (
         <div className="space-y-3 border-t border-border pt-4">

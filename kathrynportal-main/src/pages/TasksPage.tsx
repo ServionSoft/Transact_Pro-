@@ -2,15 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CalendarDays, Clock, Search } from "lucide-react";
 import { useAppStore } from "@/store/appStore";
 import { isTransactionProject, type Project } from "@/data/mockData";
-import {
-  getProjectFromApi,
-  listProjectsFromApi,
-  patchProjectTaskStatusApi,
-  type ProjectListItem,
-} from "@/api/projects";
+import { getProjectFromApi, listProjectsFromApi, type ProjectListItem } from "@/api/projects";
 import { getApiBaseUrl } from "@/lib/apiConfig";
-import { useAuthStore } from "@/store/authStore";
-import { hasPermission } from "@/lib/permissions";
 import PageHeader from "@/components/shared/PageHeader";
 import TaskDashboardRow, { type TaskDashboardRowData } from "@/components/tasks/TaskDashboardRow";
 import { Button } from "@/components/ui/button";
@@ -22,7 +15,6 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 type BucketFilter = "all" | "overdue" | "today" | "upcoming";
-type StatusFilter = "all" | "Pending" | "In Progress";
 
 function assigneeLabel(project: Project): string {
   const assignees = project.assignees ?? [];
@@ -32,8 +24,12 @@ function assigneeLabel(project: Project): string {
   return `${first} +${assignees.length - 1}`;
 }
 
+function hasNextStep(project: Project): boolean {
+  return Boolean(project.nextStep?.trim() || project.nextStepDate?.trim());
+}
+
 function matchesBucketFilter(bucket: ReturnType<typeof dueDateBucket>, filter: BucketFilter): boolean {
-  if (filter === "all") return bucket !== "none";
+  if (filter === "all") return true;
   if (filter === "overdue") return bucket === "overdue";
   if (filter === "today") return bucket === "today";
   return bucket === "week" || bucket === "later";
@@ -42,17 +38,12 @@ function matchesBucketFilter(bucket: ReturnType<typeof dueDateBucket>, filter: B
 export default function TasksPage() {
   const [search, setSearch] = useState("");
   const [bucketFilter, setBucketFilter] = useState<BucketFilter>("all");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [loading, setLoading] = useState(false);
-  const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
   const [apiProjects, setApiProjects] = useState<Project[]>([]);
   const projects = useAppStore((s) => s.projects);
   const clients = useAppStore((s) => s.clients);
   const upsertProject = useAppStore((s) => s.upsertProject);
-  const setTaskStatus = useAppStore((s) => s.setTaskStatus);
-  const user = useAuthStore((s) => s.user);
   const apiOn = Boolean(getApiBaseUrl());
-  const canEditTasks = hasPermission(user, "projects.edit");
 
   useEffect(() => {
     if (!apiOn) {
@@ -74,7 +65,7 @@ export default function TasksPage() {
       })
       .catch((e) => {
         if (cancelled) return;
-        toast.error("Could not load tasks.", {
+        toast.error("Could not load next steps.", {
           description: e instanceof Error ? e.message : "Unknown error",
         });
         setApiProjects([]);
@@ -98,66 +89,64 @@ export default function TasksPage() {
     return map;
   }, [transactionProjects]);
 
-  const allTasks = useMemo<TaskDashboardRowData[]>(() => {
-    return transactionProjects.flatMap((p) =>
-      (p.tasks ?? [])
-        .filter((t) => t.status !== "Complete")
-        .map((t) => ({
-          id: `${p.id}::${t.id}`,
-          taskId: t.id,
-          title: t.title,
-          dueDate: t.dueDate,
-          projectId: p.id,
-          clientId: p.clientId,
-          propertyAddress: p.propertyAddress,
-          clientName: p.clientName,
-          stage: p.stage,
-          status: t.status,
-          assignedTo: assigneeLabel(p),
-        })),
-    );
+  const allRows = useMemo<TaskDashboardRowData[]>(() => {
+    return transactionProjects
+      .filter(hasNextStep)
+      .map((p) => ({
+        id: p.id,
+        projectId: p.id,
+        nextStep: p.nextStep ?? "",
+        nextStepDate: p.nextStepDate ?? "",
+        clientId: p.clientId,
+        propertyAddress: p.propertyAddress,
+        clientName: p.clientName,
+        stage: p.stage,
+        assignedTo: assigneeLabel(p),
+      }));
   }, [transactionProjects]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return allTasks.filter((t) => {
-      if (statusFilter !== "all" && t.status !== statusFilter) return false;
-      const bucket = dueDateBucket(t.dueDate);
+    return allRows.filter((row) => {
+      const bucket = dueDateBucket(row.nextStepDate);
       if (!matchesBucketFilter(bucket, bucketFilter)) return false;
       if (!q) return true;
       return (
-        t.title.toLowerCase().includes(q) ||
-        t.clientName.toLowerCase().includes(q) ||
-        t.propertyAddress.toLowerCase().includes(q) ||
-        t.assignedTo.toLowerCase().includes(q)
+        row.nextStep.toLowerCase().includes(q) ||
+        row.clientName.toLowerCase().includes(q) ||
+        row.propertyAddress.toLowerCase().includes(q) ||
+        row.assignedTo.toLowerCase().includes(q)
       );
     });
-  }, [allTasks, search, statusFilter, bucketFilter]);
+  }, [allRows, search, bucketFilter]);
 
   const counts = useMemo(() => {
     let overdue = 0;
     let today = 0;
     let upcoming = 0;
-    for (const t of allTasks) {
-      const b = dueDateBucket(t.dueDate);
+    for (const row of allRows) {
+      const b = dueDateBucket(row.nextStepDate);
       if (b === "overdue") overdue += 1;
       else if (b === "today") today += 1;
       else if (b === "week" || b === "later") upcoming += 1;
     }
-    return { overdue, today, upcoming, total: allTasks.length };
-  }, [allTasks]);
+    return { overdue, today, upcoming, total: allRows.length };
+  }, [allRows]);
 
   const groups = useMemo(() => {
     const overdue: TaskDashboardRowData[] = [];
     const today: TaskDashboardRowData[] = [];
     const week: TaskDashboardRowData[] = [];
     const later: TaskDashboardRowData[] = [];
-    for (const t of filtered) {
-      const b = dueDateBucket(t.dueDate);
-      if (b === "overdue") overdue.push(t);
-      else if (b === "today") today.push(t);
-      else if (b === "week") week.push(t);
-      else if (b === "later") later.push(t);
+    const noDate: TaskDashboardRowData[] = [];
+    for (const row of filtered) {
+      const b = dueDateBucket(row.nextStepDate);
+      if (!row.nextStepDate?.trim()) noDate.push(row);
+      else if (b === "overdue") overdue.push(row);
+      else if (b === "today") today.push(row);
+      else if (b === "week") week.push(row);
+      else if (b === "later") later.push(row);
+      else noDate.push(row);
     }
     return [
       {
@@ -165,61 +154,43 @@ export default function TasksPage() {
         label: "Overdue",
         icon: AlertTriangle,
         headerClass: "bg-destructive/10 text-destructive",
-        tasks: overdue,
+        rows: overdue,
       },
       {
         key: "today",
         label: "Due today",
         icon: Clock,
         headerClass: "bg-amber-500/10 text-amber-800 dark:text-amber-200",
-        tasks: today,
+        rows: today,
       },
       {
         key: "week",
         label: "This week",
         icon: CalendarDays,
         headerClass: "bg-secondary/80 text-foreground",
-        tasks: week,
+        rows: week,
       },
       {
         key: "later",
         label: "Later",
         icon: CalendarDays,
         headerClass: "bg-muted/50 text-muted-foreground",
-        tasks: later,
+        rows: later,
+      },
+      {
+        key: "no-date",
+        label: "No date",
+        icon: CalendarDays,
+        headerClass: "bg-muted/30 text-muted-foreground",
+        rows: noDate,
       },
     ];
   }, [filtered]);
 
-  const visibleGroups = groups.filter((g) => g.tasks.length > 0);
-
-  const markDone = (task: TaskDashboardRowData) => {
-    if (!canEditTasks) {
-      toast.error("You do not have permission to update tasks.");
-      return;
-    }
-    if (apiOn) {
-      setUpdatingTaskId(task.id);
-      void patchProjectTaskStatusApi(task.projectId, task.taskId, "Complete")
-        .then((updated) => {
-          upsertProject(updated);
-          setApiProjects((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-          toast.success(`Marked "${task.title}" complete`);
-        })
-        .catch((e) => {
-          toast.error(e instanceof Error ? e.message : "Could not update task.");
-        })
-        .finally(() => {
-          setUpdatingTaskId(null);
-        });
-      return;
-    }
-    setTaskStatus(task.projectId, task.taskId, "Complete");
-    toast.success(`Marked "${task.title}" complete`);
-  };
+  const visibleGroups = groups.filter((g) => g.rows.length > 0);
 
   const bucketChips: { id: BucketFilter; label: string; count: number; className: string }[] = [
-    { id: "all", label: "All open", count: counts.total, className: "bg-secondary text-foreground" },
+    { id: "all", label: "All", count: counts.total, className: "bg-secondary text-foreground" },
     { id: "overdue", label: "Overdue", count: counts.overdue, className: "bg-destructive/15 text-destructive" },
     { id: "today", label: "Due today", count: counts.today, className: "bg-amber-500/15 text-amber-800 dark:text-amber-200" },
     { id: "upcoming", label: "Upcoming", count: counts.upcoming, className: "bg-muted text-muted-foreground" },
@@ -229,11 +200,11 @@ export default function TasksPage() {
     <div className={listPageRootClass}>
       <div className="shrink-0">
         <PageHeader
-          title="Task dashboard"
+          title="Next steps"
           subtitle={
             loading
-              ? "Loading open tasks…"
-              : `${filtered.length} open task${filtered.length === 1 ? "" : "s"} across all transactions`
+              ? "Loading next steps…"
+              : `${filtered.length} transaction${filtered.length === 1 ? "" : "s"} with next steps`
           }
         />
       </div>
@@ -243,11 +214,11 @@ export default function TasksPage() {
           <div className="relative w-full sm:max-w-md">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="Search tasks, contacts, properties…"
+              placeholder="Search next steps, contacts, properties…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-9"
-              aria-label="Search tasks"
+              aria-label="Search next steps"
             />
           </div>
 
@@ -267,24 +238,6 @@ export default function TasksPage() {
               </button>
             ))}
           </div>
-
-          <div className="flex flex-wrap gap-1 rounded-lg bg-muted/30 p-1">
-            {(["all", "Pending", "In Progress"] as const).map((status) => (
-              <button
-                key={status}
-                type="button"
-                onClick={() => setStatusFilter(status)}
-                className={cn(
-                  "rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
-                  statusFilter === status
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {status === "all" ? "All statuses" : status}
-              </button>
-            ))}
-          </div>
         </div>
 
         <div className={cn(listPageBodyClass, "p-4 sm:p-5")}>
@@ -296,13 +249,13 @@ export default function TasksPage() {
             </div>
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
-              <p className="text-sm font-medium text-foreground">No tasks match</p>
+              <p className="text-sm font-medium text-foreground">No next steps match</p>
               <p className="mt-1 max-w-sm text-xs text-muted-foreground">
-                {allTasks.length === 0
-                  ? "All caught up — no open tasks on your transactions."
+                {allRows.length === 0
+                  ? "Set a next step on a transaction to see it here."
                   : "Try clearing filters or adjusting your search."}
               </p>
-              {bucketFilter !== "all" || statusFilter !== "all" || search ? (
+              {bucketFilter !== "all" || search ? (
                 <Button
                   type="button"
                   variant="outline"
@@ -310,7 +263,6 @@ export default function TasksPage() {
                   className="mt-4"
                   onClick={() => {
                     setBucketFilter("all");
-                    setStatusFilter("all");
                     setSearch("");
                   }}
                 >
@@ -319,7 +271,7 @@ export default function TasksPage() {
               ) : null}
             </div>
           ) : visibleGroups.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">No tasks in this filter.</p>
+            <p className="py-8 text-center text-sm text-muted-foreground">No next steps in this filter.</p>
           ) : (
             <div className="space-y-6">
               {visibleGroups.map((g) => (
@@ -333,19 +285,16 @@ export default function TasksPage() {
                     <g.icon className="h-4 w-4 shrink-0" />
                     {g.label}
                     <span className="rounded-full bg-background/80 px-2 py-0.5 text-[10px] font-bold tabular-nums">
-                      {g.tasks.length}
+                      {g.rows.length}
                     </span>
                   </div>
                   <ul className="space-y-2">
-                    {g.tasks.map((t) => (
-                      <li key={t.id}>
+                    {g.rows.map((row) => (
+                      <li key={row.id}>
                         <TaskDashboardRow
-                          task={t}
-                          project={projectById.get(t.projectId)}
-                          client={clients.find((c) => c.id === t.clientId)}
-                          completing={updatingTaskId === t.id}
-                          canEdit={canEditTasks}
-                          onMarkDone={() => markDone(t)}
+                          row={row}
+                          project={projectById.get(row.projectId)}
+                          client={clients.find((c) => c.id === row.clientId)}
                         />
                       </li>
                     ))}

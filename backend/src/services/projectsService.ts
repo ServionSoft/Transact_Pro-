@@ -50,6 +50,14 @@ export type ProjectTaskNoteApi = {
   updatedAt?: string;
 };
 
+export type ProjectTimelineNoteApi = {
+  id: string;
+  body: string;
+  author: string;
+  createdAt: string;
+  updatedAt?: string;
+};
+
 export type ProjectTaskTypeUi = "general" | "email";
 
 export type ProjectTaskApi = {
@@ -162,6 +170,7 @@ export type ProjectDetailApi = {
   notes: ProjectNoteApi[];
   assignees: ProjectAssigneeApi[];
   deadlines: ProjectDeadlineApi[];
+  timelineNotes: Record<string, ProjectTimelineNoteApi[]>;
   metadata?: Record<string, unknown>;
 };
 
@@ -176,7 +185,7 @@ export type CalendarEventApi = {
   title: string;
   date: string;
   kind: "task" | "deadline" | "reminder" | "meeting" | "close";
-  source: "project_tasks" | "project_deadlines" | "reminder_drafts";
+  source: "project_tasks" | "project_deadlines" | "reminder_drafts" | "projects";
   isOverdue: boolean;
 };
 
@@ -471,6 +480,14 @@ const FORM_TIMELINE_FIELD_KEY_TO_TITLE: Record<string, string> = {
   sprpIntoContract: "SPRP — Into Contract",
   sprpCoe: "SPRP — COE",
 };
+
+function isValidTimelineNoteFieldKey(fieldKey: string): boolean {
+  const key = fieldKey.trim();
+  if (FORM_TIMELINE_FIELD_KEY_TO_TITLE[key]) return true;
+  if (/^custom:[a-zA-Z0-9_-]+$/.test(key)) return true;
+  if (/^deadline:\d+$/.test(key)) return true;
+  return false;
+}
 
 function applyFormDeadlineDateToMetadata(
   metadata: unknown,
@@ -840,7 +857,7 @@ export async function listCalendarEvents(
   const allowedKinds = new Set((input.kinds ?? []).map((k) => normalizeText(k).toLowerCase()).filter(Boolean));
   const { whereSql, params } = buildCalendarFilters(input.user, hasGlobalAccess, projectId, fromDate, toDate);
 
-  const taskRows = await pool.query<{
+  const nextStepRows = await pool.query<{
     id: string;
     project_id: string;
     project_name: string;
@@ -851,21 +868,19 @@ export async function listCalendarEvents(
     event_date: string;
   }>(
     `SELECT
-       pt.id::text AS id,
+       p.id::text AS id,
        p.id::text AS project_id,
        p.name AS project_name,
        p.property_address,
        c.name AS client_name,
        c.email AS client_email,
-       pt.title,
-       pt.due_date::text AS event_date
-     FROM public.project_tasks pt
-     JOIN public.projects p ON p.id = pt.project_id
+       COALESCE(NULLIF(btrim(p.next_step_text), ''), 'Next step') AS title,
+       p.next_step_date::text AS event_date
+     FROM public.projects p
      JOIN public.contacts c ON c.id = p.client_id
-     CROSS JOIN LATERAL (SELECT pt.due_date AS ev_date) ev
+     CROSS JOIN LATERAL (SELECT p.next_step_date AS ev_date) ev
      WHERE ${whereSql}
-       AND pt.due_date IS NOT NULL
-       AND pt.status <> 'complete'::public.task_status`,
+       AND p.next_step_date IS NOT NULL`,
     params
   );
 
@@ -930,8 +945,8 @@ export async function listCalendarEvents(
 
   const today = new Date().toISOString().split("T")[0];
   const allEvents: CalendarEventApi[] = [
-    ...taskRows.rows.map((r) => ({
-      id: `task:${r.id}`,
+    ...nextStepRows.rows.map((r) => ({
+      id: `next_step:${r.id}`,
       sourceId: r.id,
       projectId: r.project_id,
       projectName: r.project_name,
@@ -941,7 +956,7 @@ export async function listCalendarEvents(
       title: r.title,
       date: r.event_date,
       kind: classifyCalendarKind(r.title, "task"),
-      source: "project_tasks" as const,
+      source: "projects" as const,
       isOverdue: r.event_date < today,
     })),
     ...deadlineRows.rows.map((r) => ({
@@ -1161,6 +1176,48 @@ async function getProjectTasks(pool: Pool, projectId: string): Promise<ProjectTa
   }));
 }
 
+async function getProjectTimelineNotes(
+  pool: Pool,
+  projectId: string
+): Promise<Record<string, ProjectTimelineNoteApi[]>> {
+  const { rows } = await pool.query<{
+    id: string;
+    field_key: string;
+    body: string;
+    created_at: Date;
+    updated_at: Date;
+    author_name: string | null;
+  }>(
+    `SELECT
+       ptn.id::text,
+       ptn.field_key,
+       ptn.body,
+       ptn.created_at,
+       ptn.updated_at,
+       u.name AS author_name
+     FROM public.project_timeline_notes ptn
+     LEFT JOIN public.users u ON u.id = ptn.author_user_id
+     WHERE ptn.project_id = $1::bigint
+     ORDER BY ptn.created_at DESC`,
+    [projectId]
+  );
+  const out: Record<string, ProjectTimelineNoteApi[]> = {};
+  for (const r of rows) {
+    const list = out[r.field_key] ?? [];
+    const createdAt = r.created_at.toISOString().split("T")[0];
+    const updatedAt = r.updated_at.toISOString().split("T")[0];
+    list.push({
+      id: r.id,
+      body: r.body,
+      author: r.author_name ?? "Unknown",
+      createdAt,
+      ...(updatedAt !== createdAt ? { updatedAt } : {}),
+    });
+    out[r.field_key] = list;
+  }
+  return out;
+}
+
 async function getProjectDeadlines(pool: Pool, projectId: string): Promise<ProjectDeadlineApi[]> {
   const { rows } = await pool.query<{ id: string; title: string; due_date: string; type: string }>(
     `SELECT id::text, title, due_date::text, type::text
@@ -1335,12 +1392,10 @@ export async function getNavBadgeCounts(
     ),
     pool.query<{ count: string }>(
       `SELECT COUNT(*)::text AS count
-       FROM public.project_tasks pt
-       JOIN public.projects p ON p.id = pt.project_id
+       FROM public.projects p
        WHERE ${whereSql}
-         AND pt.status <> 'complete'::public.task_status
-         AND pt.due_date IS NOT NULL
-         AND pt.due_date <= CURRENT_DATE`,
+         AND p.next_step_date IS NOT NULL
+         AND p.next_step_date <= CURRENT_DATE`,
       params
     ),
     pool.query<{ count: string }>(
@@ -1680,13 +1735,14 @@ export async function getProjectById(pool: Pool, projectId: string): Promise<Pro
   );
   const row = rows[0];
   if (!row) return null;
-  const [documents, tasks, emails, notes, assignees, deadlines] = await Promise.all([
+  const [documents, tasks, emails, notes, assignees, deadlines, timelineNotes] = await Promise.all([
     getProjectDocuments(pool, projectId),
     getProjectTasks(pool, projectId),
     getProjectEmails(pool, projectId),
     getProjectNotes(pool, projectId),
     getProjectAssignees(pool, projectId),
     getProjectDeadlines(pool, projectId),
+    getProjectTimelineNotes(pool, projectId),
   ]);
   return {
     id: row.id,
@@ -1711,6 +1767,7 @@ export async function getProjectById(pool: Pool, projectId: string): Promise<Pro
     notes,
     assignees,
     deadlines,
+    timelineNotes,
     ...(row.metadata_json ? { metadata: row.metadata_json } : {}),
   };
 }
@@ -3138,6 +3195,98 @@ export async function deleteProjectTaskNote(
   );
   if (!rowCount) {
     return { error: { status: 404, code: "PROJECT_TASK_NOTE_NOT_FOUND", message: "Task note not found." } };
+  }
+  const project = await getProjectById(pool, projectId);
+  if (!project) return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
+  return { project };
+}
+
+export async function createProjectTimelineNote(
+  pool: Pool,
+  projectId: string,
+  fieldKey: string,
+  body: string,
+  authorUserId: string | null
+): Promise<{ project: ProjectDetailApi } | { error: ServiceError }> {
+  if (!/^\d+$/.test(projectId)) {
+    return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
+  }
+  const key = fieldKey.trim();
+  if (!isValidTimelineNoteFieldKey(key)) {
+    return { error: { status: 400, code: "PROJECT_TIMELINE_FIELD_INVALID", message: "Unknown timeline field." } };
+  }
+  const trimmed = normalizeText(body);
+  if (!trimmed) {
+    return { error: { status: 400, code: "PROJECT_TIMELINE_NOTE_BODY_REQUIRED", message: "Note text is required." } };
+  }
+  const existing = await pool.query<{ ok: string }>(
+    `SELECT 1::text AS ok FROM public.projects WHERE id = $1::bigint AND deleted_at IS NULL LIMIT 1`,
+    [projectId]
+  );
+  if (existing.rows.length === 0) {
+    return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
+  }
+  await pool.query(
+    `INSERT INTO public.project_timeline_notes (
+       project_id, field_key, author_user_id, body, created_at, updated_at
+     ) VALUES (
+       $1::bigint, $2, $3::bigint, $4, now(), now()
+     )`,
+    [projectId, key, authorUserId && /^\d+$/.test(authorUserId) ? authorUserId : null, trimmed]
+  );
+  const project = await getProjectById(pool, projectId);
+  if (!project) return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
+  return { project };
+}
+
+export async function updateProjectTimelineNote(
+  pool: Pool,
+  projectId: string,
+  fieldKey: string,
+  noteId: string,
+  body: string
+): Promise<{ project: ProjectDetailApi } | { error: ServiceError }> {
+  if (!/^\d+$/.test(projectId) || !/^\d+$/.test(noteId)) {
+    return { error: { status: 404, code: "PROJECT_TIMELINE_NOTE_NOT_FOUND", message: "Timeline note not found." } };
+  }
+  const trimmed = normalizeText(body);
+  if (!trimmed) {
+    return { error: { status: 400, code: "PROJECT_TIMELINE_NOTE_BODY_REQUIRED", message: "Note text is required." } };
+  }
+  const { rowCount } = await pool.query(
+    `UPDATE public.project_timeline_notes ptn
+     SET body = $1, updated_at = now()
+     WHERE ptn.id = $2::bigint
+       AND ptn.project_id = $3::bigint
+       AND ptn.field_key = $4`,
+    [trimmed, noteId, projectId, fieldKey.trim()]
+  );
+  if (!rowCount) {
+    return { error: { status: 404, code: "PROJECT_TIMELINE_NOTE_NOT_FOUND", message: "Timeline note not found." } };
+  }
+  const project = await getProjectById(pool, projectId);
+  if (!project) return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
+  return { project };
+}
+
+export async function deleteProjectTimelineNote(
+  pool: Pool,
+  projectId: string,
+  fieldKey: string,
+  noteId: string
+): Promise<{ project: ProjectDetailApi } | { error: ServiceError }> {
+  if (!/^\d+$/.test(projectId) || !/^\d+$/.test(noteId)) {
+    return { error: { status: 404, code: "PROJECT_TIMELINE_NOTE_NOT_FOUND", message: "Timeline note not found." } };
+  }
+  const { rowCount } = await pool.query(
+    `DELETE FROM public.project_timeline_notes ptn
+     WHERE ptn.id = $1::bigint
+       AND ptn.project_id = $2::bigint
+       AND ptn.field_key = $3`,
+    [noteId, projectId, fieldKey.trim()]
+  );
+  if (!rowCount) {
+    return { error: { status: 404, code: "PROJECT_TIMELINE_NOTE_NOT_FOUND", message: "Timeline note not found." } };
   }
   const project = await getProjectById(pool, projectId);
   if (!project) return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };

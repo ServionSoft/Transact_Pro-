@@ -81,6 +81,7 @@ type ProjectDetailApiRow = Omit<ProjectListItem, "documentsCompleteCount" | "doc
     designation?: string | null;
   }>;
   deadlines: Array<{ id: string; title: string; date: string; type: string; formManaged?: boolean }>;
+  timelineNotes?: Record<string, Array<{ id?: string; body?: string; createdAt?: string; updatedAt?: string; author?: string }>>;
   metadata?: Record<string, unknown>;
 };
 
@@ -125,7 +126,7 @@ export type CalendarEventApi = {
   title: string;
   date: string;
   kind: "task" | "deadline" | "reminder" | "meeting" | "close";
-  source: "project_tasks" | "project_deadlines" | "reminder_drafts";
+  source: "project_tasks" | "project_deadlines" | "reminder_drafts" | "projects";
   isOverdue: boolean;
 };
 
@@ -245,6 +246,18 @@ function mapDetailRowToProject(row: ProjectDetailApiRow): Project {
     notes: row.notes ?? [],
     assignees: row.assignees ?? [],
     deadlines: row.deadlines ?? [],
+    timelineNotes: Object.fromEntries(
+      Object.entries(row.timelineNotes ?? {}).map(([fieldKey, notes]) => [
+        fieldKey,
+        (notes ?? []).map((n, index) => ({
+          id: n.id ?? `legacy-timeline-${fieldKey}-${index}`,
+          date: n.createdAt ?? "",
+          text: n.body ?? "",
+          author: n.author ?? "Unknown",
+          ...(n.updatedAt ? { updatedAt: n.updatedAt } : {}),
+        })),
+      ]),
+    ),
     attachments: [],
     fileFolders: [],
     ...(row.metadata ? { metadata: row.metadata } : {}),
@@ -455,6 +468,63 @@ export async function deleteProjectTaskNoteApi(
   const row = (json as { data?: { project?: unknown } }).data?.project;
   if (!row || typeof row !== "object") {
     throw new ApiRequestError("Invalid task note delete response", 500, "");
+  }
+  return mapDetailRowToProject(row as ProjectDetailApiRow);
+}
+
+export async function createProjectTimelineNoteApi(
+  projectId: string,
+  fieldKey: string,
+  body: string
+): Promise<Project> {
+  const json = await apiCall(
+    `/api/projects/${encodeURIComponent(projectId)}/timeline/${encodeURIComponent(fieldKey)}/notes`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body }),
+    }
+  );
+  const row = (json as { data?: { project?: unknown } }).data?.project;
+  if (!row || typeof row !== "object") {
+    throw new ApiRequestError("Invalid timeline note create response", 500, "");
+  }
+  return mapDetailRowToProject(row as ProjectDetailApiRow);
+}
+
+export async function updateProjectTimelineNoteApi(
+  projectId: string,
+  fieldKey: string,
+  noteId: string,
+  body: string
+): Promise<Project> {
+  const json = await apiCall(
+    `/api/projects/${encodeURIComponent(projectId)}/timeline/${encodeURIComponent(fieldKey)}/notes/${encodeURIComponent(noteId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body }),
+    }
+  );
+  const row = (json as { data?: { project?: unknown } }).data?.project;
+  if (!row || typeof row !== "object") {
+    throw new ApiRequestError("Invalid timeline note update response", 500, "");
+  }
+  return mapDetailRowToProject(row as ProjectDetailApiRow);
+}
+
+export async function deleteProjectTimelineNoteApi(
+  projectId: string,
+  fieldKey: string,
+  noteId: string
+): Promise<Project> {
+  const json = await apiCall(
+    `/api/projects/${encodeURIComponent(projectId)}/timeline/${encodeURIComponent(fieldKey)}/notes/${encodeURIComponent(noteId)}`,
+    { method: "DELETE" }
+  );
+  const row = (json as { data?: { project?: unknown } }).data?.project;
+  if (!row || typeof row !== "object") {
+    throw new ApiRequestError("Invalid timeline note delete response", 500, "");
   }
   return mapDetailRowToProject(row as ProjectDetailApiRow);
 }

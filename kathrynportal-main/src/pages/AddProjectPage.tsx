@@ -646,6 +646,8 @@ export default function AddProjectPage() {
   const linkedPrimaryContact = clientOptions.find((c) => c.id === clientId);
   const showFieldError = (key: string) =>
     submitAttempted && missingRequiredItems.some((item) => item.key === key);
+  const showFieldSuggested = (key: string) =>
+    !submitAttempted && requiredItems.some((item) => item.key === key && !item.valid);
   const invalidTimelineFieldIds = useMemo((): Partial<Record<TimelineFieldId, boolean>> => {
     if (!submitAttempted) return {};
     const out: Partial<Record<TimelineFieldId, boolean>> = {};
@@ -656,6 +658,16 @@ export default function AddProjectPage() {
     }
     return out;
   }, [submitAttempted, missingRequiredItems]);
+  const suggestedTimelineFieldIds = useMemo((): Partial<Record<TimelineFieldId, boolean>> => {
+    if (submitAttempted) return {};
+    const out: Partial<Record<TimelineFieldId, boolean>> = {};
+    for (const item of requiredItems) {
+      if (!item.valid && item.key.startsWith("timeline-")) {
+        out[item.key.slice("timeline-".length) as TimelineFieldId] = true;
+      }
+    }
+    return out;
+  }, [submitAttempted, requiredItems]);
 
   useEffect(() => {
     if (hasListingAgent2Data) setShowListingAgent2(true);
@@ -1214,7 +1226,7 @@ export default function AddProjectPage() {
           {/* General */}
           <Section title="General" tone="core" visible={currentStep === "general"} open={open.general} onToggle={() => toggle("general")}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <Field label="Property Address *" className="md:col-span-2" invalid={showFieldError("address")}>
+              <Field label="Property Address *" className="md:col-span-2" invalid={showFieldError("address")} suggested={showFieldSuggested("address")}>
                 <Input
                   value={property.address}
                   onChange={e => setProperty(p => ({ ...p, address: e.target.value }))}
@@ -1223,7 +1235,7 @@ export default function AddProjectPage() {
                   aria-invalid={showFieldError("address")}
                 />
               </Field>
-              <Field label="Next Step *" invalid={showFieldError("next-step")}>
+              <Field label="Next Step *" invalid={showFieldError("next-step")} suggested={showFieldSuggested("next-step")}>
                 <Input
                   value={nextStep}
                   onChange={e => setNextStep(e.target.value)}
@@ -1232,7 +1244,7 @@ export default function AddProjectPage() {
                   aria-invalid={showFieldError("next-step")}
                 />
               </Field>
-              <Field label="Next Step Date *" invalid={showFieldError("next-step-date")}>
+              <Field label="Next Step Date *" invalid={showFieldError("next-step-date")} suggested={showFieldSuggested("next-step-date")}>
                 <Input
                   type="date"
                   value={nextStepDate}
@@ -1270,7 +1282,7 @@ export default function AddProjectPage() {
           {showPostContractSections && (
           <Section title="Transaction Details" tone="financial" visible={currentStep === "transaction"} open={open.transaction} onToggle={() => toggle("transaction")}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <Field label="Purchase Price ($) *" invalid={showFieldError("price")}>
+              <Field label="Purchase Price ($) *" invalid={showFieldError("price")} suggested={showFieldSuggested("price")}>
                 <Input
                   value={transaction.purchasePrice}
                   onChange={e => setTransaction(p => ({ ...p, purchasePrice: sanitizeDecimal(e.target.value) }))}
@@ -1535,6 +1547,7 @@ export default function AddProjectPage() {
               context={timelineContext}
               requiredContext={timelineRequiredContext}
               invalidFieldIds={invalidTimelineFieldIds}
+              suggestedFieldIds={suggestedTimelineFieldIds}
               showCOP={showCOP}
               showSPRP={showSPRP}
               onTimelineChange={setTimeline}
@@ -1594,6 +1607,7 @@ export default function AddProjectPage() {
                     <ReviewItem label="Buyer's Agent" value={buyerAgents[0]?.name || "Not set"} />
                   )}
                   <ReviewItem label="Listing Agent" value={listingAgents[0]?.name || "Not set"} />
+                  <ReviewItem label="Sellers" value={`${sellers.filter((s) => s.name || s.email).length}/${sellers.length}`} />
                   <ReviewItem label="Escrow Officer" value={escrow.name || "Not set"} />
                   {showPostContractSections && (
                     <>
@@ -1601,7 +1615,6 @@ export default function AddProjectPage() {
                       <ReviewItem label="Buyers" value={`${buyers.filter((b) => b.name || b.email).length}/${buyers.length}`} />
                     </>
                   )}
-                  <ReviewItem label="Sellers" value={`${sellers.filter((s) => s.name || s.email).length}/${sellers.length}`} />
                 </div>
 
                 {showPostContractSections && (
@@ -1680,7 +1693,7 @@ export default function AddProjectPage() {
           <Section title="Parties" tone="parties" visible={currentStep === "parties"} open={open.parties} onToggle={() => toggle("parties")}>
           <div className="flex flex-col gap-6">
             {showPostContractSections && (
-            <div className={cn("flex flex-col gap-6", isListing ? "order-2" : "order-1")}>
+            <div className={cn("flex flex-col gap-6", isListing ? "order-3" : "order-1")}>
             <PartyGroup title="Buyer's Agent">
               <div className="mb-3">
                 <Label className="text-xs text-muted-foreground">Saved contact</Label>
@@ -1924,9 +1937,55 @@ export default function AddProjectPage() {
               </div>
               <SimpleForm value={listingAgentTC} onChange={setListingAgentTC} />
             </PartyGroup>
+
+            {/* Sellers */}
+            <PartyGroup
+              title={`Sellers (${sellers.length}/4)`}
+              action={sellers.length < 4 && (
+                <Button type="button" size="sm" variant="outline" onClick={addSeller} className="gap-1">
+                  <Plus className="w-3 h-3" /> Add Seller
+                </Button>
+              )}
+            >
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                {sellers.map((s, i) => (
+                  <div key={i} className="bg-secondary/30 rounded-lg p-3 relative">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Seller {i + 1}</p>
+                      {sellers.length > 1 && (
+                        <button type="button" onClick={() => removeSeller(i)} className="text-muted-foreground hover:text-destructive">
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="mb-3">
+                      <Label className="text-xs text-muted-foreground">Saved contact</Label>
+                      <ContactLinkPicker
+                        variant="party"
+                        defaultCreateRole="Seller"
+                        partyPlaceholder="Link seller contact…"
+                        value={s.contactId ?? ""}
+                        options={clientOptions}
+                        onValueChange={(cid) => {
+                          const opts = mergePartyClientOptions();
+                          setSellers((prev) => {
+                            const next = [...prev];
+                            next[i] = applyPersonContact(next[i] ?? blankPerson(), cid, opts);
+                            return next;
+                          });
+                        }}
+                      />
+                    </div>
+                    <PersonForm value={s} onChange={(v) => {
+                      const next = [...sellers]; next[i] = v; setSellers(next);
+                    }} />
+                  </div>
+                ))}
+              </div>
+            </PartyGroup>
             </div>
 
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <div className={cn("grid grid-cols-1 xl:grid-cols-2 gap-4", isListing ? "order-2" : "order-3")}>
             <PartyGroup title="Escrow Officer">
               <div className="mb-3">
                 <Label className="text-xs text-muted-foreground">Saved contact</Label>
@@ -1977,6 +2036,7 @@ export default function AddProjectPage() {
             </div>
 
             {showPostContractSections && (
+            <div className="order-4">
             <PartyGroup title="Lender">
               <div className="mb-3">
                 <Label className="text-xs text-muted-foreground">Saved contact</Label>
@@ -2000,56 +2060,12 @@ export default function AddProjectPage() {
                 <Field label="Company"><Input value={lender.company} onChange={e => setLender({ ...lender, company: e.target.value })} /></Field>
               </div>
             </PartyGroup>
+            </div>
             )}
-
-            {/* Sellers */}
-            <PartyGroup
-              title={`Sellers (${sellers.length}/4)`}
-              action={sellers.length < 4 && (
-                <Button type="button" size="sm" variant="outline" onClick={addSeller} className="gap-1">
-                  <Plus className="w-3 h-3" /> Add Seller
-                </Button>
-              )}
-            >
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                {sellers.map((s, i) => (
-                  <div key={i} className="bg-secondary/30 rounded-lg p-3 relative">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Seller {i + 1}</p>
-                      {sellers.length > 1 && (
-                        <button type="button" onClick={() => removeSeller(i)} className="text-muted-foreground hover:text-destructive">
-                          <X className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                    <div className="mb-3">
-                      <Label className="text-xs text-muted-foreground">Saved contact</Label>
-                      <ContactLinkPicker
-                        variant="party"
-                        defaultCreateRole="Seller"
-                        partyPlaceholder="Link seller contact…"
-                        value={s.contactId ?? ""}
-                        options={clientOptions}
-                        onValueChange={(cid) => {
-                          const opts = mergePartyClientOptions();
-                          setSellers((prev) => {
-                            const next = [...prev];
-                            next[i] = applyPersonContact(next[i] ?? blankPerson(), cid, opts);
-                            return next;
-                          });
-                        }}
-                      />
-                    </div>
-                    <PersonForm value={s} onChange={(v) => {
-                      const next = [...sellers]; next[i] = v; setSellers(next);
-                    }} />
-                  </div>
-                ))}
-              </div>
-            </PartyGroup>
 
             {/* Buyers */}
             {showPostContractSections && (
+            <div className="order-5">
             <PartyGroup
               title={`Buyers (${buyers.length}/4)`}
               action={buyers.length < 4 && (
@@ -2094,6 +2110,7 @@ export default function AddProjectPage() {
                 ))}
               </div>
             </PartyGroup>
+            </div>
             )}
           </div>
           </Section>
@@ -2124,14 +2141,19 @@ export default function AddProjectPage() {
             </div>
 
             <div
-              className={`space-y-2 rounded-md border p-2 ${
-                showFieldError("contact") ? "border-destructive/60 bg-destructive/5" : "border-transparent"
-              }`}
+              className={cn(
+                "space-y-2 rounded-md border p-2",
+                showFieldError("contact") && "border-destructive/60 bg-destructive/5",
+                showFieldSuggested("contact") && "border-amber-500/40 bg-amber-500/10",
+                !showFieldError("contact") && !showFieldSuggested("contact") && "border-transparent",
+              )}
             >
               <Label className="text-sm font-semibold">Primary Contact *</Label>
               <PrimaryContactPicker value={clientId} options={clientOptions} onValueChange={onClientChange} />
               {showFieldError("contact") ? (
                 <p className="text-xs text-destructive">Select a primary contact before saving.</p>
+              ) : showFieldSuggested("contact") ? (
+                <p className="text-xs text-amber-800 dark:text-amber-300">Select a primary contact for this transaction.</p>
               ) : null}
             </div>
 
@@ -2377,6 +2399,7 @@ function Field({
   children,
   className = "",
   invalid = false,
+  suggested = false,
 }: {
   label: string;
   hint?: string;
@@ -2384,12 +2407,17 @@ function Field({
   children: React.ReactNode;
   className?: string;
   invalid?: boolean;
+  suggested?: boolean;
 }) {
   return (
     <div
-      className={`space-y-1.5 rounded-md border p-2.5 ${
-        invalid ? "border-destructive/60 bg-destructive/5" : "border-border/70 bg-secondary/20"
-      } ${className}`}
+      className={cn(
+        "space-y-1.5 rounded-md border p-2.5",
+        invalid && "border-destructive/60 bg-destructive/5",
+        !invalid && suggested && "border-amber-500/40 bg-amber-500/10",
+        !invalid && !suggested && "border-border/70 bg-secondary/20",
+        className,
+      )}
     >
       <FieldLabelRow label={label} labelHelp={labelHelp} />
       {children}

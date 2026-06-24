@@ -9,6 +9,9 @@ import {
   createProjectTaskNote,
   updateProjectTaskNote,
   deleteProjectTaskNote,
+  createProjectTimelineNote,
+  updateProjectTimelineNote,
+  deleteProjectTimelineNote,
   createProjectNote,
   updateProjectNote,
   deleteProjectNote,
@@ -887,6 +890,67 @@ export function createProjectsController(pool: Pool, config: AppConfig) {
         res.json({ success: true, data: { project: result.project }, message: "" });
       } catch {
         res.status(500).json({ success: false, error: { code: "PROJECT_TASK_NOTE_DELETE_FAILED", message: "Could not delete task note." } });
+      }
+    },
+
+    async createTimelineNote(req: Request, res: Response): Promise<void> {
+      const body = req.body as { body?: unknown };
+      const noteBody = typeof body?.body === "string" ? body.body : "";
+      try {
+        const user = currentUser(req);
+        const result = await createProjectTimelineNote(
+          pool,
+          req.params.id,
+          req.params.fieldKey,
+          noteBody,
+          user?.id ?? null
+        );
+        if ("error" in result) {
+          res.status(result.error.status).json({ success: false, error: { code: result.error.code, message: result.error.message } });
+          return;
+        }
+        res.status(201).json({ success: true, data: { project: result.project }, message: "" });
+      } catch {
+        res.status(500).json({ success: false, error: { code: "PROJECT_TIMELINE_NOTE_CREATE_FAILED", message: "Could not create timeline note." } });
+      }
+    },
+
+    async updateTimelineNote(req: Request, res: Response): Promise<void> {
+      const body = req.body as { body?: unknown };
+      const noteBody = typeof body?.body === "string" ? body.body : "";
+      try {
+        const result = await updateProjectTimelineNote(
+          pool,
+          req.params.id,
+          req.params.fieldKey,
+          req.params.noteId,
+          noteBody
+        );
+        if ("error" in result) {
+          res.status(result.error.status).json({ success: false, error: { code: result.error.code, message: result.error.message } });
+          return;
+        }
+        res.json({ success: true, data: { project: result.project }, message: "" });
+      } catch {
+        res.status(500).json({ success: false, error: { code: "PROJECT_TIMELINE_NOTE_UPDATE_FAILED", message: "Could not update timeline note." } });
+      }
+    },
+
+    async deleteTimelineNote(req: Request, res: Response): Promise<void> {
+      try {
+        const result = await deleteProjectTimelineNote(
+          pool,
+          req.params.id,
+          req.params.fieldKey,
+          req.params.noteId
+        );
+        if ("error" in result) {
+          res.status(result.error.status).json({ success: false, error: { code: result.error.code, message: result.error.message } });
+          return;
+        }
+        res.json({ success: true, data: { project: result.project }, message: "" });
+      } catch {
+        res.status(500).json({ success: false, error: { code: "PROJECT_TIMELINE_NOTE_DELETE_FAILED", message: "Could not delete timeline note." } });
       }
     },
 

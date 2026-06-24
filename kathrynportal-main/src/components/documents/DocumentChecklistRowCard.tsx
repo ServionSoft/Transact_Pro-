@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   CloudDownload,
   Download,
@@ -9,6 +10,7 @@ import {
 import type { FileAttachment } from "@/data/mockData";
 import { DOC_STATUS_PRESETS, type DocumentStatus } from "@/data/mockData";
 import DocumentChecklistNotesPopover from "@/components/documents/DocumentChecklistNotesPopover";
+import DocumentChecklistNotesPreview from "@/components/documents/DocumentChecklistNotesPreview";
 import type { DocumentChecklistNote, DocumentChecklistRow } from "@/components/documents/documentChecklistTypes";
 import StatusBadge from "@/components/shared/StatusBadge";
 import { Badge } from "@/components/ui/badge";
@@ -80,6 +82,8 @@ export default function DocumentChecklistRowCard({
   onDeleteNote,
   onSaveNote,
 }: Props) {
+  const [notesOpen, setNotesOpen] = useState(false);
+
   return (
     <div
       className={cn(
@@ -168,6 +172,11 @@ export default function DocumentChecklistRowCard({
         </div>
       </div>
 
+      <div className="space-y-1.5">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Notes</p>
+        <DocumentChecklistNotesPreview doc={doc} onOpenAllNotes={() => setNotesOpen(true)} />
+      </div>
+
       <div className="flex flex-wrap items-center gap-1 border-t border-border/60 pt-2">
         <DocumentChecklistNotesPopover
           doc={doc}
@@ -184,6 +193,8 @@ export default function DocumentChecklistRowCard({
           onDeleteNote={onDeleteNote}
           onSaveNote={onSaveNote}
           showLabel
+          open={notesOpen}
+          onOpenChange={setNotesOpen}
         />
         <Button
           variant="outline"

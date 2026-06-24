@@ -3,7 +3,7 @@ import type { CalendarEvent } from "@/data/mockData";
 export function calendarKindLabel(type: CalendarEvent["type"]): string {
   if (type === "close") return "Close of escrow";
   if (type === "meeting") return "Meeting";
-  if (type === "task") return "Task due";
+  if (type === "task") return "Next step";
   if (type === "reminder") return "Reminder draft";
   return "Deadline";
 }

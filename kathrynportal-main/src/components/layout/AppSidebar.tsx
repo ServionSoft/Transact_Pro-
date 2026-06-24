@@ -126,13 +126,10 @@ export default function AppSidebar({ inDrawer = false, onNavigate }: AppSidebarP
   const transactionProjects = useMemo(() => projects.filter(isTransactionProject), [projects]);
 
   const localTaskUrgentCount = useMemo(() => {
-    return transactionProjects
-      .flatMap((p) => p.tasks)
-      .filter((t) => {
-        if (t.status === "Complete") return false;
-        const bucket = dueDateBucket(t.dueDate);
-        return bucket === "overdue" || bucket === "today";
-      }).length;
+    return transactionProjects.filter((p) => {
+      const bucket = dueDateBucket(p.nextStepDate);
+      return bucket === "overdue" || bucket === "today";
+    }).length;
   }, [transactionProjects]);
 
   const localDocumentAlertCount = useMemo(() => {
@@ -157,7 +154,7 @@ export default function AppSidebar({ inDrawer = false, onNavigate }: AppSidebarP
 
   const badgeTitles: Record<string, string> = {
     "/documents": "Required documents still incomplete",
-    "/tasks": "Tasks overdue or due today",
+    "/tasks": "Next steps overdue or due today",
     "/calendar": "Reminder items on calendar",
     "/email": "Failed sends in your 50 most recent emails",
   };
@@ -218,7 +215,7 @@ export default function AppSidebar({ inDrawer = false, onNavigate }: AppSidebarP
     ...(hasPermission(user, "documents.view")
       ? [{ to: "/documents", icon: Files, label: "Documents", badge: documentAlertCount } satisfies NavItem]
       : []),
-    { to: "/tasks", icon: CheckSquare, label: "Tasks", badge: taskUrgentCount },
+    { to: "/tasks", icon: CheckSquare, label: "Next steps", badge: taskUrgentCount },
     { to: "/calendar", icon: Calendar, label: "Calendar", badge: calendarAlertCount },
     { to: "/email", icon: Mail, label: "Email", badge: emailAlertCount },
     { to: "/settings", icon: Settings, label: "Settings", badge: 0 },

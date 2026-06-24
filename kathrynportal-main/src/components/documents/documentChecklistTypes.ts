@@ -1,12 +1,7 @@
 import type { DocumentStatus } from "@/data/mockData";
+import type { ThreadNote } from "@/types/threadNote";
 
-export type DocumentChecklistNote = {
-  id: string;
-  date: string;
-  text: string;
-  author: string;
-  updatedAt?: string;
-};
+export type DocumentChecklistNote = ThreadNote;
 
 export type DocumentChecklistRow = {
   id: string;

@@ -167,6 +167,7 @@ export const TIMELINE_FIELD_DEFS: TimelineFieldDef[] = [
     kind: "date",
     section: "timeline",
     order: 20,
+    defaultAnchorField: "estimatedCOE",
     isRequired: (ctx) => ctx.timelineApplies,
   },
   {

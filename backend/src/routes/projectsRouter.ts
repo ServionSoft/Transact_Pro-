@@ -105,6 +105,15 @@ export function registerProjectsRoutes(app: Express, config: AppConfig, pool: Po
   router.delete("/projects/:id/tasks/:taskId/notes/:noteId", requirePool(pool), auth, edit, (req, res) => {
     void ctrl.deleteTaskNote(req, res);
   });
+  router.post("/projects/:id/timeline/:fieldKey/notes", requirePool(pool), auth, edit, (req, res) => {
+    void ctrl.createTimelineNote(req, res);
+  });
+  router.patch("/projects/:id/timeline/:fieldKey/notes/:noteId", requirePool(pool), auth, edit, (req, res) => {
+    void ctrl.updateTimelineNote(req, res);
+  });
+  router.delete("/projects/:id/timeline/:fieldKey/notes/:noteId", requirePool(pool), auth, edit, (req, res) => {
+    void ctrl.deleteTimelineNote(req, res);
+  });
   router.post("/projects/:id/deadlines", requirePool(pool), auth, edit, (req, res) => {
     void ctrl.createDeadline(req, res);
   });

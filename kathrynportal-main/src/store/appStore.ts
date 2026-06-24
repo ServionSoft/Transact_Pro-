@@ -123,6 +123,13 @@ interface AppState {
   ) => void;
   updateProjectTaskNote: (projectId: string, taskId: string, noteId: string, text: string) => void;
   deleteProjectTaskNote: (projectId: string, taskId: string, noteId: string) => void;
+  addProjectTimelineNote: (
+    projectId: string,
+    fieldKey: string,
+    note: { id: string; date: string; text: string; author: string; updatedAt?: string }
+  ) => void;
+  updateProjectTimelineNote: (projectId: string, fieldKey: string, noteId: string, text: string) => void;
+  deleteProjectTimelineNote: (projectId: string, fieldKey: string, noteId: string) => void;
 
   // ---- Calendar / deadlines ----
   addCalendarEvent: (e: Omit<CalendarEvent, "id">) => void;
@@ -585,6 +592,47 @@ export const useAppStore = create<AppState>((set, get) => ({
               ),
             }
       ),
+    })),
+
+  addProjectTimelineNote: (projectId, fieldKey, note) =>
+    set((s) => ({
+      projects: s.projects.map((p) => {
+        if (p.id !== projectId) return p;
+        const prev = p.timelineNotes ?? {};
+        const list = prev[fieldKey] ?? [];
+        return { ...p, timelineNotes: { ...prev, [fieldKey]: [note, ...list] } };
+      }),
+    })),
+
+  updateProjectTimelineNote: (projectId, fieldKey, noteId, text) => {
+    const today = new Date().toISOString().split("T")[0];
+    set((s) => ({
+      projects: s.projects.map((p) => {
+        if (p.id !== projectId) return p;
+        const prev = p.timelineNotes ?? {};
+        const list = prev[fieldKey] ?? [];
+        return {
+          ...p,
+          timelineNotes: {
+            ...prev,
+            [fieldKey]: list.map((n) => (n.id === noteId ? { ...n, text, updatedAt: today } : n)),
+          },
+        };
+      }),
+    }));
+  },
+
+  deleteProjectTimelineNote: (projectId, fieldKey, noteId) =>
+    set((s) => ({
+      projects: s.projects.map((p) => {
+        if (p.id !== projectId) return p;
+        const prev = p.timelineNotes ?? {};
+        const list = prev[fieldKey] ?? [];
+        return {
+          ...p,
+          timelineNotes: { ...prev, [fieldKey]: list.filter((n) => n.id !== noteId) },
+        };
+      }),
     })),
 
   addCalendarEvent: (e) =>

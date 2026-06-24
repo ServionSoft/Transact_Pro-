@@ -60,7 +60,7 @@ const KIND_OPTIONS: { kind: CalendarEventApi["kind"]; label: string }[] = [
   { kind: "reminder", label: "Reminder draft" },
   { kind: "meeting", label: "Meeting" },
   { kind: "close", label: "Close of escrow" },
-  { kind: "task", label: "Task due" },
+  { kind: "task", label: "Next step" },
 ];
 
 function isValidEmail(value: string): boolean {

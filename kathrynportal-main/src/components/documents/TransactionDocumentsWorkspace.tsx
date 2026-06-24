@@ -15,6 +15,7 @@ import {
   Pencil,
 } from "lucide-react";
 import DocumentChecklistNotesPopover from "@/components/documents/DocumentChecklistNotesPopover";
+import DocumentChecklistNotesPreview from "@/components/documents/DocumentChecklistNotesPreview";
 import DocumentChecklistRowCard from "@/components/documents/DocumentChecklistRowCard";
 import type { DocumentChecklistRow } from "@/components/documents/documentChecklistTypes";
 import { motion } from "framer-motion";
@@ -188,6 +189,7 @@ export default function TransactionDocumentsWorkspace({
   const [editingDocNote, setEditingDocNote] = useState<{ docId: string; noteId: string } | null>(null);
   const [editDocNoteBody, setEditDocNoteBody] = useState("");
   const [docNoteActionKey, setDocNoteActionKey] = useState<string | null>(null);
+  const [openNotesDocId, setOpenNotesDocId] = useState<string | null>(null);
   const [poolAccessDenied, setPoolAccessDenied] = useState(false);
   const [renamingFileId, setRenamingFileId] = useState<string | null>(null);
   const [renamingTemplateId, setRenamingTemplateId] = useState<string | null>(null);
@@ -1924,12 +1926,13 @@ export default function TransactionDocumentsWorkspace({
           </div>
 
           <div className="hidden overflow-x-hidden xl:block">
-          <table className="w-full text-sm">
+          <table className="w-full table-fixed text-sm">
             <colgroup>
               <col className="w-10" />
               <col className="w-[min(28%,16rem)]" />
               <col className="w-[11rem]" />
               <col />
+              <col className="w-[min(14rem,22%)]" />
               <col className="w-[8.5rem]" />
               <col className="w-[5.25rem]" />
             </colgroup>
@@ -1950,6 +1953,7 @@ export default function TransactionDocumentsWorkspace({
                 <th className="px-3 py-2 text-left font-medium">Document</th>
                 <th className="px-3 py-2 text-left font-medium">Status</th>
                 <th className="px-3 py-2 text-left font-medium">Pool files</th>
+                <th className="px-3 py-2 text-left font-medium">Notes</th>
                 <th className="px-3 py-2 text-center font-medium">DocuSign</th>
                 <th className="px-2 py-2 text-center font-medium">Actions</th>
               </tr>
@@ -2051,6 +2055,12 @@ export default function TransactionDocumentsWorkspace({
                       </Button>
                     </div>
                   </td>
+                  <td className="max-w-0 px-3 py-1.5 align-top overflow-hidden">
+                    <DocumentChecklistNotesPreview
+                      doc={doc}
+                      onOpenAllNotes={() => setOpenNotesDocId(doc.id)}
+                    />
+                  </td>
                   <td className="px-3 py-1.5 text-center">
                     <div className="flex flex-wrap items-center justify-center gap-0.5">
                       <Button
@@ -2096,6 +2106,8 @@ export default function TransactionDocumentsWorkspace({
                         onUpdateNote={updateDocumentNote}
                         onDeleteNote={deleteDocumentNote}
                         onSaveNote={saveDocumentNote}
+                        open={openNotesDocId === doc.id}
+                        onOpenChange={(open) => setOpenNotesDocId(open ? doc.id : null)}
                       />
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -2132,7 +2144,7 @@ export default function TransactionDocumentsWorkspace({
               ))}
               <tr className="bg-secondary/20">
                 <td className="px-3 py-2" />
-                <td className="px-3 py-2" colSpan={5}>
+                <td className="px-3 py-2" colSpan={6}>
                   <div className="flex items-center gap-2">
                     <Input
                       value={newDocName}

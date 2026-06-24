@@ -1,13 +1,12 @@
 import { Link, useNavigate } from "react-router-dom";
-import { ExternalLink, FileText, Loader2, Mail, MoreHorizontal, Pencil } from "lucide-react";
+import { ExternalLink, FileText, Mail, MoreHorizontal, Pencil } from "lucide-react";
 import type { Project, ProjectStage } from "@/data/mockData";
 import StatusBadge from "@/components/shared/StatusBadge";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { projectDetailState } from "@/lib/projectDetailNavigation";
 import { getTransactionRecipientSuggestions } from "@/lib/transactionRecipientSuggestions";
 import { dueDateBucket, dueDateClass, propertyStreet } from "@/lib/transactionListUtils";
-import type { Client, ProjectTask } from "@/data/mockData";
+import type { Client } from "@/data/mockData";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,25 +17,20 @@ import { cn } from "@/lib/utils";
 
 export type TaskDashboardRowData = {
   id: string;
-  taskId: string;
-  title: string;
-  dueDate: string;
   projectId: string;
+  nextStep: string;
+  nextStepDate: string;
   clientId: string;
   propertyAddress: string;
   clientName: string;
   stage: string;
-  status: ProjectTask["status"];
   assignedTo: string;
 };
 
 type Props = {
-  task: TaskDashboardRowData;
+  row: TaskDashboardRowData;
   project?: Project;
   client?: Client;
-  completing: boolean;
-  canEdit: boolean;
-  onMarkDone: () => void;
 };
 
 function primaryEmail(project: Project | undefined, client: Client | undefined): string {
@@ -45,35 +39,29 @@ function primaryEmail(project: Project | undefined, client: Client | undefined):
   return suggestions[0]?.email ?? client?.email?.trim() ?? "";
 }
 
-export default function TaskDashboardRow({
-  task,
-  project,
-  client,
-  completing,
-  canEdit,
-  onMarkDone,
-}: Props) {
+export default function TaskDashboardRow({ row, project, client }: Props) {
   const navigate = useNavigate();
-  const dueBucket = dueDateBucket(task.dueDate);
-  const street = propertyStreet(task.propertyAddress);
+  const dueBucket = dueDateBucket(row.nextStepDate);
+  const street = propertyStreet(row.propertyAddress);
+  const stepLabel = row.nextStep?.trim() || "No next step set";
 
   const openProject = () => {
-    navigate(`/projects/${task.projectId}`);
+    navigate(`/projects/${row.projectId}`);
   };
 
-  const openTasks = () => {
-    navigate(`/projects/${task.projectId}`, { state: projectDetailState("tasks") });
+  const openOverview = () => {
+    navigate(`/projects/${row.projectId}`, { state: projectDetailState("overview") });
   };
 
   const openEmail = () => {
     const email = primaryEmail(project, client);
-    navigate(`/projects/${task.projectId}`, {
+    navigate(`/projects/${row.projectId}`, {
       state: projectDetailState("emails", { composeEmail: email || undefined }),
     });
   };
 
   const openDocuments = () => {
-    navigate(`/projects/${task.projectId}`, { state: projectDetailState("documents") });
+    navigate(`/projects/${row.projectId}`, { state: projectDetailState("documents") });
   };
 
   return (
@@ -84,74 +72,48 @@ export default function TaskDashboardRow({
         dueBucket === "today" && "border-l-2 border-l-amber-500",
       )}
     >
-      <button
-        type="button"
-        onClick={onMarkDone}
-        disabled={!canEdit || completing}
-        className={cn(
-          "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-colors sm:mt-0",
-          completing
-            ? "border-muted"
-            : "border-border hover:border-primary",
-        )}
-        aria-label="Mark complete"
-      >
-        {completing ? (
-          <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-        ) : null}
-      </button>
-
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <Link
-            to={`/projects/${task.projectId}`}
-            state={projectDetailState("tasks")}
+            to={`/projects/${row.projectId}`}
+            state={projectDetailState("overview")}
             className={cn(
               "text-sm font-medium hover:text-accent",
               dueBucket === "overdue" ? "text-destructive" : "text-foreground",
             )}
           >
-            {task.title}
+            {stepLabel}
           </Link>
-          {task.status !== "Complete" ? (
-            <Badge
-              variant="outline"
-              className={cn(
-                "text-[10px] font-semibold",
-                task.status === "In Progress"
-                  ? "border-info/40 bg-info/10 text-info"
-                  : "bg-secondary text-muted-foreground",
-              )}
-            >
-              {task.status}
-            </Badge>
-          ) : null}
         </div>
         <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
-          <Link to={`/projects/${task.projectId}`} className="font-medium text-foreground/80 hover:text-accent">
+          <Link to={`/projects/${row.projectId}`} className="font-medium text-foreground/80 hover:text-accent">
             {street}
           </Link>
           <span aria-hidden>·</span>
-          <Link to={`/clients/${task.clientId}`} className="hover:text-accent">
-            {task.clientName}
+          <Link to={`/clients/${row.clientId}`} className="hover:text-accent">
+            {row.clientName}
           </Link>
           <span aria-hidden>·</span>
-          <StatusBadge status={task.stage as ProjectStage} type="stage" className="text-[10px] px-1.5 py-0" />
+          <StatusBadge status={row.stage as ProjectStage} type="stage" className="text-[10px] px-1.5 py-0" />
         </p>
         <p className="mt-1 text-[11px] text-muted-foreground md:hidden">
-          {task.assignedTo}
+          {row.assignedTo}
           <span className="mx-1">·</span>
-          <span className={cn("tabular-nums", dueDateClass(dueBucket))}>Due {task.dueDate || "—"}</span>
+          <span className={cn("tabular-nums", dueDateClass(dueBucket))}>
+            {row.nextStepDate?.trim() ? row.nextStepDate : "No date"}
+          </span>
         </p>
       </div>
 
       <div className="hidden shrink-0 flex-col items-end gap-1 sm:flex">
-        <span className={cn("text-xs tabular-nums", dueDateClass(dueBucket))}>Due {task.dueDate || "—"}</span>
-        <span className="max-w-[140px] truncate text-[11px] text-muted-foreground">{task.assignedTo}</span>
+        <span className={cn("text-xs tabular-nums", dueDateClass(dueBucket))}>
+          {row.nextStepDate?.trim() ? row.nextStepDate : "No date"}
+        </span>
+        <span className="max-w-[140px] truncate text-[11px] text-muted-foreground">{row.assignedTo}</span>
       </div>
 
       <div className="hidden shrink-0 items-center gap-0.5 md:flex">
-        <Button type="button" size="sm" variant="ghost" className="h-8 w-8 p-0" title="Tasks on transaction" onClick={openTasks}>
+        <Button type="button" size="sm" variant="ghost" className="h-8 w-8 p-0" title="Edit next step" onClick={openOverview}>
           <Pencil className="h-3.5 w-3.5" />
         </Button>
         <Button type="button" size="sm" variant="ghost" className="h-8 w-8 p-0" title="Compose email" onClick={openEmail}>
@@ -172,15 +134,15 @@ export default function TaskDashboardRow({
             size="sm"
             variant="outline"
             className="h-10 w-10 shrink-0 p-0 md:hidden"
-            aria-label="Task actions"
+            aria-label="Next step actions"
           >
             <MoreHorizontal className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-48">
-          <DropdownMenuItem onClick={openTasks}>
+          <DropdownMenuItem onClick={openOverview}>
             <Pencil className="mr-2 h-4 w-4" />
-            Edit on transaction
+            Edit next step
           </DropdownMenuItem>
           <DropdownMenuItem onClick={openEmail}>
             <Mail className="mr-2 h-4 w-4" />

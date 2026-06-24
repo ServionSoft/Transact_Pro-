@@ -5,7 +5,7 @@ const LEGEND_ITEMS: { key: string; label: string; dotClass: string }[] = [
   { key: "reminder", label: "Reminder draft", dotClass: "bg-amber-500" },
   { key: "meeting", label: "Meeting", dotClass: "bg-info" },
   { key: "close", label: "Close of escrow", dotClass: "bg-success" },
-  { key: "task", label: "Task due", dotClass: "bg-info" },
+  { key: "task", label: "Next step", dotClass: "bg-info" },
   { key: "overdue", label: "Overdue row", dotClass: "bg-destructive ring-2 ring-destructive/30 ring-offset-1" },
 ];
 

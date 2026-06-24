@@ -161,6 +161,7 @@ export interface Project {
   notes?: { id: string; body: string; author: string; createdAt: string; updatedAt?: string }[];
   assignees?: { userId: string; name: string; email: string; designation?: string | null }[];
   deadlines: { id: string; title: string; date: string; type: string; formManaged?: boolean }[];
+  timelineNotes?: Record<string, Array<{ id?: string; body?: string; createdAt?: string; updatedAt?: string; author?: string }>>;
   attachments: FileAttachment[];
   fileFolders: ProjectFolder[];
   metadata?: Record<string, unknown>;
@@ -218,7 +219,7 @@ export interface CalendarEvent {
   propertyAddress: string;
   clientName?: string;
   clientEmail?: string;
-  source?: "project_tasks" | "project_deadlines" | "reminder_drafts";
+  source?: "project_tasks" | "project_deadlines" | "reminder_drafts" | "projects";
   isOverdue?: boolean;
 }
 
