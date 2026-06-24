@@ -34,8 +34,11 @@ function roleColors(role: EsignFieldOverlayInput["role"]): { fill: ReturnType<ty
  * Draws semi-transparent field frames + labels on a PDF (PDF points, top-left field origin like the builder).
  * Used so library downloads match the template layout; DocuSign still applies tabs from DB coordinates.
  */
+/** Brokerage PDFs (e.g. Compass CAR forms) are often encrypted; overlays only need read access. */
+const PDF_LOAD_OPTS = { ignoreEncryption: true } as const;
+
 export async function buildPdfWithEsignFieldOverlays(pdfBuffer: Buffer, fields: EsignFieldOverlayInput[]): Promise<Buffer> {
-  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  const pdfDoc = await PDFDocument.load(pdfBuffer, PDF_LOAD_OPTS);
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const pages = pdfDoc.getPages();
   const sorted = [...fields].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));

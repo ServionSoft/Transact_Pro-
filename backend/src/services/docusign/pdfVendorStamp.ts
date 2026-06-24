@@ -28,7 +28,7 @@ export async function stampVendorSignaturesOnPdf(
     return pdfBuffer;
   }
 
-  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  const pdfDoc = await PDFDocument.load(pdfBuffer, { ignoreEncryption: true });
   let image;
   if (isPng(signatureBytes)) {
     image = await pdfDoc.embedPng(signatureBytes);

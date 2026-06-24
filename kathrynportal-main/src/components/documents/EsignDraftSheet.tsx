@@ -484,8 +484,8 @@ export default function EsignDraftSheet({
     }
   };
 
-  const saveNow = async () => {
-    if (!selectedDraftId) return;
+  const saveNow = async (): Promise<boolean> => {
+    if (!selectedDraftId) return false;
     setSaving(true);
     try {
       await saveEsignDocumentApi(projectId, selectedDraftId, { fields, autosave: false });
@@ -498,8 +498,10 @@ export default function EsignDraftSheet({
         /* list already refreshed; fields stay local */
       }
       toast.success("Template saved.");
+      return true;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not save draft.");
+      return false;
     } finally {
       setSaving(false);
     }
@@ -508,7 +510,8 @@ export default function EsignDraftSheet({
   const markReady = async () => {
     if (!selectedDraftId) return;
     try {
-      await saveNow();
+      const saved = await saveNow();
+      if (!saved) return;
       await markEsignDocumentReadyApi(projectId, selectedDraftId);
       await refreshList();
       toast.success("Template marked ready for send.");
