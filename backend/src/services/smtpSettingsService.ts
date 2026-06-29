@@ -333,7 +333,15 @@ function truncateSmtpErrorMessage(message: string, maxLen = 2000): string {
 export async function sendMailWithStoredSettings(
   pool: Pool,
   config: AppConfig,
-  input: { to: string; subject: string; text: string; html?: string }
+  input: {
+    to: string | string[];
+    cc?: string | string[];
+    bcc?: string | string[];
+    subject: string;
+    text: string;
+    html?: string;
+    attachments?: Array<{ filename: string; path: string }>;
+  }
 ): Promise<{ messageId: string }> {
   const row = await getSmtpSettings(pool);
   if (!row.host.trim()) {
@@ -347,9 +355,18 @@ export async function sendMailWithStoredSettings(
       throw new Error("SMTP password is not saved. Update SMTP settings.");
     }
   }
-  const to = input.to.trim();
-  if (!isValidEmail(to)) {
-    throw new Error("Recipient must be a valid email address.");
+  const toList = (Array.isArray(input.to) ? input.to : [input.to]).map((v) => v.trim()).filter(Boolean);
+  if (toList.length === 0 || !toList.every((v) => isValidEmail(v))) {
+    throw new Error("At least one valid To recipient is required.");
+  }
+  const ccList = input.cc
+    ? (Array.isArray(input.cc) ? input.cc : [input.cc]).map((v) => v.trim()).filter(Boolean)
+    : [];
+  const bccList = input.bcc
+    ? (Array.isArray(input.bcc) ? input.bcc : [input.bcc]).map((v) => v.trim()).filter(Boolean)
+    : [];
+  if (ccList.some((v) => !isValidEmail(v)) || bccList.some((v) => !isValidEmail(v))) {
+    throw new Error("Cc and Bcc must be valid email addresses.");
   }
   const transportOpts = {
     host: row.host.trim(),
@@ -358,7 +375,7 @@ export async function sendMailWithStoredSettings(
     user,
     pass: user.length > 0 ? pass : null,
   };
-  const fromHeader = formatMailFrom(row.fromName, row.fromEmail, user.length > 0 ? user : to);
+  const fromHeader = formatMailFrom(row.fromName, row.fromEmail, user.length > 0 ? user : toList[0]!);
   const t = createSmtpTransport(transportOpts);
   const subject = input.subject.trim();
   if (!subject) {
@@ -371,10 +388,13 @@ export async function sendMailWithStoredSettings(
   try {
     const info = await t.sendMail({
       from: fromHeader,
-      to,
+      to: toList,
+      ...(ccList.length ? { cc: ccList } : {}),
+      ...(bccList.length ? { bcc: bccList } : {}),
       subject,
       text: text || undefined,
       html: input.html?.trim() || undefined,
+      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
     });
     return { messageId: (info.messageId && String(info.messageId)) || "" };
   } catch (e) {

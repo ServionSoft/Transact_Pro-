@@ -1,7 +1,10 @@
+import path from "node:path";
 import type { Pool } from "pg";
 import type { AppConfig } from "../config/env.js";
 import type { AuthUser } from "../middleware/auth.js";
 import { getSmtpSettings, sendMailWithStoredSettings } from "./smtpSettingsService.js";
+import { absolutePathForStorageKey } from "./storedFilesService.js";
+import { formatEmailAddressList, parseEmailAddressList } from "../utils/parseEmailAddressList.js";
 import {
   isContractAcceptedInMetadata,
   seedCompassProjectTasks,
@@ -87,16 +90,26 @@ function mapTaskTypeToDb(type: string): "general" | "email" | null {
   return null;
 }
 
+export type ProjectEmailAttachmentApi = {
+  id: string;
+  storedFileId: string;
+  name: string;
+  sizeBytes: number;
+};
+
 export type ProjectEmailApi = {
   id: string;
   subject: string;
   from: string;
   to: string;
+  cc?: string;
+  bcc?: string;
   date: string;
   body: string;
   direction: "inbound" | "outbound";
   deliveryStatus: "pending" | "sent" | "failed";
   deliveryError?: string | null;
+  attachments?: ProjectEmailAttachmentApi[];
 };
 
 export type ProjectNoteApi = {
@@ -1428,6 +1441,8 @@ async function getProjectEmails(pool: Pool, projectId: string): Promise<ProjectE
     subject: string;
     from_address: string;
     to_address: string;
+    cc: string | null;
+    bcc: string | null;
     body: string;
     direction: string;
     sent_at: Date | null;
@@ -1435,23 +1450,54 @@ async function getProjectEmails(pool: Pool, projectId: string): Promise<ProjectE
     delivery_status: string | null;
     delivery_error: string | null;
   }>(
-    `SELECT id::text, subject, from_address, to_address, body, direction::text, sent_at, created_at,
+    `SELECT id::text, subject, from_address, to_address, cc, bcc, body, direction::text, sent_at, created_at,
             delivery_status::text AS delivery_status, delivery_error
      FROM public.emails
      WHERE project_id = $1::bigint
      ORDER BY COALESCE(sent_at, created_at) DESC`,
     [projectId]
   );
+  const emailIds = rows.map((r) => r.id);
+  const attachmentMap = new Map<string, ProjectEmailAttachmentApi[]>();
+  if (emailIds.length > 0) {
+    const { rows: attRows } = await pool.query<{
+      email_id: string;
+      id: string;
+      stored_file_id: string;
+      display_name: string;
+      size_bytes: string;
+    }>(
+      `SELECT ea.email_id::text, ea.id::text, ea.stored_file_id::text, ea.display_name, sf.size_bytes::text
+       FROM public.email_attachments ea
+       JOIN public.stored_files sf ON sf.id = ea.stored_file_id AND sf.deleted_at IS NULL
+       WHERE ea.email_id = ANY($1::bigint[])
+       ORDER BY ea.sort_order ASC, ea.id ASC`,
+      [emailIds]
+    );
+    for (const a of attRows) {
+      const list = attachmentMap.get(a.email_id) ?? [];
+      list.push({
+        id: a.id,
+        storedFileId: a.stored_file_id,
+        name: a.display_name,
+        sizeBytes: Number(a.size_bytes) || 0,
+      });
+      attachmentMap.set(a.email_id, list);
+    }
+  }
   return rows.map((r) => ({
     id: r.id,
     subject: r.subject,
     from: r.from_address,
     to: r.to_address,
+    ...(r.cc?.trim() ? { cc: r.cc.trim() } : {}),
+    ...(r.bcc?.trim() ? { bcc: r.bcc.trim() } : {}),
     date: (r.sent_at ?? r.created_at).toISOString().split("T")[0],
     body: r.body,
     direction: r.direction === "inbound" ? "inbound" : "outbound",
     deliveryStatus: mapDeliveryStatus(r.delivery_status),
     ...(r.delivery_error?.trim() ? { deliveryError: r.delivery_error.trim() } : {}),
+    ...(attachmentMap.get(r.id)?.length ? { attachments: attachmentMap.get(r.id) } : {}),
   }));
 }
 
@@ -2633,7 +2679,16 @@ export async function createProjectEmail(
   pool: Pool,
   config: AppConfig,
   projectId: string,
-  input: { to: string; subject: string; body: string; from?: string; templateId?: string | null },
+  input: {
+    to: string | string[];
+    cc?: string | string[];
+    bcc?: string | string[];
+    subject: string;
+    body: string;
+    from?: string;
+    templateId?: string | null;
+    attachmentStoredFileIds?: string[];
+  },
   sentByUserId: string | null
 ): Promise<
   | { project: ProjectDetailApi; emailSendFailed?: boolean; emailSendError?: string }
@@ -2642,11 +2697,17 @@ export async function createProjectEmail(
   if (!/^\d+$/.test(projectId)) {
     return { error: { status: 404, code: "PROJECT_NOT_FOUND", message: "Project not found." } };
   }
-  const to = normalizeText(input.to);
+  const toList = parseEmailAddressList(input.to);
+  const ccList = parseEmailAddressList(input.cc ?? []);
+  const bccList = parseEmailAddressList(input.bcc ?? []);
   const subject = normalizeText(input.subject);
   const body = normalizeText(input.body);
-  if (!to || !subject || !body) {
+  if (toList.length === 0 || !subject || !body) {
     return { error: { status: 400, code: "PROJECT_EMAIL_INVALID", message: "To, subject, and body are required." } };
+  }
+  const attachmentIds = (input.attachmentStoredFileIds ?? []).filter((id) => /^\d+$/.test(id));
+  if (attachmentIds.length > 10) {
+    return { error: { status: 400, code: "PROJECT_EMAIL_TOO_MANY_ATTACHMENTS", message: "Maximum 10 attachments per email." } };
   }
   const smtp = await getSmtpSettings(pool);
   if (!smtp.host.trim()) {
@@ -2676,30 +2737,109 @@ export async function createProjectEmail(
     sentByUserId && /^\d+$/.test(sentByUserId) ? sentByUserId : null;
   const templateId =
     input.templateId && /^\d+$/.test(input.templateId) ? input.templateId : null;
+  const toStored = formatEmailAddressList(toList);
+  const ccStored = ccList.length ? formatEmailAddressList(ccList) : null;
+  const bccStored = bccList.length ? formatEmailAddressList(bccList) : null;
+
+  let resolvedAttachments: Array<{ storedFileId: string; filename: string; path: string; sizeBytes: number }> = [];
+  if (attachmentIds.length > 0) {
+    const { rows: fileRows } = await pool.query<{
+      id: string;
+      name: string;
+      storage_key: string;
+      size_bytes: string;
+      source: string;
+    }>(
+      `SELECT id::text, name, storage_key, size_bytes::text, source::text
+       FROM public.stored_files
+       WHERE project_id = $1::bigint
+         AND id = ANY($2::bigint[])
+         AND deleted_at IS NULL
+         AND storage_scope = 'transaction'::public.file_storage_scope`,
+      [projectId, attachmentIds]
+    );
+    if (fileRows.length !== attachmentIds.length) {
+      return {
+        error: {
+          status: 400,
+          code: "PROJECT_EMAIL_ATTACHMENT_INVALID",
+          message: "One or more attachments are invalid for this transaction.",
+        },
+      };
+    }
+    const uploadDirAbs = path.resolve(config.uploadDir);
+    let totalBytes = 0;
+    resolvedAttachments = [];
+    for (const f of fileRows) {
+      if (f.source !== "email_outbound") {
+        return {
+          error: {
+            status: 400,
+            code: "PROJECT_EMAIL_ATTACHMENT_INVALID",
+            message: "Attachments must be uploaded from the email compose window.",
+          },
+        };
+      }
+      const size = Number(f.size_bytes) || 0;
+      totalBytes += size;
+      resolvedAttachments.push({
+        storedFileId: f.id,
+        filename: f.name,
+        path: absolutePathForStorageKey(uploadDirAbs, f.storage_key),
+        sizeBytes: size,
+      });
+    }
+    if (totalBytes > 25 * 1024 * 1024) {
+      return {
+        error: {
+          status: 400,
+          code: "PROJECT_EMAIL_ATTACHMENT_TOO_LARGE",
+          message: "Total attachment size cannot exceed 25 MB.",
+        },
+      };
+    }
+  }
+
   const ins = await pool.query<{ id: string }>(
-      `INSERT INTO public.emails (
+    `INSERT INTO public.emails (
        project_id, client_id, template_id, direction, subject, body, from_address, to_address,
        cc, bcc, gmail_message_id, sent_by_user_id, sent_at, delivery_status, delivery_error, smtp_message_id,
        created_at, updated_at
      ) VALUES (
        $1::bigint, NULL, $2::bigint, 'outbound'::public.email_direction, $3, $4, $5, $6,
-       NULL, NULL, NULL, $7::bigint, NULL, 'pending'::public.email_delivery_status, NULL, NULL,
+       $7, $8, NULL, $9::bigint, NULL, 'pending'::public.email_delivery_status, NULL, NULL,
        now(), now()
      )
      RETURNING id::text`,
-    [projectId, templateId, subject, body, fromAddress, to, sentBy]
+    [projectId, templateId, subject, body, fromAddress, toStored, ccStored, bccStored, sentBy]
   );
   const emailId = ins.rows[0]?.id;
   if (!emailId) {
     return { error: { status: 500, code: "PROJECT_EMAIL_INSERT_FAILED", message: "Could not create email row." } };
   }
+
+  for (let i = 0; i < resolvedAttachments.length; i++) {
+    const att = resolvedAttachments[i]!;
+    await pool.query(
+      `INSERT INTO public.email_attachments (email_id, stored_file_id, display_name, sort_order)
+       VALUES ($1::bigint, $2::bigint, $3, $4)`,
+      [emailId, att.storedFileId, att.filename.slice(0, 512), i]
+    );
+  }
+
   try {
     const htmlBody = body.includes("<") ? body : `<p>${body.replace(/\n/g, "<br/>")}</p>`;
+    const plainText = body.includes("<") ? body.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() : body;
     const { messageId } = await sendMailWithStoredSettings(pool, config, {
-      to,
+      to: toList,
+      ...(ccList.length ? { cc: ccList } : {}),
+      ...(bccList.length ? { bcc: bccList } : {}),
       subject,
-      text: body,
+      text: plainText || body,
       html: htmlBody,
+      ...(resolvedAttachments.length
+        ? { attachments: resolvedAttachments.map((a) => ({ filename: a.filename, path: a.path })) }
+        : {}),
     });
     await pool.query(
       `UPDATE public.emails SET

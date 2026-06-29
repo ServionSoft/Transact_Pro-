@@ -108,6 +108,10 @@ export function createStoredFilesController(deps: StoredFilesControllerDeps) {
         return;
       }
 
+      const rawSource = typeof req.body?.source === "string" ? req.body.source.trim() : "";
+      const fileSource =
+        rawSource === "email_outbound" ? ("email_outbound" as const) : ("manual_upload" as const);
+
       const displayName = file.originalname.slice(0, 512);
       const client = await pool.connect();
       try {
@@ -120,6 +124,7 @@ export function createStoredFilesController(deps: StoredFilesControllerDeps) {
           sizeBytes: file.size,
           mimeType: file.mimetype || "application/octet-stream",
           uploadedByUserId: config.defaultUploadUserId ?? null,
+          source: fileSource,
         });
         await client.query("COMMIT");
         const base = publicBaseFromRequest(req);

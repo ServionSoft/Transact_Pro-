@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { ChevronDown, Send } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { useAppStore } from "@/store/appStore";
 import { isTransactionProject, type EmailThread } from "@/data/mockData";
 import {
@@ -15,9 +15,6 @@ import { listEmailTemplatesFromApi } from "@/api/emailTemplates";
 import { getApiBaseUrl } from "@/lib/apiConfig";
 import { useAuthStore } from "@/store/authStore";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { getTransactionRecipientSuggestions } from "@/lib/transactionRecipientSuggestions";
@@ -26,12 +23,18 @@ import {
   buildTransactionDocumentList,
   TRANSACTION_EMAIL_TOKENS,
 } from "@/lib/emailTemplateTokens";
+import { emptyEmailComposeDraft, type EmailComposeDraft } from "@/types/emailCompose";
+import { isValidEmailAddress } from "@/lib/emailAddressList";
+import { emailBodyLooksLikeHtml } from "@/lib/emailHtmlUtils";
+import EmailComposePanel from "@/components/email/EmailComposePanel";
 import { cn } from "@/lib/utils";
 
 const EMAIL_TOKENS = TRANSACTION_EMAIL_TOKENS;
 
-function isValidEmail(value: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+function bodyToEditorHtml(body: string): string {
+  if (!body.trim()) return "";
+  if (emailBodyLooksLikeHtml(body)) return body;
+  return body.replace(/\n/g, "<br/>");
 }
 
 type SidebarEmail = EmailThread & { projectLabel?: string };
@@ -71,10 +74,12 @@ export default function EmailPage() {
   const [recentSidebarEmails, setRecentSidebarEmails] = useState<SidebarEmail[]>([]);
   const [loadingRecentEmails, setLoadingRecentEmails] = useState(false);
 
-  const [to, setTo] = useState(toParam);
-  const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
-  const [selectedTemplate, setSelectedTemplate] = useState("");
+  const [composeDraft, setComposeDraft] = useState<EmailComposeDraft>(() =>
+    emptyEmailComposeDraft({
+      to: toParam.trim() && isValidEmailAddress(toParam) ? [toParam.trim().toLowerCase()] : [],
+    }),
+  );
+  const [sending, setSending] = useState(false);
   const [selectedProject, setSelectedProject] = useState("");
   const [selectedProjectDocList, setSelectedProjectDocList] = useState<string>("• [Documents listed here]");
   const [tokensOpen, setTokensOpen] = useState(false);
@@ -92,12 +97,6 @@ export default function EmailPage() {
     () => getTransactionRecipientSuggestions(linkedProjectForRecipients, linkedClientForRecipients),
     [linkedProjectForRecipients, linkedClientForRecipients],
   );
-
-  const toMatchesSuggestion = useMemo(() => {
-    const t = to.trim().toLowerCase();
-    if (!t) return false;
-    return toRecipientSuggestions.some((s) => s.email.toLowerCase() === t);
-  }, [to, toRecipientSuggestions]);
 
   useEffect(() => {
     if (!apiOn) {
@@ -219,9 +218,14 @@ export default function EmailPage() {
     const selected = transactionOptions.find((p) => p.id === projectId);
     if (!selected) return;
     const linkedClient = clients.find((c) => c.id === selected.clientId);
-    setTo(linkedClient?.email?.trim() || "");
+    const clientEmail = linkedClient?.email?.trim();
     const localProject = transactionProjects.find((p) => p.id === projectId);
     setSelectedProjectDocList(buildTransactionDocumentList(localProject));
+    setComposeDraft((prev) => ({
+      ...prev,
+      to: clientEmail && isValidEmailAddress(clientEmail) ? [clientEmail.toLowerCase()] : [],
+      attachments: [],
+    }));
     if (apiOn) {
       try {
         const full = await getProjectFromApi(projectId);
@@ -236,12 +240,15 @@ export default function EmailPage() {
   const applyTemplate = (templateId: string) => {
     const tpl = emailTemplates.find((t) => t.id === templateId);
     if (!tpl) return;
-    setSelectedTemplate(templateId);
 
     const option = transactionOptions.find((p) => p.id === selectedProject);
     if (!option) {
-      setSubject(tpl.subject.replace(/\\n/g, "\n"));
-      setBody(tpl.body.replace(/\\n/g, "\n"));
+      setComposeDraft((prev) => ({
+        ...prev,
+        templateId,
+        subject: tpl.subject.replace(/\\n/g, "\n"),
+        body: bodyToEditorHtml(tpl.body.replace(/\\n/g, "\n")),
+      }));
       return;
     }
     const fullProject = transactionProjects.find((p) => p.id === selectedProject);
@@ -258,12 +265,16 @@ export default function EmailPage() {
     const client = clients.find((c) => c.id === option.clientId);
     const docList = buildTransactionDocumentList(fullProject) || selectedProjectDocList;
     const { subject: subj, body: bd } = applyEmailTemplateToCompose(tpl, projectForTokens, client, docList);
-    setSubject(subj);
-    setBody(bd);
+    setComposeDraft((prev) => ({
+      ...prev,
+      templateId,
+      subject: subj,
+      body: bodyToEditorHtml(bd),
+    }));
   };
 
   const handleSend = async () => {
-    if (!to || !subject) {
+    if (composeDraft.to.length === 0 || !composeDraft.subject.trim()) {
       toast.error("Please fill in recipient and subject.");
       return;
     }
@@ -271,18 +282,23 @@ export default function EmailPage() {
       toast.error("Please link a transaction before sending.");
       return;
     }
-    if (!isValidEmail(to)) {
-      toast.error("Recipient email is invalid.");
+    if (composeDraft.to.some((e) => !isValidEmailAddress(e))) {
+      toast.error("One or more recipient emails are invalid.");
       return;
     }
     try {
       if (apiOn && selectedProject) {
+        setSending(true);
         const { project: updated, emailSendFailed, emailSendError } = await createProjectEmailApi(selectedProject, {
-          to,
-          subject,
-          body,
-          from: user?.email || undefined,
-          ...(selectedTemplate ? { templateId: selectedTemplate } : {}),
+          to: composeDraft.to,
+          cc: composeDraft.cc,
+          bcc: composeDraft.bcc,
+          subject: composeDraft.subject,
+          body: composeDraft.body,
+          ...(composeDraft.templateId ? { templateId: composeDraft.templateId } : {}),
+          ...(composeDraft.attachments.length
+            ? { attachmentStoredFileIds: composeDraft.attachments.map((a) => a.storedFileId) }
+            : {}),
         });
         upsertProject(updated);
         void listRecentEmailsFromApi(50)
@@ -293,18 +309,22 @@ export default function EmailPage() {
             description: emailSendError ?? "Check Settings → Email / SMTP.",
           });
         } else {
-          toast.success("Email sent!", { description: `Email sent to ${to}` });
+          toast.success("Email sent!", { description: `Email sent to ${composeDraft.to.join(", ")}` });
         }
       } else {
-        sendEmail({ to, subject, body, projectId: selectedProject || undefined });
-        toast.success("Email sent!", { description: `Email sent to ${to}` });
+        sendEmail({
+          to: composeDraft.to.join(", "),
+          subject: composeDraft.subject,
+          body: composeDraft.body,
+          projectId: selectedProject || undefined,
+        });
+        toast.success("Email sent!", { description: `Email sent to ${composeDraft.to.join(", ")}` });
       }
-      setTo("");
-      setSubject("");
-      setBody("");
-      setSelectedTemplate("");
+      setComposeDraft(emptyEmailComposeDraft());
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not send email.");
+    } finally {
+      setSending(false);
     }
   };
 
@@ -353,118 +373,50 @@ export default function EmailPage() {
         <div className="rounded-lg border border-border bg-card p-4 sm:p-5 xl:col-span-2">
           <h3 className="mb-3 font-display text-sm font-semibold text-foreground sm:text-base">Compose Email</h3>
           <div className="space-y-3 sm:space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Link to transaction</label>
-                <Select value={selectedProject} onValueChange={(v) => { void handleProjectChange(v); }}>
-                  <SelectTrigger>
-                    <SelectValue placeholder={loadingTransactions ? "Loading transactions..." : "Select transaction..."} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {transactionOptions.map(p => (
-                      <SelectItem key={p.id} value={p.id}>{p.propertyAddress.split(",")[0]} — {p.clientName}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Use Template</label>
-                <Select value={selectedTemplate} onValueChange={applyTemplate}>
-                  <SelectTrigger><SelectValue placeholder={loadingTemplates ? "Loading templates..." : "Choose a template..."} /></SelectTrigger>
-                  <SelectContent>
-                    {emailTemplates.map(t => (
-                      <SelectItem key={t.id} value={t.id}>{t.name} ({t.category})</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <button
-                  type="button"
-                  className="flex w-full items-center justify-between rounded-md border border-border/60 bg-muted/20 px-2.5 py-2 text-left text-xs text-muted-foreground sm:hidden"
-                  onClick={() => setTokensOpen((v) => !v)}
-                  aria-expanded={tokensOpen}
-                >
-                  <span>Available tokens</span>
-                  <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition-transform", tokensOpen && "rotate-180")} />
-                </button>
-                <div className={cn("flex flex-wrap gap-1.5", !tokensOpen && "hidden sm:flex")}>
-                  {EMAIL_TOKENS.map((token) => (
-                    <span
-                      key={token}
-                      className="rounded border border-border bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
-                    >
-                      {token}
-                    </span>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Link to transaction</label>
+              <Select value={selectedProject} onValueChange={(v) => { void handleProjectChange(v); }}>
+                <SelectTrigger>
+                  <SelectValue placeholder={loadingTransactions ? "Loading transactions..." : "Select transaction..."} />
+                </SelectTrigger>
+                <SelectContent>
+                  {transactionOptions.map(p => (
+                    <SelectItem key={p.id} value={p.id}>{p.propertyAddress.split(",")[0]} — {p.clientName}</SelectItem>
                   ))}
-                </div>
-              </div>
+                </SelectContent>
+              </Select>
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">To</label>
-              {toRecipientSuggestions.length > 0 ? (
-                <Select
-                  value={toMatchesSuggestion ? to.trim() : undefined}
-                  onValueChange={(v) => setTo(v)}
+            <button
+              type="button"
+              className="flex w-full items-center justify-between rounded-md border border-border/60 bg-muted/20 px-2.5 py-2 text-left text-xs text-muted-foreground sm:hidden"
+              onClick={() => setTokensOpen((v) => !v)}
+              aria-expanded={tokensOpen}
+            >
+              <span>Available tokens</span>
+              <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition-transform", tokensOpen && "rotate-180")} />
+            </button>
+            <div className={cn("flex flex-wrap gap-1.5", !tokensOpen && "hidden sm:flex")}>
+              {EMAIL_TOKENS.map((token) => (
+                <span
+                  key={token}
+                  className="rounded border border-border bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
                 >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Choose recipient from this transaction…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {toRecipientSuggestions.map((row) => (
-                      <SelectItem key={row.email} value={row.email}>
-                        <span className="font-medium">{row.label}</span>
-                        <span className="text-muted-foreground"> · {row.email}</span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : null}
-              <Input
-                value={to}
-                onChange={(e) => setTo(e.target.value)}
-                placeholder="recipient@email.com"
-                autoComplete="off"
-              />
-              <p className="text-[11px] text-muted-foreground sm:hidden">
-                {selectedProject
-                  ? "Choose from the list or type any address."
-                  : "Pick a transaction first."}
-              </p>
-              <p className="hidden text-[11px] text-muted-foreground sm:block">
-                {selectedProject
-                  ? "Use the list for contact, parties on the file (buyers, sellers, agents, escrow, TCs), and assigned team—or type any address above."
-                  : "Choose a transaction to enable the recipient list (saved parties and assignees on that file)."}
-              </p>
+                  {token}
+                </span>
+              ))}
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Subject</label>
-              <Input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Email subject..." />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Email</label>
-              <Textarea
-                value={body}
-                onChange={(e) => setBody(e.target.value)}
-                rows={6}
-                placeholder="Write your email..."
-                className="max-h-48 resize-y sm:max-h-none sm:min-h-[15rem]"
-              />
-            </div>
-            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:gap-3">
-              <Button
-                variant="outline"
-                className="h-11 w-full sm:h-10 sm:w-auto"
-                onClick={() => {
-                  setTo("");
-                  setSubject("");
-                  setBody("");
-                }}
-              >
-                Clear
-              </Button>
-              <Button onClick={handleSend} className="h-11 w-full gap-2 sm:h-10 sm:w-auto">
-                <Send className="h-4 w-4" /> Send Email
-              </Button>
-            </div>
+            <EmailComposePanel
+              draft={composeDraft}
+              onDraftChange={setComposeDraft}
+              suggestions={toRecipientSuggestions}
+              projectId={selectedProject || undefined}
+              emailTemplates={emailTemplates}
+              loadingTemplates={loadingTemplates}
+              onApplyTemplate={applyTemplate}
+              sending={sending}
+              onSend={() => void handleSend()}
+              onCancel={() => setComposeDraft(emptyEmailComposeDraft())}
+            />
           </div>
         </div>
 

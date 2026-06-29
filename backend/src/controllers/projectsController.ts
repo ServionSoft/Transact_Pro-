@@ -637,19 +637,48 @@ export function createProjectsController(pool: Pool, config: AppConfig) {
     },
 
     async createEmail(req: Request, res: Response): Promise<void> {
-      const body = req.body as { to?: unknown; subject?: unknown; body?: unknown; from?: unknown; templateId?: unknown };
-      const to = typeof body?.to === "string" ? body.to : "";
+      const body = req.body as {
+        to?: unknown;
+        cc?: unknown;
+        bcc?: unknown;
+        subject?: unknown;
+        body?: unknown;
+        from?: unknown;
+        templateId?: unknown;
+        attachmentStoredFileIds?: unknown;
+      };
+      const to = body?.to;
+      const cc = body?.cc;
+      const bcc = body?.bcc;
       const subject = typeof body?.subject === "string" ? body.subject : "";
       const emailBody = typeof body?.body === "string" ? body.body : "";
       const from = typeof body?.from === "string" ? body.from : "";
       const templateId = typeof body?.templateId === "string" ? body.templateId : "";
+      const attachmentStoredFileIds = Array.isArray(body?.attachmentStoredFileIds)
+        ? body.attachmentStoredFileIds.filter((id): id is string => typeof id === "string")
+        : undefined;
+      const toInput: string | string[] =
+        typeof to === "string" || Array.isArray(to) ? (to as string | string[]) : "";
+      const ccInput: string | string[] | undefined =
+        typeof cc === "string" || Array.isArray(cc) ? (cc as string | string[]) : undefined;
+      const bccInput: string | string[] | undefined =
+        typeof bcc === "string" || Array.isArray(bcc) ? (bcc as string | string[]) : undefined;
       try {
         const user = currentUser(req);
         const result = await createProjectEmail(
           pool,
           config,
           req.params.id,
-          { to, subject, body: emailBody, from, templateId },
+          {
+            to: toInput,
+            cc: ccInput,
+            bcc: bccInput,
+            subject,
+            body: emailBody,
+            from,
+            templateId,
+            attachmentStoredFileIds,
+          },
           user?.id ?? null
         );
         if ("error" in result) {

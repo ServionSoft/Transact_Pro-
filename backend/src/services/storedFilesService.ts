@@ -109,6 +109,7 @@ export async function listFiles(
      WHERE sf.project_id = $1
        AND sf.deleted_at IS NULL
        AND sf.storage_scope = 'transaction'
+       AND sf.source IS DISTINCT FROM 'email_outbound'::public.file_source
      ORDER BY sf.created_at DESC`,
     [projectId]
   );
@@ -161,7 +162,7 @@ export async function insertStoredFile(
     mimeType: string;
     uploadedByUserId: number | null;
     /** Defaults to manual_upload */
-    source?: "manual_upload" | "docusign_signed_return" | "google_drive_sync" | "email_inbound";
+    source?: "manual_upload" | "docusign_signed_return" | "google_drive_sync" | "email_inbound" | "email_outbound";
   }
 ): Promise<FileRowOut> {
   const { rows } = await client.query<{

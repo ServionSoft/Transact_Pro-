@@ -103,16 +103,26 @@ export interface ProjectTask {
   notes?: { id: string; date: string; text: string; author: string; updatedAt?: string }[];
 }
 
+export interface EmailThreadAttachment {
+  id: string;
+  storedFileId: string;
+  name: string;
+  sizeBytes: number;
+}
+
 export interface EmailThread {
   id: string;
   subject: string;
   from: string;
   to: string;
+  cc?: string;
+  bcc?: string;
   date: string;
   body: string;
   direction: "inbound" | "outbound";
   deliveryStatus?: "pending" | "sent" | "failed";
   deliveryError?: string | null;
+  attachments?: EmailThreadAttachment[];
 }
 
 export interface FileAttachment {

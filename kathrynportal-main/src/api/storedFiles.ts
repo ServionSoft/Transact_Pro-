@@ -161,8 +161,21 @@ export async function uploadProjectStoredFile(
   file: File,
   folderId: string | null
 ): Promise<FileAttachment> {
+  return uploadProjectStoredFileWithOptions(projectId, file, { folderId });
+}
+
+export async function uploadProjectStoredFileForEmail(projectId: string, file: File): Promise<FileAttachment> {
+  return uploadProjectStoredFileWithOptions(projectId, file, { source: "email_outbound" });
+}
+
+async function uploadProjectStoredFileWithOptions(
+  projectId: string,
+  file: File,
+  options: { folderId?: string | null; source?: "email_outbound" }
+): Promise<FileAttachment> {
   const fd = new FormData();
-  if (folderId) fd.append("folder_id", folderId);
+  if (options.folderId) fd.append("folder_id", options.folderId);
+  if (options.source === "email_outbound") fd.append("source", "email_outbound");
   fd.append("file", file);
   const res = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}/stored-files`, {
     method: "POST",
@@ -275,4 +288,32 @@ export async function createProjectFileFolder(
   const folder = mapFolderDto(data);
   if (folder) return folder;
   throw new ApiRequestError("Create folder: invalid response", res.status);
+}
+
+export async function downloadProjectStoredFile(
+  projectId: string,
+  fileId: string,
+  filename: string
+): Promise<void> {
+  const base = getApiBaseUrl();
+  if (!base) throw new Error("API is not configured.");
+  const url = `${base.replace(/\/+$/, "")}/api/projects/${encodeURIComponent(projectId)}/stored-files/${encodeURIComponent(fileId)}/download`;
+  const res = await authFetch(url);
+  if (!res.ok) {
+    let msg = `Download failed (${res.status}).`;
+    try {
+      const j = (await res.json()) as { error?: { message?: string } };
+      if (j?.error?.message) msg = j.error.message;
+    } catch {
+      /* ignore */
+    }
+    throw new ApiRequestError(msg, res.status);
+  }
+  const blob = await res.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = objectUrl;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(objectUrl);
 }

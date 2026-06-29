@@ -1,19 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
-import { Mail, Reply, Send, Trash2 } from "lucide-react";
+import { Mail, Reply, Trash2 } from "lucide-react";
 import type { EmailThread, Project } from "@/data/mockData";
+import type { EmailComposeDraft } from "@/types/emailCompose";
 import { listEmailTemplatesFromApi } from "@/api/emailTemplates";
+import EmailComposePanel from "@/components/email/EmailComposePanel";
+import EmailThreadBody from "@/components/email/EmailThreadBody";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import TransactionComposeRecipientField from "@/components/transactions/detail/TransactionComposeRecipientField";
 import { applyEmailTemplateToCompose } from "@/lib/emailTemplateTokens";
 import { getApiBaseUrl } from "@/lib/apiConfig";
 import type { TransactionRecipientSuggestion } from "@/lib/transactionRecipientSuggestions";
 import { useAppStore } from "@/store/appStore";
 import { listPageBodyClass, transactionTabCardClass } from "@/lib/listPageLayout";
+import { emailBodyLooksLikeHtml } from "@/lib/emailHtmlUtils";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -21,21 +20,16 @@ type Props = {
   project: Project;
   emails: EmailThread[];
   suggestions: TransactionRecipientSuggestion[];
-  defaultRecipient: string;
   showCompose: boolean;
   onToggleCompose: () => void;
-  composeTo: string;
-  onComposeToChange: (value: string) => void;
-  composeSubject: string;
-  onComposeSubjectChange: (value: string) => void;
-  composeBody: string;
-  onComposeBodyChange: (value: string) => void;
-  onSend: (options?: { templateId?: string }) => void;
+  composeDraft: EmailComposeDraft;
+  onComposeDraftChange: (draft: EmailComposeDraft) => void;
+  onSend: () => void;
   onCancelCompose: () => void;
   onReply: (email: EmailThread) => void;
   onDeleteEmail: (emailId: string) => void;
   canDelete: boolean;
-  initialTemplateId?: string;
+  sending?: boolean;
 };
 
 function directionBadgeClass(direction: EmailThread["direction"]): string {
@@ -50,25 +44,26 @@ function deliveryBadgeClass(status: NonNullable<EmailThread["deliveryStatus"]> |
   return "bg-destructive/15 text-destructive border-destructive/30";
 }
 
+function bodyToEditorHtml(body: string): string {
+  if (!body.trim()) return "";
+  if (emailBodyLooksLikeHtml(body)) return body;
+  return body.replace(/\n/g, "<br/>");
+}
+
 export default function TransactionEmailsTab({
   project,
   emails,
   suggestions,
-  defaultRecipient,
   showCompose,
   onToggleCompose,
-  composeTo,
-  onComposeToChange,
-  composeSubject,
-  onComposeSubjectChange,
-  composeBody,
-  onComposeBodyChange,
+  composeDraft,
+  onComposeDraftChange,
   onSend,
   onCancelCompose,
   onReply,
   onDeleteEmail,
   canDelete,
-  initialTemplateId = "",
+  sending = false,
 }: Props) {
   const apiOn = Boolean(getApiBaseUrl());
   const clients = useAppStore((s) => s.clients);
@@ -78,11 +73,7 @@ export default function TransactionEmailsTab({
     () => clients.find((c) => c.id === project.clientId),
     [clients, project.clientId]
   );
-  const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [loadingTemplates, setLoadingTemplates] = useState(false);
-
-  const defaultSubject = `Re: ${project.propertyAddress}`;
-  const subjectValue = composeSubject.trim() || defaultSubject;
 
   useEffect(() => {
     if (!apiOn) return;
@@ -107,23 +98,16 @@ export default function TransactionEmailsTab({
     };
   }, [apiOn, setEmailTemplates]);
 
-  useEffect(() => {
-    if (!showCompose) {
-      setSelectedTemplateId("");
-      return;
-    }
-    if (initialTemplateId) {
-      setSelectedTemplateId(initialTemplateId);
-    }
-  }, [showCompose, initialTemplateId]);
-
   const applyTemplate = (templateId: string) => {
     const tpl = emailTemplates.find((t) => t.id === templateId);
     if (!tpl) return;
-    setSelectedTemplateId(templateId);
     const { subject, body } = applyEmailTemplateToCompose(tpl, project, linkedClient);
-    onComposeSubjectChange(subject);
-    onComposeBodyChange(body);
+    onComposeDraftChange({
+      ...composeDraft,
+      templateId,
+      subject,
+      body: bodyToEditorHtml(body),
+    });
   };
 
   const summary = useMemo(() => {
@@ -151,12 +135,7 @@ export default function TransactionEmailsTab({
               {summary.total} email{summary.total === 1 ? "" : "s"} on this file
             </p>
           </div>
-          <Button
-            type="button"
-            size="sm"
-            className="h-8 gap-1.5 shrink-0"
-            onClick={onToggleCompose}
-          >
+          <Button type="button" size="sm" className="h-8 gap-1.5 shrink-0" onClick={onToggleCompose}>
             <Mail className="h-3.5 w-3.5" />
             {showCompose ? "Hide compose" : "Compose email"}
           </Button>
@@ -184,81 +163,20 @@ export default function TransactionEmailsTab({
 
       <div className={listPageBodyClass}>
         {showCompose ? (
-          <div className="space-y-3 border-b border-border bg-muted/20 px-4 py-4 sm:px-5">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">New email</p>
-            <TransactionComposeRecipientField
-              value={composeTo || defaultRecipient}
-              onChange={onComposeToChange}
+          <div className="border-b border-border bg-muted/20 px-4 py-4 sm:px-5">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">New email</p>
+            <EmailComposePanel
+              draft={composeDraft}
+              onDraftChange={onComposeDraftChange}
               suggestions={suggestions}
+              projectId={project.id}
+              emailTemplates={emailTemplates}
+              loadingTemplates={loadingTemplates}
+              onApplyTemplate={applyTemplate}
+              sending={sending}
+              onSend={onSend}
+              onCancel={onCancelCompose}
             />
-            <div className="space-y-2">
-              <Label htmlFor="compose-template" className="text-sm font-medium text-foreground">
-                Use template
-              </Label>
-              <Select
-                value={selectedTemplateId || undefined}
-                onValueChange={applyTemplate}
-              >
-                <SelectTrigger id="compose-template">
-                  <SelectValue
-                    placeholder={
-                      loadingTemplates
-                        ? "Loading templates…"
-                        : emailTemplates.length === 0
-                          ? "No templates — add in Settings"
-                          : "Choose a template…"
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {emailTemplates.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {t.name} ({t.category})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-[11px] text-muted-foreground">
-                Tokens: {"{{agent_name}}"} {"{{client_name}}"} {"{{property_address}}"} {"{{stage_name}}"} {"{{deadline_name}}"} {"{{deadline_date}}"} {"{{next_step}}"} {"{{list_price}}"} {"{{today_date}}"}
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="compose-subject" className="text-sm font-medium text-foreground">
-                Subject
-              </Label>
-              <Input
-                id="compose-subject"
-                value={subjectValue}
-                onChange={(e) => onComposeSubjectChange(e.target.value)}
-                placeholder={defaultSubject}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="compose-body" className="text-sm font-medium text-foreground">
-                Email
-              </Label>
-              <Textarea
-                id="compose-body"
-                placeholder="Write your email…"
-                rows={4}
-                className="min-h-[100px] max-h-48 resize-y"
-                value={composeBody}
-                onChange={(e) => onComposeBodyChange(e.target.value)}
-              />
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={onCancelCompose}>
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                className="gap-1.5"
-                onClick={() => onSend({ templateId: selectedTemplateId || undefined })}
-              >
-                <Send className="h-3.5 w-3.5" /> Send
-              </Button>
-            </div>
           </div>
         ) : null}
 
@@ -328,7 +246,9 @@ export default function TransactionEmailsTab({
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     {email.direction === "outbound" ? `To: ${email.to}` : `From: ${email.from}`}
                   </p>
-                  <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{email.body}</p>
+                  <div className="mt-2">
+                    <EmailThreadBody email={email} projectId={project.id} />
+                  </div>
                   {email.direction === "outbound" && delivery === "failed" && email.deliveryError ? (
                     <p className="mt-2 text-xs text-destructive">{email.deliveryError}</p>
                   ) : null}

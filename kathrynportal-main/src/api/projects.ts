@@ -61,11 +61,14 @@ type ProjectDetailApiRow = Omit<ProjectListItem, "documentsCompleteCount" | "doc
     subject: string;
     from: string;
     to: string;
+    cc?: string;
+    bcc?: string;
     date: string;
     body: string;
     direction: "inbound" | "outbound";
     deliveryStatus?: "pending" | "sent" | "failed";
     deliveryError?: string | null;
+    attachments?: Array<{ id: string; storedFileId: string; name: string; sizeBytes: number }>;
   }>;
   notes: Array<{
     id: string;
@@ -242,6 +245,9 @@ function mapDetailRowToProject(row: ProjectDetailApiRow): Project {
       ...em,
       deliveryStatus: em.deliveryStatus ?? "sent",
       ...(em.deliveryError != null && em.deliveryError !== "" ? { deliveryError: em.deliveryError } : {}),
+      ...(em.cc ? { cc: em.cc } : {}),
+      ...(em.bcc ? { bcc: em.bcc } : {}),
+      ...(em.attachments?.length ? { attachments: em.attachments } : {}),
     })),
     notes: row.notes ?? [],
     assignees: row.assignees ?? [],
@@ -691,7 +697,16 @@ export async function createProjectReminderDraftApi(
 
 export async function createProjectEmailApi(
   projectId: string,
-  body: { to: string; subject: string; body: string; from?: string; templateId?: string }
+  body: {
+    to: string | string[];
+    cc?: string | string[];
+    bcc?: string | string[];
+    subject: string;
+    body: string;
+    from?: string;
+    templateId?: string;
+    attachmentStoredFileIds?: string[];
+  }
 ): Promise<{ project: Project; emailSendFailed?: boolean; emailSendError?: string }> {
   const json = await apiCall(`/api/projects/${encodeURIComponent(projectId)}/emails`, {
     method: "POST",

@@ -79,9 +79,20 @@ import {
   transactionTabCardClass,
 } from "@/lib/listPageLayout";
 import { cn } from "@/lib/utils";
+import { emptyEmailComposeDraft, type EmailComposeDraft } from "@/types/emailCompose";
+import { isValidEmailAddress } from "@/lib/emailAddressList";
+import { emailBodyLooksLikeHtml } from "@/lib/emailHtmlUtils";
 
-function isValidEmail(value: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+function bodyToEditorHtml(body: string): string {
+  if (!body.trim()) return "";
+  if (emailBodyLooksLikeHtml(body)) return body;
+  return body.replace(/\n/g, "<br/>");
+}
+
+function emailsFromOptionalString(email?: string): string[] {
+  const trimmed = email?.trim();
+  if (!trimmed) return [];
+  return isValidEmailAddress(trimmed) ? [trimmed.toLowerCase()] : [];
 }
 
 export default function ProjectDetailPage() {
@@ -125,10 +136,8 @@ export default function ProjectDetailPage() {
 
   // Email compose
   const [showComposeEmail, setShowComposeEmail] = useState(false);
-  const [composeTo, setComposeTo] = useState("");
-  const [composeSubject, setComposeSubject] = useState("");
-  const [composeBody, setComposeBody] = useState("");
-  const [composeTemplateId, setComposeTemplateId] = useState("");
+  const [composeDraft, setComposeDraft] = useState<EmailComposeDraft>(() => emptyEmailComposeDraft());
+  const [sendingEmail, setSendingEmail] = useState(false);
   const emailTemplates = useAppStore((s) => s.emailTemplates);
   const setEmailTemplates = useAppStore((s) => s.setEmailTemplates);
 
@@ -253,10 +262,14 @@ export default function ProjectDetailPage() {
     if (state.tab === "emails") {
       setShowComposeEmail(true);
       const email = state.composeEmail?.trim() || clients.find((c) => c.id === project.clientId)?.email?.trim();
-      setComposeTo(email ?? "");
-      setComposeSubject(state.composeSubject?.trim() || `Re: ${project.propertyAddress}`);
-      setComposeBody(state.composeBody ?? "");
-      setComposeTemplateId(state.composeTemplateId ?? "");
+      setComposeDraft(
+        emptyEmailComposeDraft({
+          to: emailsFromOptionalString(email),
+          subject: state.composeSubject?.trim() || `Re: ${project.propertyAddress}`,
+          body: bodyToEditorHtml(state.composeBody ?? ""),
+          templateId: state.composeTemplateId ?? "",
+        }),
+      );
     }
     navigate(location.pathname, { replace: true, state: {} });
   }, [project, location.key, location.state, location.pathname, navigate, clients]);
@@ -364,10 +377,15 @@ export default function ProjectDetailPage() {
   }) => {
     setActiveTab("emails");
     setShowComposeEmail(true);
-    setComposeTo(options?.email?.trim() || client?.email?.trim() || "");
-    setComposeSubject(options?.subject?.trim() || `Re: ${project.propertyAddress}`);
-    setComposeBody(options?.body ?? "");
-    setComposeTemplateId(options?.templateId ?? "");
+    const to = emailsFromOptionalString(options?.email) || emailsFromOptionalString(client?.email);
+    setComposeDraft(
+      emptyEmailComposeDraft({
+        to,
+        subject: options?.subject?.trim() || `Re: ${project.propertyAddress}`,
+        body: bodyToEditorHtml(options?.body ?? ""),
+        templateId: options?.templateId ?? "",
+      }),
+    );
   };
 
   const openTransactionEmail = (email?: string) => {
@@ -889,53 +907,70 @@ export default function ProjectDetailPage() {
 
   const handleCancelCompose = () => {
     setShowComposeEmail(false);
-    setComposeTo("");
-    setComposeSubject("");
-    setComposeBody("");
-    setComposeTemplateId("");
+    setComposeDraft(emptyEmailComposeDraft());
   };
 
-  const handleSendEmail = (options?: { templateId?: string }) => {
-                    const payload = {
-                      to: composeTo || client?.email || "",
-                      subject: composeSubject || `Re: ${project.propertyAddress}`,
-                      body: composeBody,
-                      ...(options?.templateId ? { templateId: options.templateId } : {}),
-                    };
-                    if (!isValidEmail(payload.to)) {
-                      toast.error("Recipient email is invalid.");
-                      return;
-                    }
-                    if (apiOn) {
-                      void createProjectEmailApi(project.id, payload)
-                        .then(({ project: updated, emailSendFailed, emailSendError }) => {
-                          upsertProject(updated);
-                          if (emailSendFailed) {
-                            toast.warning("Email saved; sending failed", {
-                              description: emailSendError ?? "Check SMTP settings and the Communications thread.",
-                            });
-                          } else {
-                            toast.success("Email sent.");
-                          }
+  const handleSendEmail = () => {
+    if (composeDraft.to.length === 0) {
+      toast.error("Add at least one recipient.");
+      return;
+    }
+    if (composeDraft.to.some((e) => !isValidEmailAddress(e))) {
+      toast.error("One or more recipient emails are invalid.");
+      return;
+    }
+    const payload = {
+      to: composeDraft.to,
+      cc: composeDraft.cc,
+      bcc: composeDraft.bcc,
+      subject: composeDraft.subject.trim() || `Re: ${project.propertyAddress}`,
+      body: composeDraft.body,
+      ...(composeDraft.templateId ? { templateId: composeDraft.templateId } : {}),
+      ...(composeDraft.attachments.length
+        ? { attachmentStoredFileIds: composeDraft.attachments.map((a) => a.storedFileId) }
+        : {}),
+    };
+    if (apiOn) {
+      setSendingEmail(true);
+      void createProjectEmailApi(project.id, payload)
+        .then(({ project: updated, emailSendFailed, emailSendError }) => {
+          upsertProject(updated);
+          if (emailSendFailed) {
+            toast.warning("Email saved; sending failed", {
+              description: emailSendError ?? "Check SMTP settings and the Communications thread.",
+            });
+          } else {
+            toast.success("Email sent.");
+          }
           handleCancelCompose();
-                        })
-                        .catch((e) => {
-                          toast.error(e instanceof Error ? e.message : "Could not send email.");
-                        });
-                      return;
-                    }
-                    sendEmailStore({ ...payload, projectId: project.id });
-                    toast.success("Email sent & logged to transaction!");
+        })
+        .catch((e) => {
+          toast.error(e instanceof Error ? e.message : "Could not send email.");
+        })
+        .finally(() => setSendingEmail(false));
+      return;
+    }
+    sendEmailStore({
+      to: payload.to.join(", "),
+      subject: payload.subject,
+      body: payload.body,
+      projectId: project.id,
+    });
+    toast.success("Email sent & logged to transaction!");
     handleCancelCompose();
   };
 
   const handleReplyEmail = (email: EmailThread) => {
     setShowComposeEmail(true);
-    const replyTo = email.direction === "outbound" ? email.to : email.from;
-    setComposeTo(replyTo);
+    const replyRaw = email.direction === "outbound" ? email.to : email.from;
+    const replyTo = replyRaw.split(/[,;]+/).map((e) => e.trim()).filter(Boolean);
     const subj = email.subject.trim();
-    setComposeSubject(subj.toLowerCase().startsWith("re:") ? subj : `Re: ${subj}`);
-    setComposeBody("");
+    setComposeDraft(
+      emptyEmailComposeDraft({
+        to: replyTo.length > 0 ? replyTo : emailsFromOptionalString(replyRaw),
+        subject: subj.toLowerCase().startsWith("re:") ? subj : `Re: ${subj}`,
+      }),
+    );
   };
 
   const handleDeleteEmail = async (emailId: string) => {
@@ -1252,21 +1287,16 @@ export default function ProjectDetailPage() {
             project={project}
             emails={project.emails ?? []}
             suggestions={emailRecipientSuggestions}
-            defaultRecipient={client?.email ?? ""}
             showCompose={showComposeEmail}
             onToggleCompose={() => setShowComposeEmail((v) => !v)}
-            composeTo={composeTo}
-            onComposeToChange={setComposeTo}
-            composeSubject={composeSubject}
-            onComposeSubjectChange={setComposeSubject}
-            composeBody={composeBody}
-            onComposeBodyChange={setComposeBody}
+            composeDraft={composeDraft}
+            onComposeDraftChange={setComposeDraft}
             onSend={handleSendEmail}
             onCancelCompose={handleCancelCompose}
             onReply={handleReplyEmail}
             onDeleteEmail={handleDeleteEmail}
             canDelete={canEditProject}
-            initialTemplateId={composeTemplateId}
+            sending={sendingEmail}
           />
         </motion.div>
       )}
