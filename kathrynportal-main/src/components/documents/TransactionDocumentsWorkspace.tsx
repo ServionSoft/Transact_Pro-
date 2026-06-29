@@ -162,8 +162,9 @@ export default function TransactionDocumentsWorkspace({
 
   const [storageScope, setStorageScope] = useState<"all" | "inbox" | string>("all");
   const [newFolderName, setNewFolderName] = useState("");
-  const [showNewFolder, setShowNewFolder] = useState(false);
-  const [newFolderParentId, setNewFolderParentId] = useState<string | null>(null);
+  const [folderCreateMode, setFolderCreateMode] = useState<
+    { kind: "parent" } | { kind: "subfolder"; parentId: string } | null
+  >(null);
 
   const poolFileInputRef = useRef<HTMLInputElement>(null);
   const checklistFileInputRef = useRef<HTMLInputElement>(null);
@@ -425,6 +426,19 @@ export default function TransactionDocumentsWorkspace({
     }
   }, [esignDrafts, projectId, upsertProject]);
 
+  useEffect(() => {
+    if (folderCreateMode?.kind !== "subfolder") return;
+    const folders = project?.fileFolders ?? [];
+    const active =
+      storageScope === "all" || storageScope === "inbox"
+        ? null
+        : folders.find((f) => f.id === storageScope);
+    if (!active || active.parentId != null || active.id !== folderCreateMode.parentId) {
+      setNewFolderName("");
+      setFolderCreateMode(null);
+    }
+  }, [storageScope, folderCreateMode, project?.fileFolders]);
+
   if (!project) {
     return (
       <div className="rounded-lg border border-border bg-card p-8 text-center text-sm text-muted-foreground">
@@ -434,6 +448,11 @@ export default function TransactionDocumentsWorkspace({
   }
 
   const folders = project.fileFolders ?? [];
+  const activeStorageFolder =
+    storageScope === "all" || storageScope === "inbox"
+      ? null
+      : (folders.find((f) => f.id === storageScope) ?? null);
+  const canCreateSubfolderHere = activeStorageFolder != null && activeStorageFolder.parentId == null;
 
   const updateDocStatus = (docId: string, status: DocumentStatus, customStatus?: string) => {
     if (!getApiBaseUrl()) {
@@ -641,8 +660,7 @@ export default function TransactionDocumentsWorkspace({
 
   const cancelNewFolder = () => {
     setNewFolderName("");
-    setShowNewFolder(false);
-    setNewFolderParentId(null);
+    setFolderCreateMode(null);
   };
 
   const handleDeleteFolder = async (folder: { id: string; name: string }) => {
@@ -685,10 +703,9 @@ export default function TransactionDocumentsWorkspace({
     }
     if (!newFolderName.trim()) return;
     const name = newFolderName.trim();
-    const parentId = newFolderParentId;
+    const parentId = folderCreateMode?.kind === "subfolder" ? folderCreateMode.parentId : null;
     setNewFolderName("");
-    setShowNewFolder(false);
-    setNewFolderParentId(null);
+    setFolderCreateMode(null);
     if (getApiBaseUrl()) {
       try {
         await createProjectFileFolder(project.id, name, parentId);
@@ -1381,7 +1398,7 @@ export default function TransactionDocumentsWorkspace({
                     ))}
                 </div>
               ))}
-            {showNewFolder ? (
+            {folderCreateMode?.kind === "parent" ? (
               <div className="flex flex-col gap-1 mt-2">
                 <div className="flex gap-1">
                   <Input
@@ -1413,10 +1430,8 @@ export default function TransactionDocumentsWorkspace({
                 type="button"
                 onClick={() => {
                   if (!canCreateFolders) return;
-                  setShowNewFolder(true);
-                  setNewFolderParentId(
-                    storageScope === "all" || storageScope === "inbox" ? null : storageScope
-                  );
+                  setFolderCreateMode({ kind: "parent" });
+                  setNewFolderName("");
                 }}
                 disabled={!canCreateFolders}
                 className="w-full text-left px-2 py-1.5 rounded text-xs text-muted-foreground hover:bg-muted hover:text-foreground mt-2 flex items-center gap-1"
@@ -1445,16 +1460,34 @@ export default function TransactionDocumentsWorkspace({
             />
           ) : null}
           <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-            <h3 className="font-display text-sm font-semibold text-foreground">
-              {storageScope === "all"
-                ? poolListsTemplates
-                  ? "All templates"
-                  : "All files"
-                : storageScope === "inbox"
-                  ? "Inbox (unfiled)"
-                  : folders.find((f) => f.id === storageScope)?.name ?? "Folder"}{" "}
-              · {poolScopeCount} shown
-            </h3>
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+              <h3 className="font-display text-sm font-semibold text-foreground">
+                {storageScope === "all"
+                  ? poolListsTemplates
+                    ? "All templates"
+                    : "All files"
+                  : storageScope === "inbox"
+                    ? "Inbox (unfiled)"
+                    : activeStorageFolder?.name ?? "Folder"}{" "}
+                · {poolScopeCount} shown
+              </h3>
+              {canCreateSubfolderHere && folderCreateMode?.kind !== "subfolder" ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 shrink-0 gap-1 px-2 text-xs"
+                  disabled={!canCreateFolders}
+                  onClick={() => {
+                    if (!canCreateFolders) return;
+                    setFolderCreateMode({ kind: "subfolder", parentId: storageScope });
+                    setNewFolderName("");
+                  }}
+                >
+                  <Plus className="w-3 h-3" /> New subfolder
+                </Button>
+              ) : null}
+            </div>
             {allowPoolUpload ? (
               <Button
                 size="sm"
@@ -1467,6 +1500,32 @@ export default function TransactionDocumentsWorkspace({
               </Button>
             ) : null}
           </div>
+          {folderCreateMode?.kind === "subfolder" ? (
+            <div className="mb-3 flex flex-wrap gap-1">
+              <Input
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") addFolder();
+                }}
+                placeholder="Subfolder name"
+                className="h-8 max-w-xs flex-1 text-xs"
+                autoFocus
+              />
+              <Button size="sm" onClick={addFolder} className="h-8 px-2 text-xs shrink-0" disabled={!canCreateFolders}>
+                Add
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={cancelNewFolder}
+                className="h-8 px-2 text-xs shrink-0"
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : null}
           <p className="text-[11px] text-muted-foreground mb-3">
             {!allowPoolUpload
               ? poolListsTemplates
