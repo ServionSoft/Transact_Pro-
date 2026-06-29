@@ -19,3 +19,13 @@ export function plainTextFromEmailHtml(html: string): string {
   }
   return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
+
+const EMAIL_BODY_COLLAPSE_CHAR_LIMIT = 280;
+const EMAIL_BODY_COLLAPSE_LINE_LIMIT = 4;
+
+export function emailBodyLooksLong(body: string): boolean {
+  const text = emailBodyLooksLikeHtml(body) ? plainTextFromEmailHtml(body) : body.trim();
+  if (!text) return false;
+  if (text.length > EMAIL_BODY_COLLAPSE_CHAR_LIMIT) return true;
+  return text.split(/\n/).filter((line) => line.trim()).length > EMAIL_BODY_COLLAPSE_LINE_LIMIT;
+}
