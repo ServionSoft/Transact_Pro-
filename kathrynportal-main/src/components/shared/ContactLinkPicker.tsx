@@ -174,6 +174,17 @@ export function ContactLinkPicker({
                   <span className="text-muted-foreground">{clearLabel}</span>
                   {!value ? <Check className="h-4 w-4 shrink-0" /> : null}
                 </CommandItem>
+                <CommandItem
+                  value="add new contact create"
+                  disabled={!canCreate}
+                  onSelect={() => {
+                    openCreate();
+                  }}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add new contact…
+                </CommandItem>
+                <CommandSeparator />
                 {options.map((c) => (
                   <CommandItem
                     key={c.id}
@@ -188,19 +199,6 @@ export function ContactLinkPicker({
                     {value === c.id ? <Check className="h-4 w-4 shrink-0" /> : null}
                   </CommandItem>
                 ))}
-              </CommandGroup>
-              <CommandSeparator />
-              <CommandGroup>
-                <CommandItem
-                  value="add new contact create"
-                  disabled={!canCreate}
-                  onSelect={() => {
-                    openCreate();
-                  }}
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add new contact…
-                </CommandItem>
               </CommandGroup>
             </CommandList>
           </Command>
