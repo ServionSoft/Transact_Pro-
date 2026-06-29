@@ -20,6 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PrimaryContactPicker } from "@/components/shared/PrimaryContactPicker";
 import { ContactLinkPicker } from "@/components/shared/ContactLinkPicker";
+import { AddressAutocompleteInput } from "@/components/shared/AddressAutocompleteInput";
 import type { Client } from "@/types/domain";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -1227,9 +1228,19 @@ export default function AddProjectPage() {
           <Section title="General" tone="core" visible={currentStep === "general"} open={open.general} onToggle={() => toggle("general")}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <Field label="Property Address *" className="md:col-span-2" invalid={showFieldError("address")} suggested={showFieldSuggested("address")}>
-                <Input
+                <AddressAutocompleteInput
                   value={property.address}
-                  onChange={e => setProperty(p => ({ ...p, address: e.target.value }))}
+                  onChange={(street) => setProperty((p) => ({ ...p, address: street }))}
+                  onPlaceSelected={(parsed) =>
+                    setProperty((p) => ({
+                      ...p,
+                      address: parsed.street || p.address,
+                      city: parsed.city || p.city,
+                      state: parsed.state || p.state,
+                      zip: parsed.zip || p.zip,
+                      county: parsed.county || p.county,
+                    }))
+                  }
                   placeholder="123 Main St"
                   required
                   aria-invalid={showFieldError("address")}

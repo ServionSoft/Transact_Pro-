@@ -143,3 +143,42 @@
     padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
   }
 }
+
+/* Google Places Autocomplete dropdown (Property Address on Add Transaction) */
+.pac-container {
+  z-index: 10000;
+  border-radius: 0.375rem;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+  font-family: inherit;
+}
+
+.pac-item {
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  border-top: 1px solid hsl(var(--border) / 0.5);
+}
+
+.pac-item:first-child {
+  border-top: none;
+}
+
+.pac-item:hover,
+.pac-item-selected {
+  background: hsl(var(--accent) / 0.15);
+}
+
+.pac-item-query {
+  color: hsl(var(--foreground));
+  font-size: 0.875rem;
+}
+
+.pac-matched {
+  font-weight: 600;
+}
+
+.pac-logo::after {
+  filter: grayscale(1) opacity(0.6);
+}
