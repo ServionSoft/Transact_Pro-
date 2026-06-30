@@ -4,6 +4,7 @@ import StatusBadge from "@/components/shared/StatusBadge";
 import TransactionRowMenu from "@/components/transactions/TransactionRowMenu";
 import { Progress } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import {
@@ -165,19 +166,54 @@ export default function NextStepsTable({ rows, clientEmailById, loading }: Props
                   >
                     {project.agentName}
                   </TableCell>
-                  <TableCell className={compactCellClass}>
-                    <p
-                      className={cn(
-                        "truncate font-medium leading-snug",
-                        isOverdue ? "text-destructive" : "text-foreground",
-                      )}
-                      title={stepLabel}
-                    >
-                      {stepLabel}
-                    </p>
-                    <p className={cn("truncate tabular-nums leading-snug text-[10px] sm:text-[11px] lg:text-xs", dueDateClass(dueBucket))}>
-                      {project.nextStepDate?.trim() || "—"}
-                    </p>
+                  <TableCell className={compactCellClass} onClick={(e) => e.stopPropagation()}>
+                    {stepLabel !== "—" ? (
+                      <HoverCard openDelay={200} closeDelay={100}>
+                        <HoverCardTrigger asChild>
+                          <div className="min-w-0 cursor-default text-left">
+                            <p
+                              className={cn(
+                                "truncate font-medium leading-snug",
+                                isOverdue ? "text-destructive" : "text-foreground",
+                              )}
+                            >
+                              {stepLabel}
+                            </p>
+                            <p
+                              className={cn(
+                                "truncate tabular-nums leading-snug text-[10px] sm:text-[11px] lg:text-xs",
+                                dueDateClass(dueBucket),
+                              )}
+                            >
+                              {project.nextStepDate?.trim() || "—"}
+                            </p>
+                          </div>
+                        </HoverCardTrigger>
+                        <HoverCardContent
+                          side="top"
+                          align="start"
+                          sideOffset={8}
+                          collisionPadding={16}
+                          className="z-[200] w-[min(100vw-2rem,28rem)] max-h-[min(70vh,24rem)] overflow-y-auto border border-border bg-popover p-4 text-popover-foreground shadow-lg"
+                        >
+                          <p className="whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground">
+                            {stepLabel}
+                          </p>
+                        </HoverCardContent>
+                      </HoverCard>
+                    ) : (
+                      <>
+                        <p className="truncate font-medium leading-snug text-foreground">{stepLabel}</p>
+                        <p
+                          className={cn(
+                            "truncate tabular-nums leading-snug text-[10px] sm:text-[11px] lg:text-xs",
+                            dueDateClass(dueBucket),
+                          )}
+                        >
+                          {project.nextStepDate?.trim() || "—"}
+                        </p>
+                      </>
+                    )}
                   </TableCell>
                   <TableCell className={cn("hidden 2xl:table-cell", compactCellClass)}>
                     <div className="space-y-1">
