@@ -519,7 +519,7 @@ export default function DashboardPage() {
           icon: AlertTriangle,
           to: "/projects",
         },
-        { label: "Next steps", value: stats.openTasksTotal, icon: ListTodo, to: "/tasks" },
+        { label: "Next steps", value: stats.openTasksTotal, icon: ListTodo, to: "/next-steps" },
       );
     }
     return out;

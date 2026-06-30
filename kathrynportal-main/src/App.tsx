@@ -2,7 +2,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import AppLayout from "@/components/layout/AppLayout";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import PermissionRoute from "@/components/auth/PermissionRoute";
@@ -125,7 +125,8 @@ const App = () => (
                 </PermissionRoute>
               }
             />
-            <Route path="/tasks" element={<TasksPage />} />
+            <Route path="/next-steps" element={<TasksPage />} />
+            <Route path="/tasks" element={<Navigate to="/next-steps" replace />} />
             <Route path="/calendar" element={<CalendarPage />} />
             <Route path="/email" element={<EmailPage />} />
             <Route

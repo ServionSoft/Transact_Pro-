@@ -71,8 +71,6 @@ type Props = {
   metadata: Record<string, unknown> | undefined;
   docProgress: { done: number; total: number };
   sigCounts: SigCounts;
-  tasksComplete: number;
-  tasksTotal: number;
   deadlinesCount: number;
   filesCount: number;
   nextDeadline: { title: string; date: string } | null;
@@ -92,8 +90,6 @@ export default function TransactionOverviewTab({
   metadata,
   docProgress,
   sigCounts,
-  tasksComplete,
-  tasksTotal,
   deadlinesCount,
   filesCount,
   nextDeadline,
@@ -108,7 +104,6 @@ export default function TransactionOverviewTab({
   onEmailParty,
 }: Props) {
   const docPct = docProgress.total > 0 ? Math.round((docProgress.done / docProgress.total) * 100) : 0;
-  const taskPct = tasksTotal > 0 ? Math.round((tasksComplete / tasksTotal) * 100) : 0;
   const isListing = !isBuyerTransaction(project.type);
   const nextDueBucket = nextDeadline ? dueDateBucket(nextDeadline.date) : "none";
 
@@ -146,11 +141,11 @@ export default function TransactionOverviewTab({
           onClick={() => onNavigateTab("documents")}
         />
         <StatTile
-          label="Tasks complete"
-          value={`${tasksComplete}/${tasksTotal}`}
-          progress={taskPct}
+          label="Next step"
+          value={project.nextStepDate?.trim() || "No date"}
+          sub={project.nextStep?.trim() || "No next step set"}
           icon={CheckSquare}
-          onClick={() => onNavigateTab("tasks")}
+          onClick={() => onNavigateTab("notes")}
         />
         <StatTile
           label="Deadlines"

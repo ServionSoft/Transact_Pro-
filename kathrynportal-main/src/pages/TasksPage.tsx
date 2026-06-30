@@ -1,200 +1,161 @@
-import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CalendarDays, Clock, Search } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ListTodo, Search } from "lucide-react";
 import { useAppStore } from "@/store/appStore";
 import { isTransactionProject, type Project } from "@/data/mockData";
 import { getProjectFromApi, listProjectsFromApi, type ProjectListItem } from "@/api/projects";
 import { getApiBaseUrl } from "@/lib/apiConfig";
 import PageHeader from "@/components/shared/PageHeader";
-import TaskDashboardRow, { type TaskDashboardRowData } from "@/components/tasks/TaskDashboardRow";
+import NextStepsTable, { type NextStepTableRow } from "@/components/next-steps/NextStepsTable";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
-import { dueDateBucket } from "@/lib/transactionListUtils";
 import { listPageBodyClass, listPageRootClass, listPageShellClass } from "@/lib/listPageLayout";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { TRANSACTION_STAGES, dueDateBucket } from "@/lib/transactionListUtils";
+import {
+  projectCloseOfEscrowDate,
+  projectLatestNotePreview,
+  projectTransactionAgentLabel,
+} from "@/lib/nextStepDisplayUtils";
 
-type BucketFilter = "all" | "overdue" | "today" | "upcoming";
-
-function assigneeLabel(project: Project): string {
-  const assignees = project.assignees ?? [];
-  if (assignees.length === 0) return "Unassigned";
-  const first = assignees[0]!.name?.trim() || "Team member";
-  if (assignees.length === 1) return first;
-  return `${first} +${assignees.length - 1}`;
+function hasNextStepItem(p: Pick<ProjectListItem, "nextStep" | "nextStepDate">): boolean {
+  return Boolean(p.nextStep?.trim() || p.nextStepDate?.trim());
 }
 
-function hasNextStep(project: Project): boolean {
-  return Boolean(project.nextStep?.trim() || project.nextStepDate?.trim());
+function mapStoreProjectToListItem(p: Project): ProjectListItem {
+  return {
+    id: p.id,
+    name: p.name,
+    clientId: p.clientId,
+    clientName: p.clientName,
+    propertyAddress: p.propertyAddress,
+    type: p.type === "Buyer Representation" ? "Buyer File" : "Listing",
+    stage: p.stage,
+    nextStep: p.nextStep,
+    nextStepDate: p.nextStepDate,
+    yearBuilt: p.yearBuilt,
+    propertyType: p.propertyType,
+    representationSide: p.representationSide,
+    escrowOfficer: p.escrowOfficer,
+    escrowCompany: p.escrowCompany,
+    listPrice: p.listPrice,
+    createdAt: p.createdAt,
+    documentsCompleteCount: p.documents.filter((d) => d.status === "Complete" || d.status === "Completed").length,
+    documentsTotalCount: p.documents.length,
+    tasksCompleteCount: p.tasks.filter((t) => t.status === "Complete").length,
+    tasksTotalCount: p.tasks.length,
+    deadlinesCount: p.deadlines.length,
+    filesCount: p.attachments.length,
+  };
 }
 
-function matchesBucketFilter(bucket: ReturnType<typeof dueDateBucket>, filter: BucketFilter): boolean {
-  if (filter === "all") return true;
-  if (filter === "overdue") return bucket === "overdue";
-  if (filter === "today") return bucket === "today";
-  return bucket === "week" || bucket === "later";
+function buildNextStepRow(listItem: ProjectListItem, full?: Project | null): NextStepTableRow {
+  return {
+    ...listItem,
+    agentName: full ? projectTransactionAgentLabel(full) : "—",
+    coeDate: full ? projectCloseOfEscrowDate(full) || "—" : "—",
+    notesPreview: full ? projectLatestNotePreview(full) : "",
+  };
+}
+
+const BUCKET_ORDER: Record<ReturnType<typeof dueDateBucket>, number> = {
+  overdue: 0,
+  today: 1,
+  week: 2,
+  later: 3,
+  none: 4,
+};
+
+function compareNextStepRows(a: NextStepTableRow, b: NextStepTableRow): number {
+  const ba = dueDateBucket(a.nextStepDate);
+  const bb = dueDateBucket(b.nextStepDate);
+  if (BUCKET_ORDER[ba] !== BUCKET_ORDER[bb]) return BUCKET_ORDER[ba] - BUCKET_ORDER[bb];
+  const da = a.nextStepDate?.trim() ? new Date(a.nextStepDate).getTime() : Number.POSITIVE_INFINITY;
+  const db = b.nextStepDate?.trim() ? new Date(b.nextStepDate).getTime() : Number.POSITIVE_INFINITY;
+  if (da !== db) return da - db;
+  return a.propertyAddress.localeCompare(b.propertyAddress);
 }
 
 export default function TasksPage() {
   const [search, setSearch] = useState("");
-  const [bucketFilter, setBucketFilter] = useState<BucketFilter>("all");
-  const [loading, setLoading] = useState(false);
-  const [apiProjects, setApiProjects] = useState<Project[]>([]);
-  const projects = useAppStore((s) => s.projects);
+  const [filterStage, setFilterStage] = useState<string>("All");
+  const [loading, setLoading] = useState(() => Boolean(getApiBaseUrl()));
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [projectRows, setProjectRows] = useState<ProjectListItem[]>([]);
+  const storeProjects = useAppStore((s) => s.projects);
   const clients = useAppStore((s) => s.clients);
   const upsertProject = useAppStore((s) => s.upsertProject);
   const apiOn = Boolean(getApiBaseUrl());
 
-  useEffect(() => {
-    if (!apiOn) {
-      setApiProjects([]);
-      return;
-    }
-    let cancelled = false;
+  const refresh = useCallback(async () => {
+    if (!apiOn) return;
     setLoading(true);
-    void listProjectsFromApi()
-      .then(async (rows: ProjectListItem[]) => {
-        const ids = rows
-          .filter((p) => p.type === "Listing" || p.type === "Buyer File")
-          .map((p) => p.id);
-        const detailed = await Promise.all(ids.map((id) => getProjectFromApi(id).catch(() => null)));
-        if (cancelled) return;
-        const valid = detailed.filter((p): p is NonNullable<typeof p> => Boolean(p));
-        setApiProjects(valid);
-        valid.forEach((p) => upsertProject(p));
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        toast.error("Could not load next steps.", {
-          description: e instanceof Error ? e.message : "Unknown error",
-        });
-        setApiProjects([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+    setLoadError(null);
+    try {
+      const rows = await listProjectsFromApi();
+      const withNext = rows.filter(
+        (p) => (p.type === "Listing" || p.type === "Buyer File") && hasNextStepItem(p),
+      );
+      setProjectRows(withNext);
+
+      const detailed = await Promise.all(withNext.map((r) => getProjectFromApi(r.id).catch(() => null)));
+      detailed.filter((p): p is Project => Boolean(p)).forEach((p) => upsertProject(p));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Could not load next steps.";
+      setLoadError(msg);
+      setProjectRows([]);
+      toast.error("Could not load next steps.", { description: msg });
+    } finally {
+      setLoading(false);
+    }
   }, [apiOn, upsertProject]);
 
-  const transactionProjects = useMemo(
-    () => (apiOn ? apiProjects : projects).filter(isTransactionProject),
-    [apiOn, apiProjects, projects],
-  );
+  useEffect(() => {
+    if (!apiOn) return;
+    void refresh();
+  }, [apiOn, refresh]);
 
   const projectById = useMemo(() => {
     const map = new Map<string, Project>();
-    for (const p of transactionProjects) map.set(p.id, p);
+    for (const p of storeProjects) {
+      if (isTransactionProject(p)) map.set(p.id, p);
+    }
     return map;
-  }, [transactionProjects]);
+  }, [storeProjects]);
 
-  const allRows = useMemo<TaskDashboardRowData[]>(() => {
-    return transactionProjects
-      .filter(hasNextStep)
-      .map((p) => ({
-        id: p.id,
-        projectId: p.id,
-        nextStep: p.nextStep ?? "",
-        nextStepDate: p.nextStepDate ?? "",
-        clientId: p.clientId,
-        propertyAddress: p.propertyAddress,
-        clientName: p.clientName,
-        stage: p.stage,
-        assignedTo: assigneeLabel(p),
-      }));
-  }, [transactionProjects]);
+  const allRows = useMemo((): NextStepTableRow[] => {
+    const list = apiOn
+      ? projectRows
+      : storeProjects.filter(isTransactionProject).map(mapStoreProjectToListItem).filter(hasNextStepItem);
+    return list
+      .map((item) => buildNextStepRow(item, projectById.get(item.id)))
+      .sort(compareNextStepRows);
+  }, [apiOn, projectRows, storeProjects, projectById]);
+
+  const clientEmailById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of clients) {
+      if (c.email?.trim()) m.set(c.id, c.email.trim());
+    }
+    return m;
+  }, [clients]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return allRows.filter((row) => {
-      const bucket = dueDateBucket(row.nextStepDate);
-      if (!matchesBucketFilter(bucket, bucketFilter)) return false;
-      if (!q) return true;
-      return (
-        row.nextStep.toLowerCase().includes(q) ||
+      const matchStage = filterStage === "All" || row.stage === filterStage;
+      const matchSearch =
+        !q ||
+        row.name.toLowerCase().includes(q) ||
         row.clientName.toLowerCase().includes(q) ||
         row.propertyAddress.toLowerCase().includes(q) ||
-        row.assignedTo.toLowerCase().includes(q)
-      );
+        row.nextStep.toLowerCase().includes(q) ||
+        row.agentName.toLowerCase().includes(q) ||
+        row.notesPreview.toLowerCase().includes(q) ||
+        row.type.toLowerCase().includes(q);
+      return matchStage && matchSearch;
     });
-  }, [allRows, search, bucketFilter]);
-
-  const counts = useMemo(() => {
-    let overdue = 0;
-    let today = 0;
-    let upcoming = 0;
-    for (const row of allRows) {
-      const b = dueDateBucket(row.nextStepDate);
-      if (b === "overdue") overdue += 1;
-      else if (b === "today") today += 1;
-      else if (b === "week" || b === "later") upcoming += 1;
-    }
-    return { overdue, today, upcoming, total: allRows.length };
-  }, [allRows]);
-
-  const groups = useMemo(() => {
-    const overdue: TaskDashboardRowData[] = [];
-    const today: TaskDashboardRowData[] = [];
-    const week: TaskDashboardRowData[] = [];
-    const later: TaskDashboardRowData[] = [];
-    const noDate: TaskDashboardRowData[] = [];
-    for (const row of filtered) {
-      const b = dueDateBucket(row.nextStepDate);
-      if (!row.nextStepDate?.trim()) noDate.push(row);
-      else if (b === "overdue") overdue.push(row);
-      else if (b === "today") today.push(row);
-      else if (b === "week") week.push(row);
-      else if (b === "later") later.push(row);
-      else noDate.push(row);
-    }
-    return [
-      {
-        key: "overdue",
-        label: "Overdue",
-        icon: AlertTriangle,
-        headerClass: "bg-destructive/10 text-destructive",
-        rows: overdue,
-      },
-      {
-        key: "today",
-        label: "Due today",
-        icon: Clock,
-        headerClass: "bg-amber-500/10 text-amber-800 dark:text-amber-200",
-        rows: today,
-      },
-      {
-        key: "week",
-        label: "This week",
-        icon: CalendarDays,
-        headerClass: "bg-secondary/80 text-foreground",
-        rows: week,
-      },
-      {
-        key: "later",
-        label: "Later",
-        icon: CalendarDays,
-        headerClass: "bg-muted/50 text-muted-foreground",
-        rows: later,
-      },
-      {
-        key: "no-date",
-        label: "No date",
-        icon: CalendarDays,
-        headerClass: "bg-muted/30 text-muted-foreground",
-        rows: noDate,
-      },
-    ];
-  }, [filtered]);
-
-  const visibleGroups = groups.filter((g) => g.rows.length > 0);
-
-  const bucketChips: { id: BucketFilter; label: string; count: number; className: string }[] = [
-    { id: "all", label: "All", count: counts.total, className: "bg-secondary text-foreground" },
-    { id: "overdue", label: "Overdue", count: counts.overdue, className: "bg-destructive/15 text-destructive" },
-    { id: "today", label: "Due today", count: counts.today, className: "bg-amber-500/15 text-amber-800 dark:text-amber-200" },
-    { id: "upcoming", label: "Upcoming", count: counts.upcoming, className: "bg-muted text-muted-foreground" },
-  ];
+  }, [allRows, search, filterStage]);
 
   return (
     <div className={listPageRootClass}>
@@ -210,98 +171,75 @@ export default function TasksPage() {
       </div>
 
       <div className={listPageShellClass}>
-        <div className="shrink-0 space-y-3 border-b border-border p-4 sm:p-5">
-          <div className="relative w-full sm:max-w-md">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Search next steps, contacts, properties…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9"
-              aria-label="Search next steps"
-            />
-          </div>
-
-          <div className="flex flex-wrap gap-1.5">
-            {bucketChips.map((chip) => (
-              <button
-                key={chip.id}
-                type="button"
-                onClick={() => setBucketFilter(chip.id)}
-                className={cn(
-                  "rounded-full px-3 py-1.5 text-xs font-semibold transition-colors",
-                  chip.className,
-                  bucketFilter === chip.id ? "ring-2 ring-primary ring-offset-1 ring-offset-background" : "opacity-80 hover:opacity-100",
-                )}
-              >
-                {chip.count} {chip.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className={cn(listPageBodyClass, "p-4 sm:p-5")}>
-          {loading ? (
-            <div className="space-y-3">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <Skeleton key={i} className="h-20 w-full rounded-lg" />
-              ))}
+        <div className="shrink-0 border-b border-border">
+          <div className="flex flex-col gap-2 p-3 sm:gap-3 sm:p-4 lg:p-5">
+            <div className="relative w-full sm:max-w-md">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search property, contact, next step, agent, notes…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-9"
+                aria-label="Search next steps"
+              />
             </div>
-          ) : filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <p className="text-sm font-medium text-foreground">No next steps match</p>
-              <p className="mt-1 max-w-sm text-xs text-muted-foreground">
-                {allRows.length === 0
-                  ? "Set a next step on a transaction to see it here."
-                  : "Try clearing filters or adjusting your search."}
-              </p>
-              {bucketFilter !== "all" || search ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="mt-4"
-                  onClick={() => {
-                    setBucketFilter("all");
-                    setSearch("");
-                  }}
-                >
-                  Reset filters
-                </Button>
-              ) : null}
-            </div>
-          ) : visibleGroups.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">No next steps in this filter.</p>
-          ) : (
-            <div className="space-y-6">
-              {visibleGroups.map((g) => (
-                <section key={g.key}>
-                  <div
+
+            <div
+              className="flex items-center gap-1 overflow-x-auto border-t border-border/60 pt-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              role="tablist"
+              aria-label="Filter by stage"
+            >
+              {TRANSACTION_STAGES.map((s) => {
+                const active = filterStage === s;
+                return (
+                  <button
+                    key={s}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setFilterStage(s)}
                     className={cn(
-                      "mb-2 flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold",
-                      g.headerClass,
+                      "shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm transition-colors",
+                      active
+                        ? "border-primary font-medium text-foreground"
+                        : "border-transparent text-muted-foreground hover:border-border hover:text-foreground",
                     )}
                   >
-                    <g.icon className="h-4 w-4 shrink-0" />
-                    {g.label}
-                    <span className="rounded-full bg-background/80 px-2 py-0.5 text-[10px] font-bold tabular-nums">
-                      {g.rows.length}
-                    </span>
-                  </div>
-                  <ul className="space-y-2">
-                    {g.rows.map((row) => (
-                      <li key={row.id}>
-                        <TaskDashboardRow
-                          row={row}
-                          project={projectById.get(row.projectId)}
-                          client={clients.find((c) => c.id === row.clientId)}
-                        />
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              ))}
+                    {s}
+                  </button>
+                );
+              })}
             </div>
+          </div>
+
+          {loadError ? (
+            <div className="border-t border-destructive/30 bg-destructive/5 px-4 py-4 sm:px-5">
+              <p className="text-sm font-medium text-destructive">Could not load next steps from API.</p>
+              <p className="mt-1 text-xs text-muted-foreground">{loadError}</p>
+              <Button variant="outline" size="sm" className="mt-3" onClick={() => void refresh()}>
+                Retry
+              </Button>
+            </div>
+          ) : null}
+        </div>
+
+        <div className={cn(listPageBodyClass, "overflow-x-hidden p-2 sm:p-3 lg:p-4")}>
+          {loading ? (
+            <NextStepsTable rows={[]} clientEmailById={clientEmailById} loading />
+          ) : filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
+              <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-muted">
+                <ListTodo className="h-7 w-7 text-muted-foreground" />
+              </div>
+              <p className="font-medium text-foreground">No next steps match</p>
+              <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+                {allRows.length === 0
+                  ? "Set a next step on a transaction to see it here."
+                  : "Adjust search or stage filters."}
+              </p>
+            </div>
+          ) : (
+            <NextStepsTable rows={filtered} clientEmailById={clientEmailById} />
           )}
         </div>
       </div>

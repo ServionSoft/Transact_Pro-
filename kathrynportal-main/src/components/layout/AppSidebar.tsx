@@ -154,7 +154,7 @@ export default function AppSidebar({ inDrawer = false, onNavigate }: AppSidebarP
 
   const badgeTitles: Record<string, string> = {
     "/documents": "Required documents still incomplete",
-    "/tasks": "Next steps overdue or due today",
+    "/next-steps": "Next steps overdue or due today",
     "/calendar": "Reminder items on calendar",
     "/email": "Failed sends in your 50 most recent emails",
   };
@@ -215,7 +215,7 @@ export default function AppSidebar({ inDrawer = false, onNavigate }: AppSidebarP
     ...(hasPermission(user, "documents.view")
       ? [{ to: "/documents", icon: Files, label: "Documents", badge: documentAlertCount } satisfies NavItem]
       : []),
-    { to: "/tasks", icon: CheckSquare, label: "Next steps", badge: taskUrgentCount },
+    { to: "/next-steps", icon: CheckSquare, label: "Next steps", badge: taskUrgentCount },
     { to: "/calendar", icon: Calendar, label: "Calendar", badge: calendarAlertCount },
     { to: "/email", icon: Mail, label: "Email", badge: emailAlertCount },
     { to: "/settings", icon: Settings, label: "Settings", badge: 0 },
@@ -283,7 +283,7 @@ export default function AppSidebar({ inDrawer = false, onNavigate }: AppSidebarP
   };
 
   const badgeTone = (to: string) =>
-    to === "/tasks"
+    to === "/next-steps"
       ? "bg-destructive text-destructive-foreground ring-1 ring-destructive/40 shadow-sm"
       : to === "/calendar"
         ? "bg-sidebar-primary text-sidebar-primary-foreground ring-1 ring-sidebar-primary/50 shadow-sm"
@@ -388,7 +388,7 @@ export default function AppSidebar({ inDrawer = false, onNavigate }: AppSidebarP
         )}
         {navItems.map((item) => (
           <Fragment key={item.to}>
-            {item.to === "/tasks" && (
+            {item.to === "/next-steps" && (
               <>
                 {isCollapsed ? (
                   <div className="mx-2 my-2 h-px shrink-0 bg-sidebar-border/70" aria-hidden />

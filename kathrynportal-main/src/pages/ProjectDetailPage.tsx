@@ -15,12 +15,6 @@ import {
   updateProjectTimelineFieldDateApi,
   updateProjectCustomTimelineApi,
   deleteProjectDeadlineApi,
-  createProjectTaskApi,
-  updateProjectTaskApi,
-  deleteProjectTaskApi,
-  createProjectTaskNoteApi,
-  updateProjectTaskNoteApi,
-  deleteProjectTaskNoteApi,
   createProjectTimelineNoteApi,
   updateProjectTimelineNoteApi,
   deleteProjectTimelineNoteApi,
@@ -28,8 +22,6 @@ import {
   getProjectFromApi,
   listProjectAssignmentOptionsApi,
   patchProjectNextStepApi,
-  patchProjectTaskStatusApi,
-  patchProjectTasksBulkStatusApi,
   setProjectAssignmentsApi,
 } from "@/api/projects";
 import { getApiBaseUrl } from "@/lib/apiConfig";
@@ -40,7 +32,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { CRM_DOCUMENT_VAULT_PROJECT_ID, type EmailThread, type ProjectTask } from "@/data/mockData";
+import { CRM_DOCUMENT_VAULT_PROJECT_ID, type EmailThread } from "@/data/mockData";
 import { listEmailTemplatesFromApi } from "@/api/emailTemplates";
 import { applyEmailTemplateToCompose, buildTimelineEmailComposePrefill } from "@/lib/emailTemplateTokens";
 import { useAuthStore } from "@/store/authStore";
@@ -68,7 +60,6 @@ import TransactionNextStepBanner from "@/components/transactions/detail/Transact
 import TransactionOverviewTab from "@/components/transactions/detail/TransactionOverviewTab";
 import DocuSignStatusStrip from "@/components/transactions/detail/DocuSignStatusStrip";
 import TransactionTabPanel from "@/components/transactions/detail/TransactionTabPanel";
-import TransactionTasksTab from "@/components/transactions/detail/TransactionTasksTab";
 import type { TransactionDetailTabId } from "@/components/transactions/detail/transactionDetailTabs";
 import type { ProjectDetailLocationState } from "@/lib/projectDetailNavigation";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
@@ -110,13 +101,6 @@ export default function ProjectDetailPage() {
   const clients = useAppStore((s) => s.clients);
   const user = useAuthStore((s) => s.user);
   const setNextStepStore = useAppStore((s) => s.setNextStep);
-  const addProjectTaskStore = useAppStore((s) => s.addProjectTask);
-  const setTaskStatusStore = useAppStore((s) => s.setTaskStatus);
-  const updateProjectTaskStore = useAppStore((s) => s.updateProjectTask);
-  const deleteProjectTaskStore = useAppStore((s) => s.deleteProjectTask);
-  const addProjectTaskNoteStore = useAppStore((s) => s.addProjectTaskNote);
-  const updateProjectTaskNoteStore = useAppStore((s) => s.updateProjectTaskNote);
-  const deleteProjectTaskNoteStore = useAppStore((s) => s.deleteProjectTaskNote);
   const addProjectTimelineNoteStore = useAppStore((s) => s.addProjectTimelineNote);
   const updateProjectTimelineNoteStore = useAppStore((s) => s.updateProjectTimelineNote);
   const deleteProjectTimelineNoteStore = useAppStore((s) => s.deleteProjectTimelineNote);
@@ -130,7 +114,6 @@ export default function ProjectDetailPage() {
   const [activeTab, setActiveTab] = useState<TransactionDetailTabId>("overview");
 
   const [savingNextStep, setSavingNextStep] = useState(false);
-  const [taskNoteBusy, setTaskNoteBusy] = useState<string | null>(null);
   const [timelineNoteBusy, setTimelineNoteBusy] = useState<string | null>(null);
   const [showAddCustomTimeline, setShowAddCustomTimeline] = useState(false);
 
@@ -142,12 +125,6 @@ export default function ProjectDetailPage() {
   const setEmailTemplates = useAppStore((s) => s.setEmailTemplates);
 
   // Add-deadline form
-  const [showAddTask, setShowAddTask] = useState(false);
-  const [newTaskTitle, setNewTaskTitle] = useState("");
-  const [newTaskType, setNewTaskType] = useState<ProjectTask["taskType"]>("general");
-  const [newTaskEmailTemplateId, setNewTaskEmailTemplateId] = useState("");
-  const [newTaskRecipientEmail, setNewTaskRecipientEmail] = useState("");
-  const [taskFilter, setTaskFilter] = useState<"All" | "Pending" | "In Progress" | "Complete">("All");
   const [newNoteBody, setNewNoteBody] = useState("");
   const [assignmentOptions, setAssignmentOptions] = useState<Array<{ id: string; name: string; email: string; designation?: string | null }>>([]);
   const [savingAssignments, setSavingAssignments] = useState(false);
@@ -233,12 +210,6 @@ export default function ProjectDetailPage() {
     const done = list.filter((d) => d.status === "Completed" || d.status === "Complete").length;
     return { done, total: list.length };
   }, [project?.documents]);
-  const visibleTasks = useMemo(() => {
-    const list = project?.tasks ?? [];
-    if (taskFilter === "All") return list;
-    return list.filter((t) => t.status === taskFilter);
-  }, [project?.tasks, taskFilter]);
-
   const clientForEmail = useMemo(() => {
     if (!project) return undefined;
     return clients.find((c) => c.id === project.clientId);
@@ -258,8 +229,10 @@ export default function ProjectDetailPage() {
     const token = `${location.key}:${state.tab}:${state.composeEmail ?? ""}:${state.composeSubject ?? ""}:${state.composeTemplateId ?? ""}`;
     if (consumedNavRef.current === token) return;
     consumedNavRef.current = token;
-    setActiveTab(state.tab);
-    if (state.tab === "emails") {
+    const tab: TransactionDetailTabId =
+      (state.tab as TransactionDetailTabId | "tasks") === "tasks" ? "overview" : state.tab;
+    setActiveTab(tab);
+    if (tab === "emails") {
       setShowComposeEmail(true);
       const email = state.composeEmail?.trim() || clients.find((c) => c.id === project.clientId)?.email?.trim();
       setComposeDraft(
@@ -367,7 +340,6 @@ export default function ProjectDetailPage() {
 
   const partyGroups = getTransactionPartyGroups(metadataRecord);
   const nextDeadline = sortedDeadlines[0] ?? null;
-  const tasksComplete = (project.tasks ?? []).filter((t) => t.status === "Complete").length;
 
   const openTransactionCompose = (options?: {
     email?: string;
@@ -405,31 +377,6 @@ export default function ProjectDetailPage() {
         subject: prefill.subject,
         body: prefill.body,
         templateId: prefill.templateId,
-      });
-    };
-    if (apiOn && emailTemplates.length === 0) {
-      void listEmailTemplatesFromApi()
-        .then((rows) => {
-          setEmailTemplates(rows);
-          openWithTemplates(rows);
-        })
-        .catch(() => openWithTemplates(emailTemplates));
-      return;
-    }
-    openWithTemplates(emailTemplates);
-  };
-
-  const handleComposeEmailTask = (task: ProjectTask) => {
-    const openWithTemplates = (templates: typeof emailTemplates) => {
-      const tpl = task.emailTemplateId
-        ? templates.find((t) => t.id === task.emailTemplateId)
-        : undefined;
-      const applied = tpl ? applyEmailTemplateToCompose(tpl, project, client) : null;
-      openTransactionCompose({
-        email: task.recipientEmail?.trim() || client?.email?.trim(),
-        subject: applied?.subject || task.title,
-        body: applied?.body ?? "",
-        templateId: task.emailTemplateId,
       });
     };
     if (apiOn && emailTemplates.length === 0) {
@@ -563,231 +510,6 @@ export default function ProjectDetailPage() {
     toast.success("Timeline CSV downloaded.");
   };
 
-  const resetNewTaskForm = () => {
-    setNewTaskTitle("");
-    setNewTaskType("general");
-    setNewTaskEmailTemplateId("");
-    setNewTaskRecipientEmail("");
-    setShowAddTask(false);
-  };
-
-  const handleSaveNewTask = () => {
-    const title = newTaskTitle.trim();
-    if (!title) {
-      toast.error("Task title is required.");
-      return;
-    }
-    const taskType = newTaskType ?? "general";
-    const emailFields =
-      taskType === "email"
-        ? {
-            emailTemplateId: newTaskEmailTemplateId || undefined,
-            recipientEmail: newTaskRecipientEmail.trim() || undefined,
-          }
-        : {};
-    if (apiOn) {
-      void createProjectTaskApi(project.id, {
-        title,
-        stage: project.stage,
-        taskType,
-        ...emailFields,
-      })
-        .then((updated) => {
-          upsertProject(updated);
-          resetNewTaskForm();
-          toast.success("Task added.");
-        })
-        .catch((e) => {
-          toast.error(e instanceof Error ? e.message : "Could not add task.");
-        });
-      return;
-    }
-    addProjectTaskStore(project.id, {
-      title,
-      stage: project.stage,
-      status: "Pending",
-      dueDate: "",
-      taskType,
-      ...emailFields,
-    });
-    resetNewTaskForm();
-    toast.success("Task added.");
-  };
-
-  const handleToggleTaskComplete = (taskId: string, isComplete: boolean) => {
-                        const nextStatus = isComplete ? "Pending" : "Complete";
-                        if (apiOn) {
-      void patchProjectTaskStatusApi(project.id, taskId, nextStatus)
-                              .then((updated) => {
-                                upsertProject(updated);
-                              toast.success(isComplete ? "Task unchecked" : "Task completed!");
-                            })
-                            .catch((e) => {
-                              toast.error(e instanceof Error ? e.message : "Could not update task.");
-                            });
-                          return;
-                        }
-    setTaskStatusStore(project.id, taskId, nextStatus);
-                        toast.success(isComplete ? "Task unchecked" : "Task completed!");
-  };
-
-  const handleMarkAllTasksComplete = () => {
-    const taskIds = (project.tasks ?? []).map((t) => t.id);
-                    if (taskIds.length === 0) return;
-                    if (apiOn) {
-                      void patchProjectTasksBulkStatusApi(project.id, taskIds, "Complete")
-                        .then((updated) => {
-                          upsertProject(updated);
-                          toast.success("All tasks marked complete.");
-                        })
-                        .catch((e) => {
-                          toast.error(e instanceof Error ? e.message : "Could not update tasks.");
-                        });
-                      return;
-                    }
-    for (const task of project.tasks ?? []) {
-                      setTaskStatusStore(project.id, task.id, "Complete");
-                    }
-                    toast.success("All tasks marked complete.");
-  };
-
-  const handleResetAllTasks = () => {
-    const taskIds = (project.tasks ?? []).map((t) => t.id);
-                    if (taskIds.length === 0) return;
-                    if (apiOn) {
-                      void patchProjectTasksBulkStatusApi(project.id, taskIds, "Pending")
-                        .then((updated) => {
-                          upsertProject(updated);
-                          toast.success("All tasks reset to pending.");
-                        })
-                        .catch((e) => {
-                          toast.error(e instanceof Error ? e.message : "Could not update tasks.");
-                        });
-                      return;
-                    }
-    for (const task of project.tasks ?? []) {
-                      setTaskStatusStore(project.id, task.id, "Pending");
-                    }
-                    toast.success("All tasks reset to pending.");
-  };
-
-  const handleUpdateTask = (
-    taskId: string,
-    payload: {
-      title: string;
-      stage: string;
-      status: "Pending" | "In Progress" | "Complete";
-      taskType?: ProjectTask["taskType"];
-      emailTemplateId?: string;
-      recipientEmail?: string;
-    }
-  ) => {
-    if (apiOn) {
-      void updateProjectTaskApi(project.id, taskId, {
-        ...payload,
-        stage: payload.stage as Project["stage"],
-      })
-        .then((updated) => {
-          upsertProject(updated);
-          toast.success("Task updated.");
-        })
-        .catch((e) => {
-          toast.error(e instanceof Error ? e.message : "Could not update task.");
-        });
-      return;
-    }
-    updateProjectTaskStore(project.id, taskId, payload);
-    toast.success("Task updated.");
-  };
-
-  const handleAddTaskNote = (taskId: string, body: string) => {
-    if (!project) return;
-    const trimmed = body.trim();
-    if (!trimmed) {
-      toast.error("Note text is required.");
-                      return;
-                    }
-                    if (apiOn) {
-      setTaskNoteBusy(`add:${taskId}`);
-      void createProjectTaskNoteApi(project.id, taskId, trimmed)
-        .then((updated) => {
-          upsertProject(updated);
-          toast.success("Note added.");
-        })
-        .catch((e) => {
-          toast.error(e instanceof Error ? e.message : "Could not add note.");
-        })
-        .finally(() => {
-          setTaskNoteBusy(null);
-        });
-      return;
-    }
-    addProjectTaskNoteStore(project.id, taskId, {
-      id: `tn-${Date.now()}`,
-      date: new Date().toISOString().split("T")[0],
-      text: trimmed,
-      author: user?.name ?? "Kathryn",
-    });
-    toast.success("Note added.");
-  };
-
-  const handleUpdateTaskNote = (taskId: string, noteId: string, body: string) => {
-    if (!project) return;
-    const trimmed = body.trim();
-    if (!trimmed) {
-      toast.error("Note text is required.");
-      return;
-    }
-    if (apiOn) {
-      setTaskNoteBusy(`edit:${taskId}:${noteId}`);
-      void updateProjectTaskNoteApi(project.id, taskId, noteId, trimmed)
-                        .then((updated) => {
-                          upsertProject(updated);
-          toast.success("Note updated.");
-                        })
-                        .catch((e) => {
-          toast.error(e instanceof Error ? e.message : "Could not update note.");
-        })
-        .finally(() => {
-          setTaskNoteBusy(null);
-                        });
-                      return;
-                    }
-    updateProjectTaskNoteStore(project.id, taskId, noteId, trimmed);
-    toast.success("Note updated.");
-  };
-
-  const handleDeleteTaskNote = async (taskId: string, noteId: string) => {
-    if (!project) return;
-    if (
-      !(await confirm({
-        title: "Delete note",
-        description: "Delete this task note? This cannot be undone.",
-        confirmLabel: "Delete",
-        destructive: true,
-      }))
-    ) {
-      return;
-    }
-    if (apiOn) {
-      setTaskNoteBusy(`delete:${taskId}:${noteId}`);
-      void deleteProjectTaskNoteApi(project.id, taskId, noteId)
-        .then((updated) => {
-          upsertProject(updated);
-          toast.success("Note deleted.");
-        })
-        .catch((e) => {
-          toast.error(e instanceof Error ? e.message : "Could not delete note.");
-        })
-        .finally(() => {
-          setTaskNoteBusy(null);
-        });
-      return;
-    }
-    deleteProjectTaskNoteStore(project.id, taskId, noteId);
-    toast.success("Note deleted.");
-  };
-
   const handleAddTimelineNote = (fieldKey: string, body: string) => {
     if (!project) return;
     const trimmed = body.trim();
@@ -874,35 +596,6 @@ export default function ProjectDetailPage() {
     }
     deleteProjectTimelineNoteStore(project.id, fieldKey, noteId);
     toast.success("Note deleted.");
-  };
-
-  const handleDeleteTask = async (taskId: string) => {
-    const task = (project.tasks ?? []).find((t) => t.id === taskId);
-    if (
-      !(await confirm({
-        title: "Delete task",
-        description: task
-          ? `Delete "${task.title}"? This cannot be undone.`
-          : "Delete this task? This cannot be undone.",
-        confirmLabel: "Delete",
-        destructive: true,
-      }))
-    ) {
-      return;
-    }
-                        if (apiOn) {
-      void deleteProjectTaskApi(project.id, taskId)
-                            .then((updated) => {
-                              upsertProject(updated);
-          toast.success("Task deleted.");
-                            })
-                            .catch((e) => {
-          toast.error(e instanceof Error ? e.message : "Could not delete task.");
-                            });
-                          return;
-                        }
-    deleteProjectTaskStore(project.id, taskId);
-    toast.success("Task deleted.");
   };
 
   const handleCancelCompose = () => {
@@ -1155,7 +848,6 @@ export default function ProjectDetailPage() {
   const tabUsesOwnScroll =
     activeTab === "documents" ||
     activeTab === "attachments" ||
-    activeTab === "tasks" ||
     activeTab === "emails" ||
     activeTab === "notes" ||
     activeTab === "calendar";
@@ -1188,8 +880,6 @@ export default function ProjectDetailPage() {
           metadata={metadataRecord}
           docProgress={docProgress}
           sigCounts={sigCounts}
-          tasksComplete={tasksComplete}
-          tasksTotal={(project.tasks ?? []).length}
           deadlinesCount={(project.deadlines ?? []).length}
           filesCount={(project.attachments ?? []).length}
           nextDeadline={nextDeadline ? { title: nextDeadline.title, date: nextDeadline.date } : null}
@@ -1236,46 +926,6 @@ export default function ProjectDetailPage() {
           />
         </motion.div>
       )}
-
-      {activeTab === "tasks" && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className={transactionDetailTabShellClass}
-        >
-          <TransactionTasksTab
-            project={project}
-            tasks={visibleTasks}
-            taskFilter={taskFilter}
-            onTaskFilterChange={setTaskFilter}
-            showAddTask={showAddTask}
-            onToggleAddTask={() => setShowAddTask((v) => !v)}
-            onCancelAddTask={resetNewTaskForm}
-            newTaskTitle={newTaskTitle}
-            onNewTaskTitleChange={setNewTaskTitle}
-            newTaskType={newTaskType}
-            onNewTaskTypeChange={setNewTaskType}
-            newTaskEmailTemplateId={newTaskEmailTemplateId}
-            onNewTaskEmailTemplateIdChange={setNewTaskEmailTemplateId}
-            newTaskRecipientEmail={newTaskRecipientEmail}
-            onNewTaskRecipientEmailChange={setNewTaskRecipientEmail}
-            recipientSuggestions={emailRecipientSuggestions}
-            onComposeEmailTask={handleComposeEmailTask}
-            onSaveNewTask={handleSaveNewTask}
-            onToggleTaskComplete={handleToggleTaskComplete}
-            onMarkAllComplete={handleMarkAllTasksComplete}
-            onResetAll={handleResetAllTasks}
-            canEdit={canEditProject}
-            onUpdateTask={canEditProject ? handleUpdateTask : undefined}
-            onDeleteTask={canEditProject ? handleDeleteTask : undefined}
-            onAddTaskNote={canEditProject ? handleAddTaskNote : undefined}
-            onUpdateTaskNote={canEditProject ? handleUpdateTaskNote : undefined}
-            onDeleteTaskNote={canEditProject ? handleDeleteTaskNote : undefined}
-            taskNoteBusy={taskNoteBusy}
-          />
-        </motion.div>
-      )}
-
 
       {activeTab === "emails" && (
         <motion.div

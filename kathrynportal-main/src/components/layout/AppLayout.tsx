@@ -15,7 +15,7 @@ function isListShellRoute(pathname: string): boolean {
   return (
     pathname === "/projects" ||
     pathname === "/clients" ||
-    pathname === "/tasks" ||
+    pathname === "/next-steps" ||
     pathname === "/calendar" ||
     pathname === "/documents"
   );
@@ -46,7 +46,7 @@ function usesInnerScroll(pathname: string): boolean {
   if (
     pathname === "/projects" ||
     pathname === "/clients" ||
-    pathname === "/tasks" ||
+    pathname === "/next-steps" ||
     pathname === "/calendar" ||
     pathname === "/documents"
   ) {
