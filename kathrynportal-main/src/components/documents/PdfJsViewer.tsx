@@ -20,15 +20,23 @@ type Props = {
 export default function PdfJsViewer({ fileData, scale, onPagesMeta, renderOverlays }: Props) {
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
   const [pages, setPages] = useState<PdfViewportPage[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const canvasesRef = useRef<Map<number, HTMLCanvasElement>>(new Map());
 
   useEffect(() => {
     if (!fileData) {
       setDoc(null);
       setPages([]);
+      setLoadError(null);
+      setLoading(false);
       return;
     }
     let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
+    setPages([]);
+    setDoc(null);
     // Important: pass a copied buffer so PDF.js worker doesn't detach caller-owned bytes.
     const task = getDocument({ data: fileData.slice() });
     void task.promise
@@ -50,7 +58,11 @@ export default function PdfJsViewer({ fileData, scale, onPagesMeta, renderOverla
         if (!cancelled) {
           setDoc(null);
           setPages([]);
+          setLoadError("Could not load this PDF. The file may be corrupted — try re-uploading the original.");
         }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
@@ -114,10 +126,15 @@ export default function PdfJsViewer({ fileData, scale, onPagesMeta, renderOverla
   );
 
   if (!fileData) return null;
+  if (loading) {
+    return <div className="py-8 text-sm text-muted-foreground text-center">Loading PDF…</div>;
+  }
+  if (loadError) {
+    return <div className="py-8 text-sm text-destructive text-center">{loadError}</div>;
+  }
   if (!pages.length) {
-    return <div className="text-sm text-muted-foreground">Loading PDF…</div>;
+    return <div className="py-8 text-sm text-muted-foreground text-center">No pages in this PDF.</div>;
   }
 
   return <div className="overflow-y-auto">{pageNodes}</div>;
 }
-

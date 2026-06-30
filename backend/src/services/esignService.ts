@@ -5,8 +5,6 @@ import type { Pool, PoolClient } from "pg";
 import { convertOfficeToPdf } from "./docConversionService.js";
 import { absolutePathForStorageKey, insertStoredFile } from "./storedFilesService.js";
 import { storageKeyFor } from "../utils/storedFilesLayout.js";
-import { buildPdfWithEsignFieldOverlays } from "./pdfEsignLayoutEmbed.js";
-import { stampVendorSignaturesOnPdf } from "./docusign/pdfVendorStamp.js";
 
 export type EsignFieldInput = {
   id?: string;
@@ -235,6 +233,8 @@ export async function createEsignDraft(
         [Number(stored.id), Number(inserted.id)]
       );
       inserted.renderFileId = stored.id;
+    } else if (isPdf) {
+      await ensureEsignSourceSidecar(args.uploadDirAbs, meta.storage_key);
     }
 
     await client.query("COMMIT");
@@ -450,37 +450,21 @@ async function insertSnapshot(
 }
 
 /**
- * Writes field frames into the canonical PDF on disk (`render_file_id` or `original_file_id`).
- * Keeps a frozen `{path}.esign-source.pdf` so repeated saves redraw from the original upload, not stacked overlays.
+ * Restores the uploaded PDF from `{path}.esign-source.pdf` when a prior save corrupted the file
+ * (common on encrypted brokerage forms). Field positions stay in DB; preview overlays are client-side.
  */
-async function syncStoredPdfWithEsignOverlays(
+async function restoreOriginalPdfFromSidecar(
   client: PoolClient,
   uploadDirAbs: string,
   projectId: number,
-  esignDocumentId: number,
-  fields: EsignFieldInput[]
+  originalFileId: number
 ): Promise<void> {
-  const docRes = await client.query<{ original_file_id: string; render_file_id: string | null }>(
-    `SELECT original_file_id::text, render_file_id::text
-     FROM public.esign_documents
-     WHERE id = $1::bigint AND project_id = $2::bigint AND deleted_at IS NULL
-     LIMIT 1`,
-    [esignDocumentId, projectId]
-  );
-  const docRow = docRes.rows[0];
-  if (!docRow) return;
-
-  const targetId =
-    docRow.render_file_id && /^\d+$/.test(docRow.render_file_id.trim())
-      ? docRow.render_file_id.trim()
-      : docRow.original_file_id.trim();
-
   const metaRes = await client.query<{ storage_key: string; mime_type: string; name: string }>(
     `SELECT storage_key, mime_type, name
      FROM public.stored_files
      WHERE id = $1::bigint AND project_id = $2::bigint AND deleted_at IS NULL
      LIMIT 1`,
-    [Number(targetId), projectId]
+    [originalFileId, projectId]
   );
   const meta = metaRes.rows[0];
   if (!meta) return;
@@ -489,52 +473,55 @@ async function syncStoredPdfWithEsignOverlays(
   if (!isPdf) return;
 
   const abs = absolutePathForStorageKey(uploadDirAbs, meta.storage_key);
-  if (!fs.existsSync(abs)) return;
+  const sidecar = `${abs}.esign-source.pdf`;
+  if (!fs.existsSync(sidecar)) return;
 
-  const sourceSidecar = `${abs}.esign-source.pdf`;
-  if (!fs.existsSync(sourceSidecar)) {
-    fs.copyFileSync(abs, sourceSidecar);
-  }
-
-  const baseBuf = fs.readFileSync(sourceSidecar);
-  let finalBuf = await buildPdfWithEsignFieldOverlays(baseBuf, fields);
-
-  const vendorSignatureFields = fields.filter((f) => f.role === "vendor" && f.fieldType === "signature");
-  if (vendorSignatureFields.length > 0) {
-    const smtpRes = await client.query<{ vendor_signature_file_id: string | null }>(
-      `SELECT vendor_signature_file_id::text AS vendor_signature_file_id
-       FROM public.smtp_settings
-       WHERE id = 1
-       LIMIT 1`
-    );
-    const sigIdRaw = smtpRes.rows[0]?.vendor_signature_file_id;
-    const sigFileId = sigIdRaw && /^\d+$/.test(sigIdRaw.trim()) ? Number(sigIdRaw.trim()) : NaN;
-    if (Number.isFinite(sigFileId)) {
-      const sigKeyRes = await client.query<{ storage_key: string }>(
-        `SELECT storage_key FROM public.stored_files WHERE id = $1::bigint AND deleted_at IS NULL LIMIT 1`,
-        [sigFileId]
-      );
-      const sigKey = sigKeyRes.rows[0]?.storage_key;
-      if (sigKey) {
-        const sigPath = absolutePathForStorageKey(uploadDirAbs, sigKey);
-        if (fs.existsSync(sigPath)) {
-          const sigBytes = fs.readFileSync(sigPath);
-          finalBuf = await stampVendorSignaturesOnPdf(finalBuf, sigBytes, vendorSignatureFields);
-        }
-      }
-    }
-  }
-
-  const tmp = `${abs}.tmp.${randomUUID()}`;
-  fs.writeFileSync(tmp, finalBuf);
-  moveFileSafely(tmp, abs);
-
+  fs.copyFileSync(sidecar, abs);
+  const stat = fs.statSync(abs);
   await client.query(
     `UPDATE public.stored_files
      SET size_bytes = $1::bigint, updated_at = now()
      WHERE id = $2::bigint AND project_id = $3::bigint AND deleted_at IS NULL`,
-    [finalBuf.length, Number(targetId), projectId]
+    [stat.size, originalFileId, projectId]
   );
+}
+
+async function ensureEsignSourceSidecar(uploadDirAbs: string, storageKey: string): Promise<void> {
+  const abs = absolutePathForStorageKey(uploadDirAbs, storageKey);
+  if (!fs.existsSync(abs)) return;
+  const sidecar = `${abs}.esign-source.pdf`;
+  if (!fs.existsSync(sidecar)) {
+    fs.copyFileSync(abs, sidecar);
+  }
+}
+
+export async function repairEsignOriginalPdfFromSidecar(
+  pool: Pool,
+  uploadDirAbs: string,
+  projectId: number,
+  esignDocumentId: number
+): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const docMetaRes = await client.query<{ original_file_id: string }>(
+      `SELECT original_file_id::text
+       FROM public.esign_documents
+       WHERE id = $1::bigint AND project_id = $2::bigint AND deleted_at IS NULL
+       LIMIT 1`,
+      [esignDocumentId, projectId]
+    );
+    const originalFileIdRaw = docMetaRes.rows[0]?.original_file_id?.trim() ?? "";
+    const originalFileId = /^\d+$/.test(originalFileIdRaw) ? Number(originalFileIdRaw) : NaN;
+    if (Number.isFinite(originalFileId)) {
+      await restoreOriginalPdfFromSidecar(client, uploadDirAbs, projectId, originalFileId);
+    }
+    await client.query("COMMIT");
+  } catch {
+    await client.query("ROLLBACK");
+  } finally {
+    client.release();
+  }
 }
 
 export async function saveEsignDraft(
@@ -624,7 +611,26 @@ export async function saveEsignDraft(
       });
     }
 
-    await syncStoredPdfWithEsignOverlays(client, args.uploadDirAbs, args.projectId, args.esignDocumentId, args.fields);
+    const docMetaRes = await client.query<{ original_file_id: string }>(
+      `SELECT original_file_id::text
+       FROM public.esign_documents
+       WHERE id = $1::bigint AND project_id = $2::bigint AND deleted_at IS NULL
+       LIMIT 1`,
+      [args.esignDocumentId, args.projectId]
+    );
+    const originalFileIdRaw = docMetaRes.rows[0]?.original_file_id?.trim() ?? "";
+    const originalFileId = /^\d+$/.test(originalFileIdRaw) ? Number(originalFileIdRaw) : NaN;
+    if (Number.isFinite(originalFileId)) {
+      const keyRes = await client.query<{ storage_key: string }>(
+        `SELECT storage_key FROM public.stored_files WHERE id = $1::bigint AND project_id = $2::bigint AND deleted_at IS NULL LIMIT 1`,
+        [originalFileId, args.projectId]
+      );
+      const storageKey = keyRes.rows[0]?.storage_key;
+      if (storageKey) {
+        await restoreOriginalPdfFromSidecar(client, args.uploadDirAbs, args.projectId, originalFileId);
+        await ensureEsignSourceSidecar(args.uploadDirAbs, storageKey);
+      }
+    }
 
     await client.query("COMMIT");
     return { ok: true };
@@ -657,40 +663,31 @@ export async function markEsignDraftReady(
        WHERE esign_document_id = $1::bigint`,
       [args.esignDocumentId]
     );
-    const hasClientSignature = fieldRes.rows.some((f) => f.role === "client" && f.field_type === "signature");
-    if (!hasClientSignature) {
+    if (fieldRes.rows.length < 1) {
       await client.query("ROLLBACK");
       return {
-        error: { status: 422, code: "READY_CLIENT_SIGNATURE_REQUIRED", message: "At least one client signature field is required." },
-      };
-    }
-    const hasVendorSignature = fieldRes.rows.some((f) => f.role === "vendor" && f.field_type === "signature");
-    if (!hasVendorSignature) {
-      await client.query("ROLLBACK");
-      return {
-        error: { status: 422, code: "READY_VENDOR_SIGNATURE_REQUIRED", message: "At least one vendor signature field is required." },
+        error: { status: 422, code: "READY_FIELD_REQUIRED", message: "Add at least one field before marking ready." },
       };
     }
 
-    const settingsRes = await client.query<{ from_email: string; vendor_signature_file_id: string | null }>(
-      `SELECT from_email, vendor_signature_file_id::text AS vendor_signature_file_id
-       FROM public.smtp_settings
-       WHERE id = 1
-       LIMIT 1`
-    );
-    const settings = settingsRes.rows[0];
-    const vendorEmail = settings?.from_email?.trim() ?? "";
-    if (!vendorEmail) {
-      await client.query("ROLLBACK");
-      return {
-        error: { status: 422, code: "VENDOR_SETTINGS_REQUIRED", message: "Set your From email in Settings → Email / SMTP before marking ready." },
-      };
-    }
-    if (!settings?.vendor_signature_file_id) {
-      await client.query("ROLLBACK");
-      return {
-        error: { status: 422, code: "VENDOR_SIGNATURE_REQUIRED", message: "Upload a vendor signature PNG in Settings → Email / SMTP before marking ready." },
-      };
+    const hasVendorSignature = fieldRes.rows.some((f) => f.role === "vendor" && f.field_type === "signature");
+    if (hasVendorSignature) {
+      const settingsRes = await client.query<{ vendor_signature_file_id: string | null }>(
+        `SELECT vendor_signature_file_id::text AS vendor_signature_file_id
+         FROM public.smtp_settings
+         WHERE id = 1
+         LIMIT 1`
+      );
+      if (!settingsRes.rows[0]?.vendor_signature_file_id) {
+        await client.query("ROLLBACK");
+        return {
+          error: {
+            status: 422,
+            code: "VENDOR_SIGNATURE_REQUIRED",
+            message: "Upload a vendor signature PNG in Settings → Email / SMTP before marking ready.",
+          },
+        };
+      }
     }
 
     await client.query(

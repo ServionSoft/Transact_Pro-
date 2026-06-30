@@ -9,6 +9,7 @@ import {
   listEsignDrafts,
   markEsignDraftReady,
   patchEsignDraftTitle,
+  repairEsignOriginalPdfFromSidecar,
   saveEsignDraft,
   type EsignFieldInput,
   type EsignRecipientInput,
@@ -112,6 +113,7 @@ export function createEsignController(pool: Pool, deps: { uploadDirAbs: string; 
         res.status(400).json({ success: false, error: { code: "BAD_ID", message: "Invalid document id." } });
         return;
       }
+      await repairEsignOriginalPdfFromSidecar(pool, deps.uploadDirAbs, projectId, documentId);
       const draft = await getEsignDraft(pool, projectId, documentId);
       if (!draft) {
         res.status(404).json({ success: false, error: { code: "NOT_FOUND", message: "Draft not found." } });

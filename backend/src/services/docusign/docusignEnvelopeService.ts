@@ -1056,7 +1056,11 @@ export async function sendEsignTemplateEnvelope(
     checklistProjectId = args.projectId;
   }
 
-  const renderId = draft.document.renderFileId ?? draft.document.originalFileId;
+  const renderId =
+    draft.document.renderFileId &&
+    draft.document.renderFileId !== draft.document.originalFileId
+      ? draft.document.renderFileId
+      : draft.document.originalFileId;
   if (!renderId) {
     return { error: { status: 422, code: "ESIGN_NO_PDF", message: "Template has no PDF file to send." } };
   }

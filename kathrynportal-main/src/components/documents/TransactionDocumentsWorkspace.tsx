@@ -41,7 +41,6 @@ import {
   createProjectDocumentNoteApi,
   updateProjectDocumentNoteApi,
   deleteProjectDocumentNoteApi,
-  createProjectDocumentApi,
   deleteProjectDocumentApi,
   getProjectFromApi,
   patchProjectDocumentStatusApi,
@@ -49,7 +48,7 @@ import {
 import StatusBadge from "@/components/shared/StatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { documentChecklistSummary, documentRowAccentClass } from "@/lib/documentChecklistUtils";
+import { documentChecklistSummary, checklistDocNameClass, checklistRowClass, isChecklistDocNa } from "@/lib/documentChecklistUtils";
 import {
   listPagePanelClass,
   embeddedTabBodyClass,
@@ -144,7 +143,6 @@ export default function TransactionDocumentsWorkspace({
 
   const setDocStatusStore = useAppStore((s) => s.setDocStatus);
   const bulkSetDocStatusStore = useAppStore((s) => s.bulkSetDocStatus);
-  const addProjectDocumentStore = useAppStore((s) => s.addProjectDocument);
   const addStoredFileToPoolStore = useAppStore((s) => s.addStoredFileToPool);
   const deleteStoredFileStore = useAppStore((s) => s.deleteStoredFile);
   const moveStoredFileToFolderStore = useAppStore((s) => s.moveStoredFileToFolder);
@@ -160,7 +158,6 @@ export default function TransactionDocumentsWorkspace({
   const { confirm, ConfirmDialogHost } = useConfirmDialog();
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [newDocName, setNewDocName] = useState("");
   const [bulkStatus, setBulkStatus] = useState<DocumentStatus | "">("");
   const [attachDocId, setAttachDocId] = useState<string | null>(null);
   const [attachPick, setAttachPick] = useState<Set<string>>(new Set());
@@ -613,26 +610,6 @@ export default function TransactionDocumentsWorkspace({
     toast.success(`Updated ${selected.size} documents to "${bulkStatus}"`);
     setBulkStatus("");
     setSelected(new Set());
-  };
-
-  const addCustomDoc = () => {
-    if (!newDocName.trim()) return;
-    const name = newDocName.trim();
-    if (!getApiBaseUrl()) {
-      addProjectDocumentStore(project.id, name);
-      setNewDocName("");
-      toast.success(`Added "${name}" to checklist`);
-      return;
-    }
-    void createProjectDocumentApi(project.id, name)
-      .then((updated) => {
-        upsertProject(updated);
-        setNewDocName("");
-        toast.success(`Added "${name}" to checklist`);
-      })
-      .catch((e) => {
-        toast.error(e instanceof Error ? e.message : "Could not add document.");
-      });
   };
 
   const removeChecklistDoc = async (doc: DocRow) => {
@@ -1978,20 +1955,6 @@ export default function TransactionDocumentsWorkspace({
                 onSaveNote={saveDocumentNote}
               />
             ))}
-            <div className="space-y-2 rounded-lg border border-border/60 bg-secondary/20 p-3">
-              <Input
-                value={newDocName}
-                onChange={(e) => setNewDocName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") addCustomDoc();
-                }}
-                placeholder="+ Add custom document to this checklist..."
-                className="h-8 text-xs"
-              />
-              <Button size="sm" onClick={addCustomDoc} className="h-8 w-full gap-1 text-xs sm:w-auto">
-                <Plus className="h-3 w-3" /> Add
-              </Button>
-            </div>
           </div>
 
           <div className="hidden overflow-x-hidden xl:block">
@@ -2031,11 +1994,7 @@ export default function TransactionDocumentsWorkspace({
               {docs.map((doc) => (
                 <tr
                   key={doc.id}
-                  className={cn(
-                    "hover:bg-secondary/30",
-                    documentRowAccentClass(doc.status),
-                    selected.has(doc.id) && "bg-accent/5",
-                  )}
+                  className={cn(checklistRowClass(doc, { selected: selected.has(doc.id) }))}
                 >
                   <td className="px-3 py-1.5">
                     <Checkbox
@@ -2046,10 +2005,21 @@ export default function TransactionDocumentsWorkspace({
                   </td>
                   <td className="px-3 py-1.5">
                     <div className="min-w-0 space-y-1">
-                      <p className="truncate font-medium text-foreground" title={doc.name}>
+                      <p
+                        className={cn(
+                          "truncate font-medium text-foreground",
+                          checklistDocNameClass(doc),
+                        )}
+                        title={doc.name}
+                      >
                         {doc.name}
                       </p>
                       <div className="flex flex-wrap items-center gap-1">
+                        {isChecklistDocNa(doc) ? (
+                          <Badge variant="secondary" className="h-4 px-1.5 text-[9px] font-semibold uppercase tracking-wide bg-neutral-500/30 text-muted-foreground">
+                            N/A
+                          </Badge>
+                        ) : null}
                         {doc.required ? (
                           <Badge variant="destructive" className="h-4 px-1 text-[9px] font-semibold uppercase tracking-wide">
                             Req
@@ -2060,7 +2030,9 @@ export default function TransactionDocumentsWorkspace({
                             rule #{doc.sourceRuleId}
                           </Badge>
                         ) : null}
-                        <StatusBadge status={doc.status} className="text-[10px] sm:px-1.5 sm:py-0" />
+                        {!isChecklistDocNa(doc) ? (
+                          <StatusBadge status={doc.status} className="text-[10px] sm:px-1.5 sm:py-0" />
+                        ) : null}
                       </div>
                     </div>
                   </td>
@@ -2211,25 +2183,6 @@ export default function TransactionDocumentsWorkspace({
                   </td>
                 </tr>
               ))}
-              <tr className="bg-secondary/20">
-                <td className="px-3 py-2" />
-                <td className="px-3 py-2" colSpan={6}>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      value={newDocName}
-                      onChange={(e) => setNewDocName(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") addCustomDoc();
-                      }}
-                      placeholder="+ Add custom document to this checklist..."
-                      className="h-7 text-xs"
-                    />
-                    <Button size="sm" onClick={addCustomDoc} className="h-7 text-xs gap-1">
-                      <Plus className="w-3 h-3" /> Add
-                    </Button>
-                  </div>
-                </td>
-              </tr>
             </tbody>
           </table>
           </div>

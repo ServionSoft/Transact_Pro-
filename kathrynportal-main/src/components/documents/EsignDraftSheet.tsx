@@ -28,6 +28,7 @@ import { getSmtpSettingsFromApi, type SmtpSettingsDto } from "@/api/smtpSettings
 import { parseSignerEmailsFromInput, validateSignerEmailListForDocuSign } from "@/lib/parseClientSignerEmails";
 import type { TransactionRecipientSuggestion } from "@/lib/transactionRecipientSuggestions";
 import { deleteTemplateConfirmOptions, useConfirmDialog } from "@/hooks/useConfirmDialog";
+import { esignPreviewFileId } from "@/lib/esignPreviewFileId";
 
 type Props = {
   open: boolean;
@@ -47,7 +48,7 @@ type Props = {
 const DEFAULT_FIELD = (sortOrder: number): EsignFieldDto => ({
   fieldType: "signature",
   role: "client",
-  required: true,
+  required: false,
   pageNumber: 1,
   x: 72,
   y: 72,
@@ -333,29 +334,34 @@ export default function EsignDraftSheet({
     if (!open || !selectedDraft) return;
     const base = getApiBaseUrl();
     if (!base) return;
-    const renderId = selectedDraft.renderFileId ?? selectedDraft.originalFileId;
-    const url = `${base}/api/projects/${encodeURIComponent(projectId)}/stored-files/${encodeURIComponent(renderId)}/download`;
+    const previewFileId = esignPreviewFileId(selectedDraft);
+    const url = `${base}/api/projects/${encodeURIComponent(projectId)}/stored-files/${encodeURIComponent(previewFileId)}/download`;
     let cancelled = false;
     setPreviewLoading(true);
-    void authFetch(url)
-      .then(async (response) => {
+    setPdfBytes(null);
+    void (async () => {
+      try {
+        if (selectedDraftId) {
+          await getEsignDocumentApi(projectId, selectedDraftId);
+        }
+        if (cancelled) return;
+        const response = await authFetch(url);
         if (!response.ok) throw new Error("Unable to load PDF preview file.");
         const buf = await response.arrayBuffer();
         if (!cancelled) setPdfBytes(new Uint8Array(buf));
-      })
-      .catch((error) => {
+      } catch (error) {
         if (!cancelled) {
           setPdfBytes(null);
           toast.error(error instanceof Error ? error.message : "Preview failed to load.");
         }
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setPreviewLoading(false);
-      });
+      }
+    })();
     return () => {
       cancelled = true;
     };
-  }, [open, selectedDraft, projectId]);
+  }, [open, selectedDraft, selectedDraftId, projectId]);
 
   const createDraft = async () => {
     if (!storedFileIdDraft) {
@@ -405,8 +411,8 @@ export default function EsignDraftSheet({
     try {
       const base = getApiBaseUrl();
       if (!base) throw new Error("VITE_API_URL is not set.");
-      const renderId = selectedDraft.renderFileId ?? selectedDraft.originalFileId;
-      const downloadUrl = `${base}/api/projects/${encodeURIComponent(projectId)}/stored-files/${encodeURIComponent(renderId)}/download`;
+      const previewFileId = esignPreviewFileId(selectedDraft);
+      const downloadUrl = `${base}/api/projects/${encodeURIComponent(projectId)}/stored-files/${encodeURIComponent(previewFileId)}/download`;
       const sourceResp = await authFetch(downloadUrl);
       if (!sourceResp.ok) throw new Error("Could not load source PDF for export.");
       const sourceBuf = await sourceResp.arrayBuffer();
@@ -636,7 +642,8 @@ export default function EsignDraftSheet({
         <SheetHeader>
           <SheetTitle>E-sign Template Builder</SheetTitle>
           <SheetDescription>
-            Place vendor and client fields on the PDF. Vendor uses your SMTP signature image (burned into the file for DocuSign); only the client receives a DocuSign signing email.
+            Place client or vendor fields on the PDF — at least one field is required to mark ready. Client fields are sent to DocuSign for signing;
+            vendor signature fields use your SMTP signature image (burned into the PDF before send).
           </SheetDescription>
         </SheetHeader>
 
@@ -790,7 +797,8 @@ export default function EsignDraftSheet({
 
               <div className="rounded-lg border border-border p-3 space-y-3">
                 <div className="text-xs text-muted-foreground">
-                  Vendor preview uses the signature image from Email / SMTP settings. Only the client signs in DocuSign; client email is set when you send the envelope.
+                  Vendor signature fields preview using the image from Email / SMTP settings (required only when vendor signature fields are on the template).
+                  Client fields are signed in DocuSign; set the client email when you send the envelope.
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="text-sm font-medium">Fields</div>

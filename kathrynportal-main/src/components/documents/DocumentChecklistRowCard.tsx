@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { documentRowAccentClass } from "@/lib/documentChecklistUtils";
+import { checklistDocNameClass, checklistRowClass, isChecklistDocNa } from "@/lib/documentChecklistUtils";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -88,8 +88,7 @@ export default function DocumentChecklistRowCard({
     <div
       className={cn(
         "touch-pan-y space-y-3 rounded-lg border border-border/70 p-3",
-        documentRowAccentClass(doc.status),
-        selected && "border-accent/40 bg-accent/5",
+        checklistRowClass(doc, { selected }),
       )}
     >
       <div className="flex items-start gap-2">
@@ -100,9 +99,17 @@ export default function DocumentChecklistRowCard({
           className="mt-0.5"
         />
         <div className="min-w-0 flex-1">
-          <p className="break-words text-sm font-medium text-foreground">{doc.name}</p>
+          <p className={cn("break-words text-sm font-medium text-foreground", checklistDocNameClass(doc))}>
+            {doc.name}
+          </p>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            <StatusBadge status={doc.status} className="text-[10px]" />
+            {isChecklistDocNa(doc) ? (
+              <Badge variant="secondary" className="h-4 px-1.5 text-[9px] font-semibold uppercase tracking-wide bg-neutral-500/30 text-muted-foreground">
+                N/A
+              </Badge>
+            ) : (
+              <StatusBadge status={doc.status} className="text-[10px]" />
+            )}
             {doc.required ? (
               <Badge variant="destructive" className="h-4 px-1 text-[9px] font-semibold uppercase tracking-wide">
                 Req
