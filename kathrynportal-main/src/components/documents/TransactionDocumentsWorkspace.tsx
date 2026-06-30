@@ -1308,23 +1308,21 @@ export default function TransactionDocumentsWorkspace({
     >
       <div
         className={cn(
-          "grid grid-cols-1 lg:grid-cols-[minmax(180px,220px)_1fr]",
-          poolLayoutBounded ? embeddedTabFillClass : "lg:min-h-[360px]",
+          poolLayoutBounded
+            ? "flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row"
+            : "grid grid-cols-1 lg:grid-cols-[minmax(180px,220px)_1fr] lg:min-h-[360px]",
         )}
       >
         <div
           className={cn(
-            "flex max-h-[min(40vh,280px)] min-h-0 flex-col border-b border-border bg-secondary/20 p-3 lg:border-b-0 lg:border-r",
-            poolLayoutBounded ? "lg:min-h-0" : "lg:max-h-none",
+            "flex min-h-0 flex-col border-b border-border bg-secondary/20 p-3 lg:border-b-0 lg:border-r",
+            poolLayoutBounded
+              ? "max-h-[min(40vh,280px)] shrink-0 overflow-hidden lg:max-h-none lg:min-h-0 lg:w-[220px] lg:shrink-0"
+              : "max-h-[min(40vh,280px)] lg:max-h-none",
           )}
         >
           <p className="mb-2 shrink-0 px-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Folders</p>
-          <div
-            className={cn(
-              "min-h-0 flex-1 space-y-0.5 overflow-y-auto overscroll-contain pr-0.5",
-              poolLayoutBounded && embeddedTabScrollClass,
-            )}
-          >
+          <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto overscroll-contain pr-0.5">
             <button
               type="button"
               onClick={() => setStorageScope("all")}
@@ -1456,6 +1454,7 @@ export default function TransactionDocumentsWorkspace({
         <div
           className={cn(
             "m-2 flex min-h-0 flex-col rounded-lg border-2 border-dashed border-transparent p-4 transition-colors hover:border-border/80",
+            poolLayoutBounded && "lg:m-0 lg:min-h-0 lg:flex-1 lg:overflow-hidden lg:p-4",
             poolLayoutBounded && embeddedTabOverflowHiddenClass,
           )}
           onDragOver={(e) => e.preventDefault()}
