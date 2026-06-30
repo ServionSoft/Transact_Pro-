@@ -51,6 +51,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { documentChecklistSummary, documentRowAccentClass } from "@/lib/documentChecklistUtils";
 import {
+  listPagePanelClass,
   embeddedTabBodyClass,
   embeddedTabFillClass,
   embeddedTabOverflowHiddenClass,
@@ -120,6 +121,8 @@ export interface TransactionDocumentsWorkspaceProps {
   allowPoolUpload?: boolean;
   /** Constrain height + inner scroll when rendered inside transaction detail tabs. */
   embeddedInTransactionTab?: boolean;
+  /** Constrain height + inner scroll on the standalone Documents hub (lg+). */
+  boundedPoolScroll?: boolean;
 }
 
 export default function TransactionDocumentsWorkspace({
@@ -127,7 +130,9 @@ export default function TransactionDocumentsWorkspace({
   view,
   allowPoolUpload = true,
   embeddedInTransactionTab = false,
+  boundedPoolScroll = false,
 }: TransactionDocumentsWorkspaceProps) {
+  const poolLayoutBounded = embeddedInTransactionTab || boundedPoolScroll;
   const project = useAppStore((s) => s.projects.find((p) => p.id === projectId));
   const client = useAppStore((s) => s.clients.find((c) => c.id === project?.clientId));
   const user = useAuthStore((s) => s.user);
@@ -1296,22 +1301,28 @@ export default function TransactionDocumentsWorkspace({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       className={cn(
-        "bg-card border border-border rounded-lg overflow-hidden",
-        embeddedInTransactionTab && embeddedTabShellClass,
+        poolLayoutBounded
+          ? cn("flex min-h-0 flex-1 flex-col overflow-hidden", embeddedTabShellClass)
+          : "bg-card border border-border rounded-lg overflow-hidden",
       )}
     >
       <div
         className={cn(
           "grid grid-cols-1 lg:grid-cols-[minmax(180px,220px)_1fr]",
-          embeddedInTransactionTab ? embeddedTabFillClass : "lg:min-h-[360px]",
+          poolLayoutBounded ? embeddedTabFillClass : "lg:min-h-[360px]",
         )}
       >
-        <div className="flex max-h-[min(40vh,280px)] min-h-0 flex-col border-b border-border bg-secondary/20 p-3 lg:max-h-none lg:border-b-0 lg:border-r">
+        <div
+          className={cn(
+            "flex max-h-[min(40vh,280px)] min-h-0 flex-col border-b border-border bg-secondary/20 p-3 lg:border-b-0 lg:border-r",
+            poolLayoutBounded ? "lg:min-h-0" : "lg:max-h-none",
+          )}
+        >
           <p className="mb-2 shrink-0 px-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Folders</p>
           <div
             className={cn(
               "min-h-0 flex-1 space-y-0.5 overflow-y-auto overscroll-contain pr-0.5",
-              embeddedInTransactionTab && embeddedTabScrollClass,
+              poolLayoutBounded && embeddedTabScrollClass,
             )}
           >
             <button
@@ -1445,7 +1456,7 @@ export default function TransactionDocumentsWorkspace({
         <div
           className={cn(
             "m-2 flex min-h-0 flex-col rounded-lg border-2 border-dashed border-transparent p-4 transition-colors hover:border-border/80",
-            embeddedInTransactionTab && embeddedTabOverflowHiddenClass,
+            poolLayoutBounded && embeddedTabOverflowHiddenClass,
           )}
           onDragOver={(e) => e.preventDefault()}
           onDrop={allowPoolUpload && canUploadDocs ? onPoolDrop : undefined}
@@ -1459,7 +1470,7 @@ export default function TransactionDocumentsWorkspace({
               onChange={onPoolFilesPicked}
             />
           ) : null}
-          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+          <div className="mb-3 shrink-0 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
               <h3 className="font-display text-sm font-semibold text-foreground">
                 {storageScope === "all"
@@ -1501,7 +1512,7 @@ export default function TransactionDocumentsWorkspace({
             ) : null}
           </div>
           {folderCreateMode?.kind === "subfolder" ? (
-            <div className="mb-3 flex flex-wrap gap-1">
+            <div className="mb-3 shrink-0 flex flex-wrap gap-1">
               <Input
                 value={newFolderName}
                 onChange={(e) => setNewFolderName(e.target.value)}
@@ -1526,7 +1537,7 @@ export default function TransactionDocumentsWorkspace({
               </Button>
             </div>
           ) : null}
-          <p className="text-[11px] text-muted-foreground mb-3">
+          <p className="mb-3 shrink-0 text-[11px] text-muted-foreground">
             {!allowPoolUpload
               ? poolListsTemplates
                 ? "Browse eSign templates and organize folders. Upload from the Documents hub."
@@ -1542,7 +1553,7 @@ export default function TransactionDocumentsWorkspace({
               <div
                 className={cn(
                   "space-y-2 sm:space-y-1",
-                  embeddedInTransactionTab && cn(embeddedTabScrollClass, "pr-0.5"),
+                  poolLayoutBounded && cn(embeddedTabScrollClass, "pr-0.5"),
                 )}
               >
                 {filteredEsignDrafts.map((draft) => {
@@ -1712,7 +1723,7 @@ export default function TransactionDocumentsWorkspace({
             <div
               className={cn(
                 "space-y-2 sm:space-y-1",
-                embeddedInTransactionTab && cn(embeddedTabScrollClass, "pr-0.5"),
+                poolLayoutBounded && cn(embeddedTabScrollClass, "pr-0.5"),
               )}
             >
               {filteredPoolFiles.map((file) => {
@@ -2297,6 +2308,18 @@ export default function TransactionDocumentsWorkspace({
           <div className={cn(transactionDetailTabShellClass, "gap-3")} aria-label="eSign templates">
             {poolSection}
           </div>
+        ) : boundedPoolScroll ? (
+          <div className={cn(listPagePanelClass, "min-h-0 flex-1")} aria-label="eSign templates">
+            <div className="shrink-0 border-b border-border px-4 py-3 sm:px-5">
+              <h2 className="font-display text-lg font-semibold text-foreground">eSign templates</h2>
+            </div>
+            <div className="flex min-h-0 flex-1 flex-col">{poolSection}</div>
+            <div className="shrink-0 border-t border-border px-4 py-3 sm:px-5">
+              <Button type="button" variant="outline" size="sm" onClick={openEsignBuilderForCreate} className="gap-1">
+                <Pencil className="w-3.5 h-3.5" /> Open eSign Template Builder
+              </Button>
+            </div>
+          </div>
         ) : (
           <section className="space-y-3" aria-label="eSign templates">
             <h2 className="font-display text-lg font-semibold text-foreground">eSign templates</h2>
@@ -2305,11 +2328,13 @@ export default function TransactionDocumentsWorkspace({
         )
       )}
       {view === "checklist-only" && checklistSection}
+      {!(view === "pool-only" && boundedPoolScroll) ? (
       <div className="mt-3">
         <Button type="button" variant="outline" size="sm" onClick={openEsignBuilderForCreate} className="gap-1">
           <Pencil className="w-3.5 h-3.5" /> Open eSign Template Builder
         </Button>
       </div>
+      ) : null}
 
       <input
         ref={checklistFileInputRef}
