@@ -103,3 +103,29 @@ export async function seedCompassProjectTasks(
 
   return inserted;
 }
+
+/** Seed Compass tasks when a project has none yet (existing transactions created before seeding). */
+export async function ensureInitialCompassTasksSeeded(
+  pool: Pool,
+  projectId: string,
+  transactionType: "Listing" | "Buyer File",
+  metadata: unknown
+): Promise<boolean> {
+  if (!/^\d+$/.test(projectId)) return false;
+
+  const { rows } = await pool.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM public.project_tasks WHERE project_id = $1::bigint`,
+    [projectId]
+  );
+  if (Number(rows[0]?.count ?? 0) > 0) return false;
+
+  if (transactionType === "Buyer File") {
+    await seedCompassProjectTasks(pool, projectId, "Buyer File", "buyer_all");
+  } else {
+    await seedCompassProjectTasks(pool, projectId, "Listing", "listing_pre_contract");
+    if (isContractAcceptedInMetadata(metadata)) {
+      await seedCompassProjectTasks(pool, projectId, "Listing", "listing_post_contract");
+    }
+  }
+  return true;
+}

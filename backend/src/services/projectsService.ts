@@ -5,6 +5,11 @@ import type { AuthUser } from "../middleware/auth.js";
 import { getSmtpSettings, sendMailWithStoredSettings } from "./smtpSettingsService.js";
 import { absolutePathForStorageKey } from "./storedFilesService.js";
 import { formatEmailAddressList, parseEmailAddressList } from "../utils/parseEmailAddressList.js";
+import {
+  ensureInitialCompassTasksSeeded,
+  isContractAcceptedInMetadata,
+  seedCompassProjectTasks,
+} from "./compassTaskSeedService.js";
 
 export type ProjectStageUi = "Listing Prep" | "Listing Complete" | "In Escrow" | "Ready to Close" | "Closed";
 export type ProjectTypeUi = "Listing" | "Buyer File";
@@ -1777,6 +1782,8 @@ export async function getProjectById(pool: Pool, projectId: string): Promise<Pro
   );
   const row = rows[0];
   if (!row) return null;
+  const transactionType = TYPE_DB_TO_UI[row.transaction_type] ?? "Listing";
+  await ensureInitialCompassTasksSeeded(pool, projectId, transactionType, row.metadata_json);
   const [documents, tasks, emails, notes, assignees, deadlines, timelineNotes] = await Promise.all([
     getProjectDocuments(pool, projectId),
     getProjectTasks(pool, projectId),
@@ -1874,6 +1881,11 @@ export async function createProject(
     await insertProjectDocumentFromInput(pool, projectId, d, createdByUserId && /^\d+$/.test(createdByUserId) ? createdByUserId : null);
   }
   await syncProjectDeadlinesFromFormMetadata(pool, projectId, input.metadata ?? null);
+  if (typeDb === "buyer_file") {
+    await seedCompassProjectTasks(pool, projectId, "Buyer File", "buyer_all");
+  } else if (typeDb === "listing") {
+    await seedCompassProjectTasks(pool, projectId, "Listing", "listing_pre_contract");
+  }
   const created = await getProjectById(pool, projectId);
   if (!created) {
     return { error: { status: 500, code: "PROJECT_LOAD_FAILED", message: "Project was created but could not be loaded." } };
@@ -1904,6 +1916,15 @@ export async function updateProject(
   if (clientCheck.rows.length === 0) {
     return { error: { status: 404, code: "CLIENT_NOT_FOUND", message: "Linked client was not found." } };
   }
+  const priorRow = await pool.query<{ metadata_json: unknown; transaction_type: string }>(
+    `SELECT metadata_json, transaction_type::text AS transaction_type
+     FROM public.projects
+     WHERE id = $1::bigint AND deleted_at IS NULL
+     LIMIT 1`,
+    [projectId]
+  );
+  const priorMeta = priorRow.rows[0]?.metadata_json;
+  const priorTypeDb = priorRow.rows[0]?.transaction_type;
   const price = parseMoneyToNumber(input.listPrice);
   const { rowCount } = await pool.query(
     `UPDATE public.projects
@@ -1964,6 +1985,13 @@ export async function updateProject(
   }
   if (input.metadata !== undefined) {
     await syncProjectDeadlinesFromFormMetadata(pool, projectId, input.metadata ?? null);
+    if (priorTypeDb === "listing" && input.metadata) {
+      const wasAccepted = isContractAcceptedInMetadata(priorMeta);
+      const nowAccepted = isContractAcceptedInMetadata(input.metadata);
+      if (!wasAccepted && nowAccepted) {
+        await seedCompassProjectTasks(pool, projectId, "Listing", "listing_post_contract");
+      }
+    }
   }
   const updated = await getProjectById(pool, projectId);
   if (!updated) {
