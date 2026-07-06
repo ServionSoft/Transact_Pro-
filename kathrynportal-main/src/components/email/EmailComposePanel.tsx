@@ -37,7 +37,7 @@ type Props = {
   emailTemplates?: EmailTemplate[];
   loadingTemplates?: boolean;
   showTemplatePicker?: boolean;
-  onApplyTemplate?: (templateId: string) => void;
+  onApplyTemplate?: (templateId: string) => void | Promise<void>;
   sending?: boolean;
   onSend: () => void;
   onCancel: () => void;
@@ -168,8 +168,11 @@ export default function EmailComposePanel({
           <Select
             value={draft.templateId || undefined}
             onValueChange={(templateId) => {
-              set({ templateId });
-              onApplyTemplate?.(templateId);
+              void Promise.resolve(onApplyTemplate?.(templateId)).catch((e) => {
+                toast.error("Could not apply template.", {
+                  description: e instanceof Error ? e.message : "Unknown error",
+                });
+              });
             }}
           >
             <SelectTrigger id="compose-template">
