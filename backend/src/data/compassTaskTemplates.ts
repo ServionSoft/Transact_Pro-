@@ -103,7 +103,10 @@ export const COMPASS_LISTING_TASKS: CompassTaskTemplate[] = [
     ["listing_pre_contract"],
     { taskType: "email", emailTemplateKey: "listing_disclosure_intro_client" },
   ),
-  listing("L13", "Send docs to Seller to fill out", "Seller Disclosure Packet", 130, ["listing_pre_contract"]),
+  listing("L13", "Send docs to Seller to fill out", "Seller Disclosure Packet", 130, ["listing_pre_contract"], {
+    taskType: "email",
+    emailTemplateKey: "listing_disclosures_to_fill_out",
+  }),
   listing(
     "L14",
     "Email Additional Disclosures to Seller to Review",
@@ -113,13 +116,29 @@ export const COMPASS_LISTING_TASKS: CompassTaskTemplate[] = [
     { taskType: "email", emailTemplateKey: "listing_additional_disclosures_seller" },
   ),
   listing("L15", "Send docs to Seller for signature", "Seller Disclosure Packet", 150, ["listing_pre_contract"]),
-  listing("L16", "Order HOA docs", "Seller Disclosure Packet", 160, ["listing_pre_contract"]),
-  listing("L17", "Send Disclosure link and list of remaining items to agent", "Seller Disclosure Packet", 170, ["listing_pre_contract"]),
-  listing("L18", "Send Disclosure link to BA/TC for Buyer's signature", "Seller Disclosure Packet", 180, ["listing_pre_contract"]),
+  listing("L16", "Order HOA docs", "Seller Disclosure Packet", 160, ["listing_pre_contract"], {
+    taskType: "email",
+    emailTemplateKey: "hoa_document_request",
+  }),
+  listing(
+    "L17",
+    "Send Disclosure link and list of remaining items to agent",
+    "Seller Disclosure Packet",
+    170,
+    ["listing_pre_contract"],
+    { taskType: "email", emailTemplateKey: "listing_disclosure_link_agent" },
+  ),
+  listing("L18", "Send Disclosure link to BA/TC for Buyer's signature", "Seller Disclosure Packet", 180, ["listing_pre_contract"], {
+    taskType: "email",
+    emailTemplateKey: "seller_disclosures_batc",
+  }),
   listing("L19", "Audit and Upload Buyer signed docs", "Seller Disclosure Packet", 190, ["listing_pre_contract"], {
     instructionUrl: "https://docs.google.com/",
   }),
-  listing("L20", "Request any missing disclosures from BATC", "Seller Disclosure Packet", 200, ["listing_pre_contract"]),
+  listing("L20", "Request any missing disclosures from BATC", "Seller Disclosure Packet", 200, ["listing_pre_contract"], {
+    taskType: "email",
+    emailTemplateKey: "missing_buyer_signed_batc",
+  }),
 
   listing("L21", "New Contract/Accepted Offer — open instructions", "Remaining Contract Items and Disclosures", 210, ["listing_post_contract"], {
     instructionUrl: "https://docs.google.com/",
@@ -198,7 +217,10 @@ export const COMPASS_BUYER_TASKS: CompassTaskTemplate[] = [
   buyer("B06", "Add Accepted Offer to Business Tracker", "New Contract / Opening", 60),
   buyer("B07", "Upload Initial Contract Docs", "New Contract / Opening", 70),
   buyer("B08", "Enter Escrow and TC fee into Commission tab", "New Contract / Opening", 80),
-  buyer("B09", "Look up/request disclosures from LA/TC", "New Contract / Opening", 90),
+  buyer("B09", "Look up/request disclosures from LA/TC", "New Contract / Opening", 90, {
+    taskType: "email",
+    emailTemplateKey: "missing_disclosure_request_la_tc",
+  }),
   buyer("B10", "Enter details from emails, contract, and MLS", "New Contract / Opening", 100),
   buyer("B11", "Email \"Notes and Questions\" to Buyer's Agent", "New Contract / Opening", 110, {
     taskType: "email",
@@ -208,9 +230,18 @@ export const COMPASS_BUYER_TASKS: CompassTaskTemplate[] = [
   buyer("B12", "Send Disclosures to Buyer — open instructions", "Remaining Contract Items and Disclosures", 120, {
     instructionUrl: "https://docs.google.com/",
   }),
-  buyer("B13", "Review Seller disclosure packet and request any missing items/corrections", "Remaining Contract Items and Disclosures", 130),
-  buyer("B14", "Send to Buyer for review", "Remaining Contract Items and Disclosures", 140),
-  buyer("B15", "Send to Buyer for signature", "Remaining Contract Items and Disclosures", 150),
+  buyer("B13", "Review Seller disclosure packet and request any missing items/corrections", "Remaining Contract Items and Disclosures", 130, {
+    taskType: "email",
+    emailTemplateKey: "missing_disclosure_request_la_tc",
+  }),
+  buyer("B14", "Send to Buyer for review", "Remaining Contract Items and Disclosures", 140, {
+    taskType: "email",
+    emailTemplateKey: "buyer_disclosures_separate_packet",
+  }),
+  buyer("B15", "Send to Buyer for signature", "Remaining Contract Items and Disclosures", 150, {
+    taskType: "email",
+    emailTemplateKey: "buyer_disclosures_separate_additional",
+  }),
   buyer("B16", "Download and Review for Completion", "Remaining Contract Items and Disclosures", 160),
   buyer("B17", "Send Buyer signed docs to LA/TC from email draft", "Remaining Contract Items and Disclosures", 170, {
     taskType: "email",
@@ -218,7 +249,7 @@ export const COMPASS_BUYER_TASKS: CompassTaskTemplate[] = [
   }),
   buyer("B18", "Prep email to send Buyer signed docs to LA/TC", "Remaining Contract Items and Disclosures", 180, {
     taskType: "email",
-    emailTemplateKey: "buyer_signed_docs_la_tc",
+    emailTemplateKey: "buyer_signed_disclosures_la_tc",
   }),
   buyer("B19", "Add in additional disclosures needed from our side (brokerage disclosures, etc.)", "Remaining Contract Items and Disclosures", 190),
   buyer("B20", "Audit and Upload Buyer Signed Disclosures", "Remaining Contract Items and Disclosures", 200, {

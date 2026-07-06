@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ChevronDown } from "lucide-react";
 import { useAppStore } from "@/store/appStore";
-import { isTransactionProject, type EmailThread } from "@/data/mockData";
+import { isTransactionProject, type EmailThread, type Project } from "@/data/mockData";
 import {
   createProjectEmailApi,
   getProjectFromApi,
@@ -26,6 +26,7 @@ import {
 import { emptyEmailComposeDraft, type EmailComposeDraft } from "@/types/emailCompose";
 import { isValidEmailAddress } from "@/lib/emailAddressList";
 import { emailBodyLooksLikeHtml } from "@/lib/emailHtmlUtils";
+import type { EmailTemplate } from "@/types/domain";
 import EmailComposePanel from "@/components/email/EmailComposePanel";
 import { cn } from "@/lib/utils";
 
@@ -35,6 +36,47 @@ function bodyToEditorHtml(body: string): string {
   if (!body.trim()) return "";
   if (emailBodyLooksLikeHtml(body)) return body;
   return body.replace(/\n/g, "<br/>");
+}
+
+function buildFallbackProject(option: {
+  id: string;
+  name: string;
+  propertyAddress: string;
+  clientName: string;
+  clientId: string;
+  stage: string;
+  type: string;
+  nextStep: string;
+  nextStepDate: string;
+  listPrice: string;
+  escrowOfficer: string;
+  escrowCompany: string;
+  propertyType: string;
+}): Project {
+  return {
+    ...option,
+    documents: [],
+    tasks: [],
+    emails: [],
+    deadlines: [],
+    attachments: [],
+    fileFolders: [],
+    createdAt: "",
+  };
+}
+
+function composeFromTemplate(
+  tpl: EmailTemplate,
+  project: Project,
+  client: { name?: string; email?: string } | undefined,
+  docList: string,
+): Pick<EmailComposeDraft, "templateId" | "subject" | "body"> {
+  const { subject, body } = applyEmailTemplateToCompose(tpl, project, client, docList);
+  return {
+    templateId: tpl.id,
+    subject,
+    body: bodyToEditorHtml(body),
+  };
 }
 
 type SidebarEmail = EmailThread & { projectLabel?: string };
@@ -219,7 +261,7 @@ export default function EmailPage() {
     if (!selected) return;
     const linkedClient = clients.find((c) => c.id === selected.clientId);
     const clientEmail = linkedClient?.email?.trim();
-    const localProject = transactionProjects.find((p) => p.id === projectId);
+    const localProject = projects.find((p) => p.id === projectId && isTransactionProject(p));
     setSelectedProjectDocList(buildTransactionDocumentList(localProject));
     setComposeDraft((prev) => ({
       ...prev,
@@ -230,14 +272,21 @@ export default function EmailPage() {
       try {
         const full = await getProjectFromApi(projectId);
         upsertProject(full);
-        setSelectedProjectDocList(buildTransactionDocumentList(full));
+        const docList = buildTransactionDocumentList(full);
+        setSelectedProjectDocList(docList);
+        setComposeDraft((prev) => {
+          if (!prev.templateId) return prev;
+          const tpl = emailTemplates.find((t) => t.id === prev.templateId);
+          if (!tpl) return prev;
+          return { ...prev, ...composeFromTemplate(tpl, full, linkedClient, docList) };
+        });
       } catch {
         // leave current fallback list if full project fetch fails
       }
     }
   };
 
-  const applyTemplate = (templateId: string) => {
+  const applyTemplate = async (templateId: string) => {
     const tpl = emailTemplates.find((t) => t.id === templateId);
     if (!tpl) return;
 
@@ -251,25 +300,29 @@ export default function EmailPage() {
       }));
       return;
     }
-    const fullProject = transactionProjects.find((p) => p.id === selectedProject);
-    const projectForTokens = fullProject ?? {
-      ...option,
-      documents: [],
-      tasks: [],
-      emails: [],
-      deadlines: [],
-      attachments: [],
-      fileFolders: [],
-      createdAt: "",
-    };
+
     const client = clients.find((c) => c.id === option.clientId);
-    const docList = buildTransactionDocumentList(fullProject) || selectedProjectDocList;
-    const { subject: subj, body: bd } = applyEmailTemplateToCompose(tpl, projectForTokens, client, docList);
+    let projectForTokens =
+      projects.find((p) => p.id === selectedProject && isTransactionProject(p)) ??
+      buildFallbackProject(option);
+
+    if (apiOn) {
+      try {
+        const full = await getProjectFromApi(selectedProject);
+        upsertProject(full);
+        projectForTokens = full;
+        setSelectedProjectDocList(buildTransactionDocumentList(full));
+      } catch {
+        toast.error("Could not load full transaction for tokens.", {
+          description: "Party names may be incomplete until the transaction loads.",
+        });
+      }
+    }
+
+    const docList = buildTransactionDocumentList(projectForTokens) || selectedProjectDocList;
     setComposeDraft((prev) => ({
       ...prev,
-      templateId,
-      subject: subj,
-      body: bodyToEditorHtml(bd),
+      ...composeFromTemplate(tpl, projectForTokens, client, docList),
     }));
   };
 

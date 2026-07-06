@@ -2,10 +2,21 @@ import type { Project } from "@/data/mockData";
 import type { EmailTemplate } from "@/types/domain";
 import { resolveProjectEscrowOfficer } from "@/lib/transactionMetadataParties";
 import { buildTimelineTableText } from "@/lib/transactionTimelineFields";
+import { isBuyerTransaction } from "@/lib/transactionListUtils";
+import {
+  buyerAgentTcName,
+  firstBuyerAgentName,
+  firstListingAgentName,
+  listingAgentTcName,
+} from "@/lib/transactionEmailPartyTokens";
 
 /** Tokens available in email templates (Settings / Email page). */
 export const TRANSACTION_EMAIL_TOKENS = [
   "{{agent_name}}",
+  "{{listing_agent_name}}",
+  "{{buyer_agent_name}}",
+  "{{buyer_agent_tc_name}}",
+  "{{listing_agent_tc_name}}",
   "{{client_name}}",
   "{{property_address}}",
   "{{property_street}}",
@@ -24,8 +35,11 @@ export const TRANSACTION_EMAIL_TOKENS = [
   "{{escrow_company}}",
   "{{property_type}}",
   "{{document_list}}",
+  "{{missing_documents_list}}",
   "{{timeline_table}}",
   "{{update_details}}",
+  "{{disclosure_link}}",
+  "{{hoa_contact}}",
   "{{today_date}}",
 ] as const;
 
@@ -63,8 +77,18 @@ export function buildTransactionEmailTokenMap(
     project.metadata && typeof project.metadata === "object" && !Array.isArray(project.metadata)
       ? (project.metadata as Record<string, unknown>)
       : undefined;
+  const listingAgent = firstListingAgentName(metadata);
+  const buyerAgent = firstBuyerAgentName(metadata);
+  const primaryAgent = isBuyerTransaction(project.type)
+    ? buyerAgent || client?.name || project.clientName || ""
+    : listingAgent || client?.name || project.clientName || "";
+  const docList = documentListOverride ?? buildTransactionDocumentList(project);
   return {
-    agent_name: client?.name || project.clientName || "",
+    agent_name: primaryAgent,
+    listing_agent_name: listingAgent || "[Listing agent]",
+    buyer_agent_name: buyerAgent || "[Buyer's agent]",
+    buyer_agent_tc_name: buyerAgentTcName(metadata) || "BATC",
+    listing_agent_tc_name: listingAgentTcName(metadata) || listingAgent || "[Listing agent TC]",
     client_name: project.clientName || "",
     property_address: project.propertyAddress || "",
     property_street: parts[0] || "",
@@ -82,10 +106,13 @@ export function buildTransactionEmailTokenMap(
     escrow_officer: resolveProjectEscrowOfficer(project),
     escrow_company: project.escrowCompany || "",
     property_type: project.propertyType || "",
-    document_list: documentListOverride ?? buildTransactionDocumentList(project),
+    document_list: docList,
+    missing_documents_list: docList,
     timeline_table:
       timelineTableOverride ?? buildTimelineTableText(metadata, project.deadlines ?? []),
     update_details: "[Update details here]",
+    disclosure_link: "[Paste Glide disclosure share link]",
+    hoa_contact: "[HOA contact name]",
     today_date: new Date().toLocaleDateString(),
   };
 }

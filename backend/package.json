@@ -13,6 +13,12 @@
     "db:migrate:render": "tsx db/migrate.ts",
     "db:migrate:generate": "tsx db/extractMigrationsFromSchemaLive.ts",
     "db:seed:document-rules": "tsx scripts/seedDocumentRules.ts",
+    "db:seed:seller-emails": "tsx scripts/seedSellerDisclosureEmails.ts --all",
+    "db:seed:seller-emails:local": "tsx scripts/seedSellerDisclosureEmails.ts --local",
+    "db:seed:seller-emails:render": "tsx scripts/seedSellerDisclosureEmails.ts --render",
+    "db:seed:buyer-emails": "tsx scripts/seedBuyerDisclosureEmails.ts --all",
+    "db:seed:buyer-emails:local": "tsx scripts/seedBuyerDisclosureEmails.ts --local",
+    "db:seed:buyer-emails:render": "tsx scripts/seedBuyerDisclosureEmails.ts --render",
     "db:export-document-rules-csv": "python scripts/export_checklist_from_excel.py",
     "db:seed:admin-user": "tsx scripts/seedAdminUser.ts"
   },
