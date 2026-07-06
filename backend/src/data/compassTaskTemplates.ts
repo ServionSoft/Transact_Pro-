@@ -150,7 +150,7 @@ export const COMPASS_LISTING_TASKS: CompassTaskTemplate[] = [
   }),
   listing("L24", "Send timeline to client/agent", "Timeline", 240, ["listing_post_contract"], {
     taskType: "email",
-    emailTemplateKey: "timeline_client",
+    emailTemplateKey: "timeline_email_seller",
   }),
   listing("L25", "Add timeline to Calendar", "Timeline", 250, ["listing_post_contract"]),
 

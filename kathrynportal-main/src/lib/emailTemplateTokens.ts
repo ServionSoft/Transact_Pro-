@@ -33,6 +33,9 @@ export const TRANSACTION_EMAIL_TOKENS = [
   "{{list_price}}",
   "{{escrow_officer}}",
   "{{escrow_company}}",
+  "{{escrow_number}}",
+  "{{other_side_agent_name}}",
+  "{{other_side_agent_tc_name}}",
   "{{property_type}}",
   "{{document_list}}",
   "{{missing_documents_list}}",
@@ -45,6 +48,15 @@ export const TRANSACTION_EMAIL_TOKENS = [
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function escrowNumberFromMetadata(metadata: Record<string, unknown> | undefined): string {
+  const tx = metadata?.transaction;
+  if (tx && typeof tx === "object" && !Array.isArray(tx)) {
+    const v = (tx as Record<string, unknown>).escrowNumber;
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return "[Escrow #]";
 }
 
 export function applyEmailTemplateTokens(input: string, tokenMap: Record<string, string>): string {
@@ -82,6 +94,10 @@ export function buildTransactionEmailTokenMap(
   const primaryAgent = isBuyerTransaction(project.type)
     ? buyerAgent || client?.name || project.clientName || ""
     : listingAgent || client?.name || project.clientName || "";
+  const otherSideAgent = isBuyerTransaction(project.type) ? listingAgent : buyerAgent;
+  const otherSideAgentTc = isBuyerTransaction(project.type)
+    ? listingAgentTcName(metadata)
+    : buyerAgentTcName(metadata);
   const docList = documentListOverride ?? buildTransactionDocumentList(project);
   return {
     agent_name: primaryAgent,
@@ -89,6 +105,8 @@ export function buildTransactionEmailTokenMap(
     buyer_agent_name: buyerAgent || "[Buyer's agent]",
     buyer_agent_tc_name: buyerAgentTcName(metadata) || "BATC",
     listing_agent_tc_name: listingAgentTcName(metadata) || listingAgent || "[Listing agent TC]",
+    other_side_agent_name: otherSideAgent || "[Other agent]",
+    other_side_agent_tc_name: otherSideAgentTc || "[Other agent TC]",
     client_name: project.clientName || "",
     property_address: project.propertyAddress || "",
     property_street: parts[0] || "",
@@ -105,6 +123,7 @@ export function buildTransactionEmailTokenMap(
     list_price: project.listPrice || "",
     escrow_officer: resolveProjectEscrowOfficer(project),
     escrow_company: project.escrowCompany || "",
+    escrow_number: escrowNumberFromMetadata(metadata),
     property_type: project.propertyType || "",
     document_list: docList,
     missing_documents_list: docList,

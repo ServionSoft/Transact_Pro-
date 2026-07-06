@@ -19,6 +19,9 @@
     "db:seed:buyer-emails": "tsx scripts/seedBuyerDisclosureEmails.ts --all",
     "db:seed:buyer-emails:local": "tsx scripts/seedBuyerDisclosureEmails.ts --local",
     "db:seed:buyer-emails:render": "tsx scripts/seedBuyerDisclosureEmails.ts --render",
+    "db:seed:timeline-emails": "tsx scripts/seedTimelineEmails.ts --all",
+    "db:seed:timeline-emails:local": "tsx scripts/seedTimelineEmails.ts --local",
+    "db:seed:timeline-emails:render": "tsx scripts/seedTimelineEmails.ts --render",
     "db:export-document-rules-csv": "python scripts/export_checklist_from_excel.py",
     "db:seed:admin-user": "tsx scripts/seedAdminUser.ts"
   },
