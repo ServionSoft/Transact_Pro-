@@ -83,11 +83,68 @@ import {
   type EsignDocumentDto,
   type SendEsignDocusignResult,
 } from "@/api/esign";
+import type { ProjectFolder } from "@/types/domain";
 
 export type TransactionDocumentsView = "checklist-only" | "pool-only" | "full";
 
 const POOL_ACCEPT =
   ".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+/** Selected folder and all nested subfolder ids (parent-folder rollup). */
+function folderScopeIds(folderId: string, folders: ProjectFolder[]): Set<string> {
+  const ids = new Set<string>([folderId]);
+  for (const child of folders) {
+    if (child.parentId === folderId) {
+      for (const id of folderScopeIds(child.id, folders)) {
+        ids.add(id);
+      }
+    }
+  }
+  return ids;
+}
+
+function countInFolderScope(
+  folderId: string,
+  folders: ProjectFolder[],
+  fileFolderIds: Array<string | null | undefined>,
+): number {
+  const scope = folderScopeIds(folderId, folders);
+  return fileFolderIds.filter((id) => id != null && scope.has(id)).length;
+}
+
+type PoolListGroup<T> = { key: string; label: string | null; items: T[] };
+
+function buildPoolListGroups<T>(
+  storageScope: "all" | "inbox" | string,
+  folders: ProjectFolder[],
+  items: T[],
+  folderIdForItem: (item: T) => string | null,
+  parentFolderLabel: string | null,
+): PoolListGroup<T>[] {
+  if (storageScope === "all" || storageScope === "inbox") {
+    return [{ key: "__flat__", label: null, items }];
+  }
+  const childFolders = folders.filter((f) => f.parentId === storageScope);
+  if (childFolders.length === 0) {
+    return [{ key: "__flat__", label: null, items }];
+  }
+  const groups: PoolListGroup<T>[] = [];
+  const direct = items.filter((item) => folderIdForItem(item) === storageScope);
+  if (direct.length > 0) {
+    groups.push({
+      key: storageScope,
+      label: parentFolderLabel?.trim() ? parentFolderLabel : "This folder",
+      items: direct,
+    });
+  }
+  for (const child of childFolders) {
+    const inChild = items.filter((item) => folderIdForItem(item) === child.id);
+    if (inChild.length > 0) {
+      groups.push({ key: child.id, label: child.name, items: inChild });
+    }
+  }
+  return groups.length > 0 ? groups : [{ key: "__empty__", label: null, items: [] }];
+}
 
 function esignStatusLabel(status: EsignDocumentDto["status"]): string {
   switch (status) {
@@ -231,12 +288,30 @@ export default function TransactionDocumentsWorkspace({
 
   const checklistSummary = useMemo(() => documentChecklistSummary(docs), [docs]);
 
+  const fileFolders = project?.fileFolders ?? [];
+
+  const storageFolderScopeIds = useMemo(() => {
+    if (storageScope === "all" || storageScope === "inbox") return null;
+    return folderScopeIds(storageScope, fileFolders);
+  }, [storageScope, fileFolders]);
+
+  const scopedStorageFolder = useMemo(
+    () => (storageScope === "all" || storageScope === "inbox" ? null : fileFolders.find((f) => f.id === storageScope) ?? null),
+    [storageScope, fileFolders],
+  );
+
+  const storageScopeChildFolderCount = useMemo(
+    () => (storageScope === "all" || storageScope === "inbox" ? 0 : fileFolders.filter((f) => f.parentId === storageScope).length),
+    [storageScope, fileFolders],
+  );
+
   const filteredPoolFiles = useMemo(() => {
     if (!project?.attachments) return [];
     if (storageScope === "all") return project.attachments;
     if (storageScope === "inbox") return project.attachments.filter((a) => a.folderId == null);
-    return project.attachments.filter((a) => a.folderId === storageScope);
-  }, [project, storageScope]);
+    if (!storageFolderScopeIds) return [];
+    return project.attachments.filter((a) => a.folderId != null && storageFolderScopeIds.has(a.folderId));
+  }, [project, storageScope, storageFolderScopeIds]);
 
   const unfiledCount = useMemo(
     () => project?.attachments.filter((a) => a.folderId == null).length ?? 0,
@@ -260,8 +335,56 @@ export default function TransactionDocumentsWorkspace({
     if (!poolListsTemplates) return esignDrafts;
     if (storageScope === "all") return esignDrafts;
     if (storageScope === "inbox") return esignDrafts.filter((draft) => folderIdForDraft(draft) == null);
-    return esignDrafts.filter((draft) => folderIdForDraft(draft) === storageScope);
-  }, [poolListsTemplates, esignDrafts, storageScope, folderIdForDraft]);
+    if (!storageFolderScopeIds) return [];
+    return esignDrafts.filter((draft) => {
+      const folderId = folderIdForDraft(draft);
+      return folderId != null && storageFolderScopeIds.has(folderId);
+    });
+  }, [poolListsTemplates, esignDrafts, storageScope, folderIdForDraft, storageFolderScopeIds]);
+
+  const esignListGroups = useMemo(
+    () =>
+      buildPoolListGroups(
+        storageScope,
+        fileFolders,
+        filteredEsignDrafts,
+        folderIdForDraft,
+        scopedStorageFolder?.name ?? null,
+      ),
+    [storageScope, fileFolders, filteredEsignDrafts, folderIdForDraft, scopedStorageFolder?.name],
+  );
+
+  const poolFileListGroups = useMemo(
+    () =>
+      buildPoolListGroups(
+        storageScope,
+        fileFolders,
+        filteredPoolFiles,
+        (file) => file.folderId ?? null,
+        scopedStorageFolder?.name ?? null,
+      ),
+    [storageScope, fileFolders, filteredPoolFiles, scopedStorageFolder?.name],
+  );
+
+  const countTemplatesInFolderScope = useCallback(
+    (folderId: string) =>
+      countInFolderScope(
+        folderId,
+        fileFolders,
+        esignDrafts.map((draft) => folderIdForDraft(draft)),
+      ),
+    [fileFolders, esignDrafts, folderIdForDraft],
+  );
+
+  const countFilesInFolderScope = useCallback(
+    (folderId: string) =>
+      countInFolderScope(
+        folderId,
+        fileFolders,
+        (project?.attachments ?? []).map((file) => file.folderId),
+      ),
+    [fileFolders, project?.attachments],
+  );
 
   const templateUnfiledCount = useMemo(
     () => esignDrafts.filter((draft) => folderIdForDraft(draft) == null).length,
@@ -1320,19 +1443,29 @@ export default function TransactionDocumentsWorkspace({
             </button>
             {folders
               .filter((f) => f.parentId == null)
-              .map((folder) => (
+              .map((folder) => {
+                const folderScopeCount = poolListsTemplates
+                  ? countTemplatesInFolderScope(folder.id)
+                  : countFilesInFolderScope(folder.id);
+                const parentActive =
+                  storageScope === folder.id ||
+                  folders.some((c) => c.parentId === folder.id && c.id === storageScope);
+                return (
                 <div key={folder.id}>
                   <div className="flex items-center gap-0.5 pr-0.5">
                     <button
                       type="button"
                       onClick={() => setStorageScope(folder.id)}
                       className={`flex-1 min-w-0 text-left px-2 py-1.5 rounded text-xs transition-colors ${
-                        storageScope === folder.id ? "bg-accent/15 text-accent-foreground font-medium" : "hover:bg-muted"
+                        parentActive ? "bg-accent/15 text-accent-foreground font-medium" : "hover:bg-muted"
                       }`}
                     >
                       <span className="inline-flex min-w-0 items-center gap-1.5 truncate">
                         <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                         {folder.name}
+                        {folderScopeCount > 0 ? (
+                          <span className="text-[10px] font-normal text-muted-foreground">({folderScopeCount})</span>
+                        ) : null}
                       </span>
                     </button>
                     <Button
@@ -1383,7 +1516,8 @@ export default function TransactionDocumentsWorkspace({
                       </div>
                     ))}
                 </div>
-              ))}
+                );
+              })}
             {folderCreateMode?.kind === "parent" ? (
               <div className="flex flex-col gap-1 mt-2">
                 <div className="flex gap-1">
@@ -1457,6 +1591,13 @@ export default function TransactionDocumentsWorkspace({
                     ? "Inbox (unfiled)"
                     : activeStorageFolder?.name ?? "Folder"}{" "}
                 · {poolScopeCount} shown
+                {storageScopeChildFolderCount > 0 ? (
+                  <span className="text-xs font-normal text-muted-foreground">
+                    {" "}
+                    · including {storageScopeChildFolderCount} subfolder
+                    {storageScopeChildFolderCount === 1 ? "" : "s"}
+                  </span>
+                ) : null}
               </h3>
               {canCreateSubfolderHere && folderCreateMode?.kind !== "subfolder" ? (
                 <Button
@@ -1532,7 +1673,14 @@ export default function TransactionDocumentsWorkspace({
                   poolLayoutBounded && cn(embeddedTabScrollClass, "pr-0.5"),
                 )}
               >
-                {filteredEsignDrafts.map((draft) => {
+                {esignListGroups.map((group) => (
+                  <div key={group.key} className="space-y-2 sm:space-y-1">
+                    {group.label ? (
+                      <p className="px-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground first:pt-0">
+                        {group.label}
+                      </p>
+                    ) : null}
+                    {group.items.map((draft) => {
                   const linkedFile = attachmentById.get(draft.originalFileId);
                   const folderId = folderIdForDraft(draft);
                   const isRenaming = renamingTemplateId === draft.id;
@@ -1685,6 +1833,8 @@ export default function TransactionDocumentsWorkspace({
                     </div>
                   );
                 })}
+                  </div>
+                ))}
               </div>
             ) : (
               <div className="px-6 py-12 text-center">
@@ -1702,7 +1852,14 @@ export default function TransactionDocumentsWorkspace({
                 poolLayoutBounded && cn(embeddedTabScrollClass, "pr-0.5"),
               )}
             >
-              {filteredPoolFiles.map((file) => {
+              {poolFileListGroups.map((group) => (
+                <div key={group.key} className="space-y-2 sm:space-y-1">
+                  {group.label ? (
+                    <p className="px-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground first:pt-0">
+                      {group.label}
+                    </p>
+                  ) : null}
+                  {group.items.map((file) => {
                 const isRenaming = renamingFileId === file.id;
                 return (
                 <div
@@ -1841,6 +1998,8 @@ export default function TransactionDocumentsWorkspace({
                 </div>
               );
               })}
+                </div>
+              ))}
             </div>
           ) : (
             <div className="px-6 py-12 text-center">
