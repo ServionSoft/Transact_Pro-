@@ -120,6 +120,20 @@ function countInExactFolder(
   return fileFolderIds.filter((id) => id === folderId).length;
 }
 
+function PoolSidebarFolderLabel({ name, count }: { name: string; count?: number }) {
+  return (
+    <span className="flex min-w-0 items-center gap-1.5">
+      <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 flex-1 truncate" title={name}>
+        {name}
+      </span>
+      {count != null && count > 0 ? (
+        <span className="shrink-0 text-[10px] font-normal text-muted-foreground">({count})</span>
+      ) : null}
+    </span>
+  );
+}
+
 function esignStatusLabel(status: EsignDocumentDto["status"]): string {
   switch (status) {
     case "draft_uploaded":
@@ -1383,29 +1397,31 @@ export default function TransactionDocumentsWorkspace({
       >
         <div
           className={cn(
-            "flex min-h-0 flex-col border-b border-border bg-secondary/20 p-3 lg:border-b-0 lg:border-r",
+            "flex min-h-0 min-w-0 flex-col border-b border-border bg-secondary/20 p-3 lg:border-b-0 lg:border-r",
             poolLayoutBounded
               ? "max-h-[min(40vh,280px)] shrink-0 overflow-hidden lg:max-h-none lg:min-h-0 lg:w-[220px] lg:shrink-0"
               : "max-h-[min(40vh,280px)] lg:max-h-none",
           )}
         >
           <p className="mb-2 shrink-0 px-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Folders</p>
-          <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto overscroll-contain pr-0.5">
+          <div className="min-h-0 min-w-0 flex-1 space-y-0.5 overflow-x-hidden overflow-y-auto overscroll-contain pr-0.5">
             <button
               type="button"
               onClick={() => setStorageScope("all")}
-              className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors ${
+              className={`w-full min-w-0 truncate text-left px-2 py-1.5 rounded text-xs transition-colors ${
                 storageScope === "all" ? "bg-accent/15 text-accent-foreground font-medium" : "hover:bg-muted"
               }`}
+              title={poolListsTemplates ? `All templates (${poolTotalCount})` : `All files (${poolTotalCount})`}
             >
               {poolListsTemplates ? `All templates (${poolTotalCount})` : `All files (${poolTotalCount})`}
             </button>
             <button
               type="button"
               onClick={() => setStorageScope("inbox")}
-              className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors ${
+              className={`w-full min-w-0 truncate text-left px-2 py-1.5 rounded text-xs transition-colors ${
                 storageScope === "inbox" ? "bg-accent/15 text-accent-foreground font-medium" : "hover:bg-muted"
               }`}
+              title={`Inbox (unfiled) (${poolListsTemplates ? templateUnfiledCount : unfiledCount})`}
             >
               Inbox (unfiled) ({poolListsTemplates ? templateUnfiledCount : unfiledCount})
             </button>
@@ -1419,8 +1435,8 @@ export default function TransactionDocumentsWorkspace({
                   storageScope === folder.id ||
                   folders.some((c) => c.parentId === folder.id && c.id === storageScope);
                 return (
-                <div key={folder.id}>
-                  <div className="flex items-center gap-0.5 pr-0.5">
+                <div key={folder.id} className="min-w-0">
+                  <div className="flex min-w-0 items-center gap-0.5 pr-0.5">
                     <button
                       type="button"
                       onClick={() => setStorageScope(folder.id)}
@@ -1428,13 +1444,7 @@ export default function TransactionDocumentsWorkspace({
                         parentActive ? "bg-accent/15 text-accent-foreground font-medium" : "hover:bg-muted"
                       }`}
                     >
-                      <span className="inline-flex min-w-0 items-center gap-1.5 truncate">
-                        <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                        {folder.name}
-                        {folderScopeCount > 0 ? (
-                          <span className="text-[10px] font-normal text-muted-foreground">({folderScopeCount})</span>
-                        ) : null}
-                      </span>
+                      <PoolSidebarFolderLabel name={folder.name} count={folderScopeCount} />
                     </button>
                     <Button
                       type="button"
@@ -1454,7 +1464,7 @@ export default function TransactionDocumentsWorkspace({
                   {folders
                     .filter((c) => c.parentId === folder.id)
                     .map((sub) => (
-                      <div key={sub.id} className="flex items-center gap-0.5 pl-3 pr-0.5">
+                      <div key={sub.id} className="flex min-w-0 items-center gap-0.5 pl-3 pr-0.5">
                         <button
                           type="button"
                           onClick={() => setStorageScope(sub.id)}
@@ -1462,15 +1472,7 @@ export default function TransactionDocumentsWorkspace({
                             storageScope === sub.id ? "bg-accent/15 text-accent-foreground font-medium" : "hover:bg-muted"
                           }`}
                         >
-                          <span className="inline-flex min-w-0 items-center gap-1.5 truncate">
-                            <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                            {sub.name}
-                            {countItemsInExactFolder(sub.id) > 0 ? (
-                              <span className="text-[10px] font-normal text-muted-foreground">
-                                ({countItemsInExactFolder(sub.id)})
-                              </span>
-                            ) : null}
-                          </span>
+                          <PoolSidebarFolderLabel name={sub.name} count={countItemsInExactFolder(sub.id)} />
                         </button>
                         <Button
                           type="button"
@@ -1564,7 +1566,7 @@ export default function TransactionDocumentsWorkspace({
                   Inbox (unfiled) · {poolScopeCount} shown
                 </h3>
               ) : (
-                <nav aria-label="Folder path" className="flex min-w-0 flex-wrap items-center gap-1 font-display text-sm">
+                <nav aria-label="Folder path" className="flex min-w-0 max-w-full flex-wrap items-center gap-1 font-display text-sm">
                   <button
                     type="button"
                     onClick={() => setStorageScope("all")}
@@ -1575,18 +1577,22 @@ export default function TransactionDocumentsWorkspace({
                   {storageBreadcrumb.map((crumb, index) => {
                     const isLast = index === storageBreadcrumb.length - 1;
                     return (
-                      <span key={crumb.id} className="inline-flex min-w-0 items-center gap-1">
+                      <span key={crumb.id} className="flex min-w-0 max-w-full items-center gap-1">
                         <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
                         {isLast ? (
-                          <span className="truncate font-semibold text-foreground">
-                            {crumb.name}
-                            <span className="ml-1 font-normal text-muted-foreground">· {poolScopeCount} shown</span>
+                          <span
+                            className="flex min-w-0 max-w-full items-baseline gap-1 font-semibold text-foreground"
+                            title={crumb.name}
+                          >
+                            <span className="min-w-0 truncate">{crumb.name}</span>
+                            <span className="shrink-0 font-normal text-muted-foreground">· {poolScopeCount} shown</span>
                           </span>
                         ) : (
                           <button
                             type="button"
                             onClick={() => setStorageScope(crumb.id)}
-                            className="truncate text-muted-foreground transition-colors hover:text-foreground"
+                            className="max-w-[8rem] truncate text-muted-foreground transition-colors hover:text-foreground sm:max-w-[12rem]"
+                            title={crumb.name}
                           >
                             {crumb.name}
                           </button>
@@ -1680,12 +1686,14 @@ export default function TransactionDocumentsWorkspace({
                           type="button"
                           onClick={() => setStorageScope(sub.id)}
                           className={cn(
-                            "flex w-full items-center gap-2 rounded-lg border border-border/60 bg-muted/10 p-3 text-left transition-colors hover:bg-secondary/40",
+                            "flex w-full min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-muted/10 p-3 text-left transition-colors hover:bg-secondary/40",
                             "sm:rounded sm:border-0 sm:bg-transparent sm:p-2 sm:hover:bg-muted/60",
                           )}
                         >
                           <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
-                          <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{sub.name}</span>
+                          <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground" title={sub.name}>
+                            {sub.name}
+                          </span>
                           {itemCount > 0 ? (
                             <span className="shrink-0 text-xs text-muted-foreground">{itemCount}</span>
                           ) : null}
@@ -1875,12 +1883,14 @@ export default function TransactionDocumentsWorkspace({
                         type="button"
                         onClick={() => setStorageScope(sub.id)}
                         className={cn(
-                          "flex w-full items-center gap-2 rounded-lg border border-border/60 bg-muted/10 p-3 text-left transition-colors hover:bg-secondary/40",
+                          "flex w-full min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-muted/10 p-3 text-left transition-colors hover:bg-secondary/40",
                           "sm:rounded sm:border-0 sm:bg-transparent sm:p-2 sm:hover:bg-muted/60",
                         )}
                       >
                         <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{sub.name}</span>
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground" title={sub.name}>
+                          {sub.name}
+                        </span>
                         {itemCount > 0 ? (
                           <span className="shrink-0 text-xs text-muted-foreground">{itemCount}</span>
                         ) : null}
