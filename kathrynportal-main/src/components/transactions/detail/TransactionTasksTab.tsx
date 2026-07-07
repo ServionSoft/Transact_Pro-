@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 import { groupTasksBySection, hasTaskSections } from "@/lib/taskSectionGroups";
 import EmailTemplateCombobox from "@/components/email/EmailTemplateCombobox";
 import ThreadNotesPreview from "@/components/shared/ThreadNotesPreview";
+import TaskNotesPopover from "@/components/transactions/detail/TaskNotesPopover";
 
 type TaskFilter = "All" | "Pending" | "In Progress" | "Complete";
 
