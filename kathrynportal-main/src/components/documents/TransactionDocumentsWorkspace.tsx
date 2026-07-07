@@ -13,6 +13,7 @@ import {
   Folder,
   MoreHorizontal,
   Pencil,
+  ChevronRight,
 } from "lucide-react";
 import DocumentChecklistNotesPopover from "@/components/documents/DocumentChecklistNotesPopover";
 import DocumentChecklistNotesPreview from "@/components/documents/DocumentChecklistNotesPreview";
@@ -90,7 +91,7 @@ export type TransactionDocumentsView = "checklist-only" | "pool-only" | "full";
 const POOL_ACCEPT =
   ".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
-/** Selected folder and all nested subfolder ids (parent-folder rollup). */
+/** Selected folder and all nested subfolder ids (sidebar tree totals). */
 function folderScopeIds(folderId: string, folders: ProjectFolder[]): Set<string> {
   const ids = new Set<string>([folderId]);
   for (const child of folders) {
@@ -112,38 +113,11 @@ function countInFolderScope(
   return fileFolderIds.filter((id) => id != null && scope.has(id)).length;
 }
 
-type PoolListGroup<T> = { key: string; label: string | null; items: T[] };
-
-function buildPoolListGroups<T>(
-  storageScope: "all" | "inbox" | string,
-  folders: ProjectFolder[],
-  items: T[],
-  folderIdForItem: (item: T) => string | null,
-  parentFolderLabel: string | null,
-): PoolListGroup<T>[] {
-  if (storageScope === "all" || storageScope === "inbox") {
-    return [{ key: "__flat__", label: null, items }];
-  }
-  const childFolders = folders.filter((f) => f.parentId === storageScope);
-  if (childFolders.length === 0) {
-    return [{ key: "__flat__", label: null, items }];
-  }
-  const groups: PoolListGroup<T>[] = [];
-  const direct = items.filter((item) => folderIdForItem(item) === storageScope);
-  if (direct.length > 0) {
-    groups.push({
-      key: storageScope,
-      label: parentFolderLabel?.trim() ? parentFolderLabel : "This folder",
-      items: direct,
-    });
-  }
-  for (const child of childFolders) {
-    const inChild = items.filter((item) => folderIdForItem(item) === child.id);
-    if (inChild.length > 0) {
-      groups.push({ key: child.id, label: child.name, items: inChild });
-    }
-  }
-  return groups.length > 0 ? groups : [{ key: "__empty__", label: null, items: [] }];
+function countInExactFolder(
+  folderId: string,
+  fileFolderIds: Array<string | null | undefined>,
+): number {
+  return fileFolderIds.filter((id) => id === folderId).length;
 }
 
 function esignStatusLabel(status: EsignDocumentDto["status"]): string {
@@ -290,28 +264,36 @@ export default function TransactionDocumentsWorkspace({
 
   const fileFolders = project?.fileFolders ?? [];
 
-  const storageFolderScopeIds = useMemo(() => {
-    if (storageScope === "all" || storageScope === "inbox") return null;
-    return folderScopeIds(storageScope, fileFolders);
-  }, [storageScope, fileFolders]);
-
   const scopedStorageFolder = useMemo(
     () => (storageScope === "all" || storageScope === "inbox" ? null : fileFolders.find((f) => f.id === storageScope) ?? null),
     [storageScope, fileFolders],
   );
 
-  const storageScopeChildFolderCount = useMemo(
-    () => (storageScope === "all" || storageScope === "inbox" ? 0 : fileFolders.filter((f) => f.parentId === storageScope).length),
+  const storageScopeChildFolders = useMemo(
+    () =>
+      storageScope === "all" || storageScope === "inbox"
+        ? []
+        : fileFolders.filter((f) => f.parentId === storageScope),
     [storageScope, fileFolders],
   );
+
+  const storageBreadcrumb = useMemo(() => {
+    if (!scopedStorageFolder) return [];
+    const crumbs: ProjectFolder[] = [];
+    let current: ProjectFolder | undefined = scopedStorageFolder;
+    while (current) {
+      crumbs.unshift(current);
+      current = current.parentId ? fileFolders.find((f) => f.id === current!.parentId) : undefined;
+    }
+    return crumbs;
+  }, [scopedStorageFolder, fileFolders]);
 
   const filteredPoolFiles = useMemo(() => {
     if (!project?.attachments) return [];
     if (storageScope === "all") return project.attachments;
     if (storageScope === "inbox") return project.attachments.filter((a) => a.folderId == null);
-    if (!storageFolderScopeIds) return [];
-    return project.attachments.filter((a) => a.folderId != null && storageFolderScopeIds.has(a.folderId));
-  }, [project, storageScope, storageFolderScopeIds]);
+    return project.attachments.filter((a) => a.folderId === storageScope);
+  }, [project, storageScope]);
 
   const unfiledCount = useMemo(
     () => project?.attachments.filter((a) => a.folderId == null).length ?? 0,
@@ -335,36 +317,8 @@ export default function TransactionDocumentsWorkspace({
     if (!poolListsTemplates) return esignDrafts;
     if (storageScope === "all") return esignDrafts;
     if (storageScope === "inbox") return esignDrafts.filter((draft) => folderIdForDraft(draft) == null);
-    if (!storageFolderScopeIds) return [];
-    return esignDrafts.filter((draft) => {
-      const folderId = folderIdForDraft(draft);
-      return folderId != null && storageFolderScopeIds.has(folderId);
-    });
-  }, [poolListsTemplates, esignDrafts, storageScope, folderIdForDraft, storageFolderScopeIds]);
-
-  const esignListGroups = useMemo(
-    () =>
-      buildPoolListGroups(
-        storageScope,
-        fileFolders,
-        filteredEsignDrafts,
-        folderIdForDraft,
-        scopedStorageFolder?.name ?? null,
-      ),
-    [storageScope, fileFolders, filteredEsignDrafts, folderIdForDraft, scopedStorageFolder?.name],
-  );
-
-  const poolFileListGroups = useMemo(
-    () =>
-      buildPoolListGroups(
-        storageScope,
-        fileFolders,
-        filteredPoolFiles,
-        (file) => file.folderId ?? null,
-        scopedStorageFolder?.name ?? null,
-      ),
-    [storageScope, fileFolders, filteredPoolFiles, scopedStorageFolder?.name],
-  );
+    return esignDrafts.filter((draft) => folderIdForDraft(draft) === storageScope);
+  }, [poolListsTemplates, esignDrafts, storageScope, folderIdForDraft]);
 
   const countTemplatesInFolderScope = useCallback(
     (folderId: string) =>
@@ -384,6 +338,20 @@ export default function TransactionDocumentsWorkspace({
         (project?.attachments ?? []).map((file) => file.folderId),
       ),
     [fileFolders, project?.attachments],
+  );
+
+  const countItemsInExactFolder = useCallback(
+    (folderId: string) =>
+      poolListsTemplates
+        ? countInExactFolder(
+            folderId,
+            esignDrafts.map((draft) => folderIdForDraft(draft)),
+          )
+        : countInExactFolder(
+            folderId,
+            (project?.attachments ?? []).map((file) => file.folderId),
+          ),
+    [poolListsTemplates, esignDrafts, folderIdForDraft, project?.attachments],
   );
 
   const templateUnfiledCount = useMemo(
@@ -1497,6 +1465,11 @@ export default function TransactionDocumentsWorkspace({
                           <span className="inline-flex min-w-0 items-center gap-1.5 truncate">
                             <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                             {sub.name}
+                            {countItemsInExactFolder(sub.id) > 0 ? (
+                              <span className="text-[10px] font-normal text-muted-foreground">
+                                ({countItemsInExactFolder(sub.id)})
+                              </span>
+                            ) : null}
                           </span>
                         </button>
                         <Button
@@ -1582,23 +1555,47 @@ export default function TransactionDocumentsWorkspace({
           ) : null}
           <div className="mb-3 shrink-0 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-              <h3 className="font-display text-sm font-semibold text-foreground">
-                {storageScope === "all"
-                  ? poolListsTemplates
-                    ? "All templates"
-                    : "All files"
-                  : storageScope === "inbox"
-                    ? "Inbox (unfiled)"
-                    : activeStorageFolder?.name ?? "Folder"}{" "}
-                · {poolScopeCount} shown
-                {storageScopeChildFolderCount > 0 ? (
-                  <span className="text-xs font-normal text-muted-foreground">
-                    {" "}
-                    · including {storageScopeChildFolderCount} subfolder
-                    {storageScopeChildFolderCount === 1 ? "" : "s"}
-                  </span>
-                ) : null}
-              </h3>
+              {storageScope === "all" ? (
+                <h3 className="font-display text-sm font-semibold text-foreground">
+                  {poolListsTemplates ? "All templates" : "All files"} · {poolScopeCount} shown
+                </h3>
+              ) : storageScope === "inbox" ? (
+                <h3 className="font-display text-sm font-semibold text-foreground">
+                  Inbox (unfiled) · {poolScopeCount} shown
+                </h3>
+              ) : (
+                <nav aria-label="Folder path" className="flex min-w-0 flex-wrap items-center gap-1 font-display text-sm">
+                  <button
+                    type="button"
+                    onClick={() => setStorageScope("all")}
+                    className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    {poolListsTemplates ? "All templates" : "All files"}
+                  </button>
+                  {storageBreadcrumb.map((crumb, index) => {
+                    const isLast = index === storageBreadcrumb.length - 1;
+                    return (
+                      <span key={crumb.id} className="inline-flex min-w-0 items-center gap-1">
+                        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                        {isLast ? (
+                          <span className="truncate font-semibold text-foreground">
+                            {crumb.name}
+                            <span className="ml-1 font-normal text-muted-foreground">· {poolScopeCount} shown</span>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setStorageScope(crumb.id)}
+                            className="truncate text-muted-foreground transition-colors hover:text-foreground"
+                          >
+                            {crumb.name}
+                          </button>
+                        )}
+                      </span>
+                    );
+                  })}
+                </nav>
+              )}
               {canCreateSubfolderHere && folderCreateMode?.kind !== "subfolder" ? (
                 <Button
                   type="button"
@@ -1666,21 +1663,39 @@ export default function TransactionDocumentsWorkspace({
                   : "PDF and Word · Upload one file at a time. Link to checklist rows on the Document Checklist tab."}
           </p>
           {poolListsTemplates ? (
-            filteredEsignDrafts.length > 0 ? (
+            storageScopeChildFolders.length > 0 || filteredEsignDrafts.length > 0 ? (
               <div
                 className={cn(
                   "space-y-2 sm:space-y-1",
                   poolLayoutBounded && cn(embeddedTabScrollClass, "pr-0.5"),
                 )}
               >
-                {esignListGroups.map((group) => (
-                  <div key={group.key} className="space-y-2 sm:space-y-1">
-                    {group.label ? (
-                      <p className="px-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground first:pt-0">
-                        {group.label}
-                      </p>
-                    ) : null}
-                    {group.items.map((draft) => {
+                {storageScopeChildFolders.length > 0 ? (
+                  <div className="space-y-1 pb-1">
+                    {storageScopeChildFolders.map((sub) => {
+                      const itemCount = countItemsInExactFolder(sub.id);
+                      return (
+                        <button
+                          key={sub.id}
+                          type="button"
+                          onClick={() => setStorageScope(sub.id)}
+                          className={cn(
+                            "flex w-full items-center gap-2 rounded-lg border border-border/60 bg-muted/10 p-3 text-left transition-colors hover:bg-secondary/40",
+                            "sm:rounded sm:border-0 sm:bg-transparent sm:p-2 sm:hover:bg-muted/60",
+                          )}
+                        >
+                          <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{sub.name}</span>
+                          {itemCount > 0 ? (
+                            <span className="shrink-0 text-xs text-muted-foreground">{itemCount}</span>
+                          ) : null}
+                          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+                {filteredEsignDrafts.map((draft) => {
                   const linkedFile = attachmentById.get(draft.originalFileId);
                   const folderId = folderIdForDraft(draft);
                   const isRenaming = renamingTemplateId === draft.id;
@@ -1833,8 +1848,6 @@ export default function TransactionDocumentsWorkspace({
                     </div>
                   );
                 })}
-                  </div>
-                ))}
               </div>
             ) : (
               <div className="px-6 py-12 text-center">
@@ -1845,21 +1858,39 @@ export default function TransactionDocumentsWorkspace({
                 ) : null}
               </div>
             )
-          ) : filteredPoolFiles.length > 0 ? (
+          ) : storageScopeChildFolders.length > 0 || filteredPoolFiles.length > 0 ? (
             <div
               className={cn(
                 "space-y-2 sm:space-y-1",
                 poolLayoutBounded && cn(embeddedTabScrollClass, "pr-0.5"),
               )}
             >
-              {poolFileListGroups.map((group) => (
-                <div key={group.key} className="space-y-2 sm:space-y-1">
-                  {group.label ? (
-                    <p className="px-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground first:pt-0">
-                      {group.label}
-                    </p>
-                  ) : null}
-                  {group.items.map((file) => {
+              {storageScopeChildFolders.length > 0 ? (
+                <div className="space-y-1 pb-1">
+                  {storageScopeChildFolders.map((sub) => {
+                    const itemCount = countItemsInExactFolder(sub.id);
+                    return (
+                      <button
+                        key={sub.id}
+                        type="button"
+                        onClick={() => setStorageScope(sub.id)}
+                        className={cn(
+                          "flex w-full items-center gap-2 rounded-lg border border-border/60 bg-muted/10 p-3 text-left transition-colors hover:bg-secondary/40",
+                          "sm:rounded sm:border-0 sm:bg-transparent sm:p-2 sm:hover:bg-muted/60",
+                        )}
+                      >
+                        <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{sub.name}</span>
+                        {itemCount > 0 ? (
+                          <span className="shrink-0 text-xs text-muted-foreground">{itemCount}</span>
+                        ) : null}
+                        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+              {filteredPoolFiles.map((file) => {
                 const isRenaming = renamingFileId === file.id;
                 return (
                 <div
@@ -1998,8 +2029,6 @@ export default function TransactionDocumentsWorkspace({
                 </div>
               );
               })}
-                </div>
-              ))}
             </div>
           ) : (
             <div className="px-6 py-12 text-center">
