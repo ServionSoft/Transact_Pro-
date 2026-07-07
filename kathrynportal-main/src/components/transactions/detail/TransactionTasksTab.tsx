@@ -22,7 +22,7 @@ import {
 import { listPageBodyClass, transactionTabCardClass } from "@/lib/listPageLayout";
 import { cn } from "@/lib/utils";
 import { groupTasksBySection, hasTaskSections } from "@/lib/taskSectionGroups";
-import TaskNotesPopover from "@/components/transactions/detail/TaskNotesPopover";
+import EmailTemplateCombobox from "@/components/email/EmailTemplateCombobox";
 import ThreadNotesPreview from "@/components/shared/ThreadNotesPreview";
 
 type TaskFilter = "All" | "Pending" | "In Progress" | "Complete";
@@ -208,29 +208,23 @@ export default function TransactionTasksTab({
             <Label className="text-xs" htmlFor={`${idPrefix}-template`}>
               Email template
             </Label>
-            <Select
+            <EmailTemplateCombobox
+              id={`${idPrefix}-template`}
               value={templateId || undefined}
+              templates={emailTemplates}
+              loading={loadingTemplates}
+              compact
+              allowClear
+              showCategory={false}
+              placeholder={
+                loadingTemplates
+                  ? "Loading templates…"
+                  : emailTemplates.length === 0
+                    ? "No templates"
+                    : "Choose template (optional)"
+              }
               onValueChange={onTemplateChange}
-            >
-              <SelectTrigger id={`${idPrefix}-template`} className="h-9">
-                <SelectValue
-                  placeholder={
-                    loadingTemplates
-                      ? "Loading templates…"
-                      : emailTemplates.length === 0
-                        ? "No templates"
-                        : "Choose template (optional)"
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {emailTemplates.map((t) => (
-                  <SelectItem key={t.id} value={t.id}>
-                    {t.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            />
           </div>
           <div className="space-y-2">
             <Label className="text-xs" htmlFor={`${idPrefix}-recipient`}>

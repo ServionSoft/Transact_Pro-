@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import { getTransactionRecipientSuggestions } from "@/lib/transactionRecipientSuggestions";
 import {
   applyEmailTemplateToCompose,
+  applyTransactionTokensToEmailFields,
   buildTransactionDocumentList,
   TRANSACTION_EMAIL_TOKENS,
 } from "@/lib/emailTemplateTokens";
@@ -339,6 +340,48 @@ export default function EmailPage() {
       toast.error("One or more recipient emails are invalid.");
       return;
     }
+
+    let subject = composeDraft.subject;
+    let body = composeDraft.body;
+
+    if (selectedProject) {
+      const option = transactionOptions.find((p) => p.id === selectedProject);
+      let projectForTokens =
+        projects.find((p) => p.id === selectedProject && isTransactionProject(p)) ??
+        (option ? buildFallbackProject(option) : null);
+
+      if (apiOn) {
+        try {
+          const full = await getProjectFromApi(selectedProject);
+          upsertProject(full);
+          projectForTokens = full;
+        } catch {
+          if (!projectForTokens) {
+            toast.error("Could not load transaction for token replacement.");
+            return;
+          }
+          toast.warning("Using cached transaction data for tokens.", {
+            description: "Party fields may be incomplete.",
+          });
+        }
+      }
+
+      if (projectForTokens) {
+        const client = clients.find((c) => c.id === projectForTokens.clientId);
+        const docList =
+          buildTransactionDocumentList(projectForTokens) || selectedProjectDocList;
+        const applied = applyTransactionTokensToEmailFields(
+          subject,
+          body,
+          projectForTokens,
+          client,
+          docList,
+        );
+        subject = applied.subject;
+        body = applied.body;
+      }
+    }
+
     try {
       if (apiOn && selectedProject) {
         setSending(true);
@@ -346,8 +389,8 @@ export default function EmailPage() {
           to: composeDraft.to,
           cc: composeDraft.cc,
           bcc: composeDraft.bcc,
-          subject: composeDraft.subject,
-          body: composeDraft.body,
+          subject,
+          body,
           ...(composeDraft.templateId ? { templateId: composeDraft.templateId } : {}),
           ...(composeDraft.attachments.length
             ? { attachmentStoredFileIds: composeDraft.attachments.map((a) => a.storedFileId) }
@@ -367,8 +410,8 @@ export default function EmailPage() {
       } else {
         sendEmail({
           to: composeDraft.to.join(", "),
-          subject: composeDraft.subject,
-          body: composeDraft.body,
+          subject,
+          body,
           projectId: selectedProject || undefined,
         });
         toast.success("Email sent!", { description: `Email sent to ${composeDraft.to.join(", ")}` });

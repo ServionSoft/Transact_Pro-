@@ -184,6 +184,26 @@ export function buildTransactionEmailTokenMap(
   };
 }
 
+export function applyTransactionTokensToEmailFields(
+  subject: string,
+  body: string,
+  project: Project,
+  client?: { name?: string; email?: string } | null,
+  documentListOverride?: string,
+  timelineTableOverride?: string,
+): { subject: string; body: string } {
+  const tokenMap = buildTransactionEmailTokenMap(
+    project,
+    client,
+    documentListOverride,
+    timelineTableOverride,
+  );
+  return {
+    subject: applyEmailTemplateTokens(subject, tokenMap),
+    body: applyEmailTemplateTokens(body, tokenMap),
+  };
+}
+
 export function applyEmailTemplateToCompose(
   template: EmailTemplate,
   project: Project,

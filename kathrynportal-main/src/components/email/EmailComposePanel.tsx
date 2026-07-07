@@ -6,16 +6,10 @@ import type { EmailComposeDraft } from "@/types/emailCompose";
 import EmailRecipientChipsField from "@/components/email/EmailRecipientChipsField";
 import EmailRichTextEditor from "@/components/email/EmailRichTextEditor";
 import { uploadProjectStoredFileForEmail } from "@/api/storedFiles";
+import EmailTemplateCombobox from "@/components/email/EmailTemplateCombobox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import type { TransactionRecipientSuggestion } from "@/lib/transactionRecipientSuggestions";
 import { plainTextFromEmailHtml } from "@/lib/emailHtmlUtils";
 import { cn } from "@/lib/utils";
@@ -165,8 +159,15 @@ export default function EmailComposePanel({
           <Label htmlFor="compose-template" className="text-sm font-medium text-foreground">
             Use template
           </Label>
-          <Select
-            value={draft.templateId || undefined}
+          <EmailTemplateCombobox
+            id="compose-template"
+            value={draft.templateId}
+            templates={emailTemplates}
+            loading={loadingTemplates}
+            disabled={emailTemplates.length === 0 && !loadingTemplates}
+            placeholder={
+              emailTemplates.length === 0 ? "No templates — add in Settings" : "Choose a template…"
+            }
             onValueChange={(templateId) => {
               void Promise.resolve(onApplyTemplate?.(templateId)).catch((e) => {
                 toast.error("Could not apply template.", {
@@ -174,26 +175,7 @@ export default function EmailComposePanel({
                 });
               });
             }}
-          >
-            <SelectTrigger id="compose-template">
-              <SelectValue
-                placeholder={
-                  loadingTemplates
-                    ? "Loading templates…"
-                    : emailTemplates.length === 0
-                      ? "No templates — add in Settings"
-                      : "Choose a template…"
-                }
-              />
-            </SelectTrigger>
-            <SelectContent>
-              {emailTemplates.map((t) => (
-                <SelectItem key={t.id} value={t.id}>
-                  {t.name} ({t.category})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          />
         </div>
       ) : null}
 

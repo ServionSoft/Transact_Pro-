@@ -43,6 +43,7 @@ function usesCompactPageScroll(pathname: string): boolean {
  */
 function usesInnerScroll(pathname: string): boolean {
   if (isTransactionFormRoute(pathname)) return false;
+  if (pathname === "/settings") return true;
   if (
     pathname === "/projects" ||
     pathname === "/clients" ||

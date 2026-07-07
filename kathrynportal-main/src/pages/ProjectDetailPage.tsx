@@ -42,7 +42,7 @@ import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { CRM_DOCUMENT_VAULT_PROJECT_ID, type EmailThread, type Project, type ProjectTask } from "@/data/mockData";
 import { listEmailTemplatesFromApi } from "@/api/emailTemplates";
-import { applyEmailTemplateToCompose, buildTimelineEmailComposePrefill } from "@/lib/emailTemplateTokens";
+import { applyEmailTemplateToCompose, applyTransactionTokensToEmailFields, buildTimelineEmailComposePrefill, buildTransactionDocumentList } from "@/lib/emailTemplateTokens";
 import { useAuthStore } from "@/store/authStore";
 import { hasPermission } from "@/lib/permissions";
 import { getTransactionPartyGroups, resolveProjectEscrowOfficer } from "@/lib/transactionMetadataParties";
@@ -918,12 +918,21 @@ export default function ProjectDetailPage() {
       toast.error("One or more recipient emails are invalid.");
       return;
     }
+    const subjectRaw = composeDraft.subject.trim() || `Re: ${project.propertyAddress}`;
+    const docList = buildTransactionDocumentList(project);
+    const { subject, body } = applyTransactionTokensToEmailFields(
+      subjectRaw,
+      composeDraft.body,
+      project,
+      clientForEmail,
+      docList,
+    );
     const payload = {
       to: composeDraft.to,
       cc: composeDraft.cc,
       bcc: composeDraft.bcc,
-      subject: composeDraft.subject.trim() || `Re: ${project.propertyAddress}`,
-      body: composeDraft.body,
+      subject,
+      body,
       ...(composeDraft.templateId ? { templateId: composeDraft.templateId } : {}),
       ...(composeDraft.attachments.length
         ? { attachmentStoredFileIds: composeDraft.attachments.map((a) => a.storedFileId) }

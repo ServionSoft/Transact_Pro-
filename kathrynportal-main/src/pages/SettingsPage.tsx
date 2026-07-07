@@ -28,6 +28,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { listPageBodyClass } from "@/lib/listPageLayout";
 import { changePasswordApi } from "@/api/auth";
 import { useIsMobile } from "@/hooks/use-mobile";
 
@@ -280,7 +281,7 @@ export default function SettingsPage() {
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="page-padding mx-auto w-full max-w-6xl pb-8"
+      className="page-padding mx-auto flex w-full max-w-6xl min-h-0 flex-1 flex-col overflow-hidden pb-8"
     >
       <div className="shrink-0 space-y-4">
         <PageHeader title="Settings" subtitle="Manage templates, team members, and account preferences." />
@@ -330,30 +331,35 @@ export default function SettingsPage() {
         )}
       </div>
 
-      <div className="mt-4 min-w-0 rounded-xl border border-border bg-card shadow-sm">
-        <div className="min-w-0 p-4 sm:p-5">
+      <div className="mt-4 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-4 sm:p-5">
       {/* Email Templates Tab */}
       {activeTab === "templates" && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+        >
+          <div className="shrink-0 space-y-4">
           {templatesLoading && (
-            <p className="text-sm text-muted-foreground mb-3">Loading templates...</p>
+            <p className="text-sm text-muted-foreground">Loading templates...</p>
           )}
           {templatesError && (
-            <p className="text-sm text-destructive mb-3">
+            <p className="text-sm text-destructive">
               {templatesError}{" "}
               <Button variant="link" className="p-0 h-auto" onClick={() => setTemplatesReload((x) => x + 1)}>
                 Retry
               </Button>
             </p>
           )}
-          <div className="flex justify-end mb-4">
+          <div className="flex justify-end">
             <Button onClick={() => setShowNew(true)} className="gap-2">
               <Plus className="w-4 h-4" /> New Template
             </Button>
           </div>
 
           {showNew && (
-            <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="bg-card border border-accent/30 rounded-lg p-6 mb-6">
+            <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="bg-card border border-accent/30 rounded-lg p-6">
               <h3 className="font-display font-semibold text-foreground mb-4">Create New Template</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div className="space-y-2">
@@ -386,7 +392,9 @@ export default function SettingsPage() {
               </div>
             </motion.div>
           )}
+          </div>
 
+          <div className={cn(listPageBodyClass, "min-h-0 flex-1 overflow-y-auto overscroll-contain pt-4")}>
           <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
             {templates.map((template, i) => (
               <motion.div
@@ -440,12 +448,17 @@ export default function SettingsPage() {
               </motion.div>
             ))}
           </div>
+          </div>
         </motion.div>
       )}
 
       {/* Team Members Tab */}
       {activeTab === "team" && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+        >
           <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
             <p className="text-sm text-muted-foreground">
               Manage team members who have access to the portal. Use Create for an active account with password, or Invite for email activation flow.
@@ -593,18 +606,38 @@ export default function SettingsPage() {
       )}
 
       {/* Conditional Formatting Rules Tab */}
-      {activeTab === "formatting" && <FormattingRulesTabComponent />}
+      {activeTab === "formatting" && (
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <FormattingRulesTabComponent />
+        </div>
+      )}
 
-      {activeTab === "roles" && canManageRoles && <RoleProfilesTabComponent />}
+      {activeTab === "roles" && canManageRoles && (
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <RoleProfilesTabComponent />
+        </div>
+      )}
 
-      {activeTab === "smtp" && canManageSmtp && <SmtpSettingsTab />}
+      {activeTab === "smtp" && canManageSmtp && (
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <SmtpSettingsTab />
+        </div>
+      )}
 
-      {activeTab === "docusign" && canManageSmtp && <DocusignSettingsTab />}
+      {activeTab === "docusign" && canManageSmtp && (
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <DocusignSettingsTab />
+        </div>
+      )}
 
 
       {/* Account Tab */}
       {activeTab === "account" && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain"
+        >
           <div className="bg-card border border-border rounded-lg p-6">
             <h3 className="font-display font-semibold text-foreground mb-4">Profile Information</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
