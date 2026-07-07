@@ -85,7 +85,10 @@ export const COMPASS_LISTING_TASKS: CompassTaskTemplate[] = [
     taskType: "email",
     emailTemplateKey: "listing_questions_agent",
   }),
-  listing("L09", "Open pre-escrow and request prelim", "New Listing", 90, ["listing_pre_contract"]),
+  listing("L09", "Open pre-escrow and request prelim", "New Listing", 90, ["listing_pre_contract"], {
+    taskType: "email",
+    emailTemplateKey: "new_pre_escrow",
+  }),
   listing("L10", "Order NHD", "New Listing", 100, ["listing_pre_contract"]),
 
   listing(
@@ -181,7 +184,10 @@ export const COMPASS_LISTING_TASKS: CompassTaskTemplate[] = [
   listing("L37", "File Audit", "Business Tracker", 370, ["listing_post_contract"]),
   listing("L38", "Contingency Removals and Negotiation Forms Completed", "Business Tracker", 380, ["listing_post_contract"]),
   listing("L39", "Order Home Warranty", "Business Tracker", 390, ["listing_post_contract"]),
-  listing("L40", "Add Home Warranty fee to Business Tracker Commissions if our agent is paying", "Business Tracker", 400, ["listing_post_contract"]),
+  listing("L40", "Add Home Warranty fee to Business Tracker Commissions if our agent is paying", "Business Tracker", 400, ["listing_post_contract"], {
+    taskType: "email",
+    emailTemplateKey: "warranty_commission_compass",
+  }),
   listing("L41", "Upload all but final documents into Business Tracker", "Business Tracker", 410, ["listing_post_contract"]),
   listing("L42", "Brochures and Templates", "Business Tracker", 420, ["listing_post_contract"], {
     instructionUrl: "https://docs.google.com/",
@@ -189,9 +195,13 @@ export const COMPASS_LISTING_TASKS: CompassTaskTemplate[] = [
 
   listing("L43", "Remind of Verification of Property Condition", "Closing", 430, ["listing_post_contract"], {
     defaultStage: "Ready to Close",
+    taskType: "email",
+    emailTemplateKey: "vp_reminder",
   }),
   listing("L44", "Send file link to client and copy agent", "Closing", 440, ["listing_post_contract"], {
     defaultStage: "Ready to Close",
+    taskType: "email",
+    emailTemplateKey: "closing_file_email",
   }),
   listing("L45", "Upload Closing Docs / Final File Audit", "Closing", 450, ["listing_post_contract"], {
     defaultStage: "Ready to Close",
@@ -259,7 +269,10 @@ export const COMPASS_BUYER_TASKS: CompassTaskTemplate[] = [
   buyer("B22", "File Audit", "Remaining Contract Items and Disclosures", 220),
   buyer("B23", "Contingency Removals and Negotiation Forms Completed", "Remaining Contract Items and Disclosures", 230),
   buyer("B24", "Order Home Warranty", "Remaining Contract Items and Disclosures", 240),
-  buyer("B25", "Add Home Warranty Fee to Business Tracker Commissions if our agent is paying", "Remaining Contract Items and Disclosures", 250),
+  buyer("B25", "Add Home Warranty Fee to Business Tracker Commissions if our agent is paying", "Remaining Contract Items and Disclosures", 250, {
+    taskType: "email",
+    emailTemplateKey: "warranty_commission_compass",
+  }),
   buyer("B26", "Upload all but final documents into Business Tracker", "Remaining Contract Items and Disclosures", 260),
   buyer("B27", "Brochures and Templates", "Remaining Contract Items and Disclosures", 270, {
     instructionUrl: "https://docs.google.com/",
@@ -280,8 +293,16 @@ export const COMPASS_BUYER_TASKS: CompassTaskTemplate[] = [
     instructionUrl: "https://docs.google.com/",
     defaultStage: "Ready to Close",
   }),
-  buyer("B33", "Remind of Verification of Property Condition", "Closing", 330, { defaultStage: "Ready to Close" }),
-  buyer("B34", "Send file link to client and copy agent", "Closing", 340, { defaultStage: "Ready to Close" }),
+  buyer("B33", "Remind of Verification of Property Condition", "Closing", 330, {
+    defaultStage: "Ready to Close",
+    taskType: "email",
+    emailTemplateKey: "vp_reminder",
+  }),
+  buyer("B34", "Send file link to client and copy agent", "Closing", 340, {
+    defaultStage: "Ready to Close",
+    taskType: "email",
+    emailTemplateKey: "closing_file_email",
+  }),
   buyer("B35", "Upload Closing Docs / Final File Audit", "Closing", 350, { defaultStage: "Ready to Close" }),
   buyer("B36", "Archive in Glide", "Closing", 360, { defaultStage: "Closed" }),
   buyer("B37", "Upload Documents to Appropriate Folders", "Closing", 370, { defaultStage: "Closed" }),

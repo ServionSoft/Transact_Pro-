@@ -1,13 +1,21 @@
 import type { Project } from "@/data/mockData";
 import type { EmailTemplate } from "@/types/domain";
 import { resolveProjectEscrowOfficer } from "@/lib/transactionMetadataParties";
+import { projectCloseOfEscrowDate } from "@/lib/nextStepDisplayUtils";
 import { buildTimelineTableText } from "@/lib/transactionTimelineFields";
 import { isBuyerTransaction } from "@/lib/transactionListUtils";
 import {
   buyerAgentTcName,
   firstBuyerAgentName,
+  firstBuyerEmail,
+  firstBuyerName,
+  firstBuyerPhone,
+  firstClientPartyEmail,
+  firstClientPartyPhone,
+  firstClientPartyRow,
   firstListingAgentName,
   listingAgentTcName,
+  partyNameFromMetadataRow,
 } from "@/lib/transactionEmailPartyTokens";
 
 /** Tokens available in email templates (Settings / Email page). */
@@ -18,6 +26,11 @@ export const TRANSACTION_EMAIL_TOKENS = [
   "{{buyer_agent_tc_name}}",
   "{{listing_agent_tc_name}}",
   "{{client_name}}",
+  "{{client_email}}",
+  "{{client_phone}}",
+  "{{buyer_name}}",
+  "{{buyer_email}}",
+  "{{buyer_phone}}",
   "{{property_address}}",
   "{{property_street}}",
   "{{property_city}}",
@@ -34,6 +47,8 @@ export const TRANSACTION_EMAIL_TOKENS = [
   "{{escrow_officer}}",
   "{{escrow_company}}",
   "{{escrow_number}}",
+  "{{home_warranty}}",
+  "{{coe_date}}",
   "{{other_side_agent_name}}",
   "{{other_side_agent_tc_name}}",
   "{{property_type}}",
@@ -42,6 +57,7 @@ export const TRANSACTION_EMAIL_TOKENS = [
   "{{timeline_table}}",
   "{{update_details}}",
   "{{disclosure_link}}",
+  "{{file_link}}",
   "{{hoa_contact}}",
   "{{today_date}}",
 ] as const;
@@ -57,6 +73,15 @@ function escrowNumberFromMetadata(metadata: Record<string, unknown> | undefined)
     if (typeof v === "string" && v.trim()) return v.trim();
   }
   return "[Escrow #]";
+}
+
+function homeWarrantyFromMetadata(metadata: Record<string, unknown> | undefined): string {
+  const tx = metadata?.transaction;
+  if (tx && typeof tx === "object" && !Array.isArray(tx)) {
+    const v = (tx as Record<string, unknown>).homeWarranty;
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return "[Home warranty details]";
 }
 
 export function applyEmailTemplateTokens(input: string, tokenMap: Record<string, string>): string {
@@ -89,15 +114,30 @@ export function buildTransactionEmailTokenMap(
     project.metadata && typeof project.metadata === "object" && !Array.isArray(project.metadata)
       ? (project.metadata as Record<string, unknown>)
       : undefined;
+  const isBuyer = isBuyerTransaction(project.type);
   const listingAgent = firstListingAgentName(metadata);
   const buyerAgent = firstBuyerAgentName(metadata);
-  const primaryAgent = isBuyerTransaction(project.type)
+  const primaryAgent = isBuyer
     ? buyerAgent || client?.name || project.clientName || ""
     : listingAgent || client?.name || project.clientName || "";
-  const otherSideAgent = isBuyerTransaction(project.type) ? listingAgent : buyerAgent;
-  const otherSideAgentTc = isBuyerTransaction(project.type)
+  const otherSideAgent = isBuyer ? listingAgent : buyerAgent;
+  const otherSideAgentTc = isBuyer
     ? listingAgentTcName(metadata)
     : buyerAgentTcName(metadata);
+  const clientEmail =
+    firstClientPartyEmail(metadata, isBuyer) ||
+    client?.email?.trim() ||
+    "[Client email]";
+  const clientPhone = firstClientPartyPhone(metadata, isBuyer) || "[Client phone]";
+  const buyerName = isBuyer
+    ? project.clientName || partyNameFromMetadataRow(firstClientPartyRow(metadata, true))
+    : firstBuyerName(metadata) || "[Buyer name(s)]";
+  const buyerEmail = isBuyer
+    ? firstClientPartyEmail(metadata, true) || client?.email?.trim() || "[Buyer email]"
+    : firstBuyerEmail(metadata) || "[Buyer email]";
+  const buyerPhone = isBuyer
+    ? firstClientPartyPhone(metadata, true) || "[Buyer phone]"
+    : firstBuyerPhone(metadata);
   const docList = documentListOverride ?? buildTransactionDocumentList(project);
   return {
     agent_name: primaryAgent,
@@ -108,6 +148,11 @@ export function buildTransactionEmailTokenMap(
     other_side_agent_name: otherSideAgent || "[Other agent]",
     other_side_agent_tc_name: otherSideAgentTc || "[Other agent TC]",
     client_name: project.clientName || "",
+    client_email: clientEmail,
+    client_phone: clientPhone,
+    buyer_name: buyerName,
+    buyer_email: buyerEmail,
+    buyer_phone: buyerPhone,
     property_address: project.propertyAddress || "",
     property_street: parts[0] || "",
     property_city: parts[1] || "",
@@ -124,6 +169,8 @@ export function buildTransactionEmailTokenMap(
     escrow_officer: resolveProjectEscrowOfficer(project),
     escrow_company: project.escrowCompany || "",
     escrow_number: escrowNumberFromMetadata(metadata),
+    home_warranty: homeWarrantyFromMetadata(metadata),
+    coe_date: projectCloseOfEscrowDate(project) || "TBD",
     property_type: project.propertyType || "",
     document_list: docList,
     missing_documents_list: docList,
@@ -131,6 +178,7 @@ export function buildTransactionEmailTokenMap(
       timelineTableOverride ?? buildTimelineTableText(metadata, project.deadlines ?? []),
     update_details: "[Update details here]",
     disclosure_link: "[Paste Glide disclosure share link]",
+    file_link: "[Paste link to file documents]",
     hoa_contact: "[HOA contact name]",
     today_date: new Date().toLocaleDateString(),
   };
