@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import {
   deactivateTeamMemberApi,
@@ -208,10 +209,14 @@ export default function TeamMemberEditPage() {
   };
 
   return (
-    <div className="page-padding mx-auto flex w-full max-w-3xl flex-col gap-4 pb-8 sm:gap-6">
-      <Button variant="ghost" size="sm" onClick={goBack}>
-        ← Back
-      </Button>
+    <div className="page-padding mx-auto flex w-full max-w-3xl flex-col pb-8">
+      <button
+        type="button"
+        onClick={goBack}
+        className="mb-6 flex items-center gap-2 self-start text-sm text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ArrowLeft className="h-4 w-4" /> Back to Team
+      </button>
       <PageHeader
         title="Edit team member"
         subtitle="Update name, email, status, designation, and permission profile. Super administrators are a separate path."

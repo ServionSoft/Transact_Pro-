@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { createTeamMemberApi, inviteTeamMemberApi, listProjectsPickerFromApi } from "@/api/teamMembers";
 import { listRoleProfilesFromApi, type RoleProfileListItem } from "@/api/roleProfiles";
@@ -188,12 +189,14 @@ export default function TeamMemberFormPage() {
   };
 
   return (
-    <div className="page-padding mx-auto flex w-full max-w-3xl flex-col gap-4 pb-8 sm:gap-6">
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="sm" onClick={goBack}>
-          ← Back
-        </Button>
-      </div>
+    <div className="page-padding mx-auto flex w-full max-w-3xl flex-col pb-8">
+      <button
+        type="button"
+        onClick={goBack}
+        className="mb-6 flex items-center gap-2 self-start text-sm text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ArrowLeft className="h-4 w-4" /> Back to Team
+      </button>
       <PageHeader
         title={mode === "invite" ? "Invite team member" : "Create team member"}
         subtitle={
