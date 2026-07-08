@@ -525,7 +525,7 @@ export default function EmailPage() {
           <div
             className={cn(
               "touch-pan-y divide-y divide-border",
-              "xl:max-h-[600px] xl:overflow-y-auto xl:overscroll-contain",
+              "crm-scroll xl:max-h-[600px] xl:overflow-y-auto xl:overscroll-contain",
             )}
           >
             {apiOn && loadingRecentEmails && recentEmails.length === 0 ? (

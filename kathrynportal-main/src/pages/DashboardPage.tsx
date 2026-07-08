@@ -162,7 +162,7 @@ function DeadlineBarTooltip({
       <p className="text-[11px] text-muted-foreground mb-1.5">
         {row.n} deadline{row.n === 1 ? "" : "s"}
       </p>
-      <ul className="space-y-0.5 text-[11px] text-foreground leading-snug max-h-[min(50vh,280px)] overflow-y-auto pr-0.5">
+      <ul className="crm-scroll space-y-0.5 text-[11px] text-foreground leading-snug max-h-[min(50vh,280px)] overflow-y-auto pr-0.5">
         {lines.map((line, i) => (
           <li key={i} className="line-clamp-2 border-l-2 border-primary/40 pl-1.5">
             {line}
@@ -648,7 +648,7 @@ export default function DashboardPage() {
             )}
           </CardHeader>
           <Separator />
-          <div className="min-h-0 flex-1 overflow-y-auto p-1 xl:overflow-y-auto">
+          <div className="crm-scroll min-h-0 flex-1 overflow-y-auto p-1 xl:overflow-y-auto">
             {attentionItems.length === 0 ? (
               <DashboardEmptyState
                 title="All clear"
@@ -698,7 +698,7 @@ export default function DashboardPage() {
             </Link>
           </CardHeader>
           <Separator />
-          <div className="min-h-0 flex-1 overflow-y-auto p-1">
+          <div className="crm-scroll min-h-0 flex-1 overflow-y-auto p-1">
             {upcomingDeadlineSlice.length === 0 ? (
               <DashboardEmptyState
                 title="No deadlines"

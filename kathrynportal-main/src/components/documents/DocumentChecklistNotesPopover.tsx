@@ -75,7 +75,7 @@ export default function DocumentChecklistNotesPopover({
         sideOffset={8}
       >
         <p className="mb-3 break-words text-xs font-semibold">Notes — {doc.name}</p>
-        <div className="max-h-[min(70vh,24rem)] space-y-2.5 overflow-y-auto overflow-x-hidden pr-1">
+        <div className="crm-scroll max-h-[min(70vh,24rem)] space-y-2.5 overflow-y-auto overflow-x-hidden pr-1">
           {sortedNotes.length === 0 ? (
             <p className="text-xs text-muted-foreground">No notes yet.</p>
           ) : (

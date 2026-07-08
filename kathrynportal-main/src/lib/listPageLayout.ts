@@ -7,7 +7,8 @@ export const listPageShellClass =
 
 export const listPagePanelClass = "flex flex-col lg:min-h-0 lg:flex-1 lg:overflow-hidden";
 
-export const listPageBodyClass = "lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain";
+export const listPageBodyClass =
+  "crm-scroll lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain";
 
 /** Transaction detail — page scroll below lg; tab shell with bounded panels at lg+. */
 export const transactionDetailRootClass =
@@ -24,10 +25,10 @@ export const embeddedTabShellClass = "lg:flex lg:min-h-0 lg:flex-1 lg:flex-col";
 export const embeddedTabFillClass = "lg:min-h-0 lg:flex-1";
 export const embeddedTabOverflowHiddenClass = "lg:overflow-hidden";
 export const embeddedTabScrollClass =
-  "lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain";
+  "crm-scroll lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain";
 
 /** Tab panel body: page scroll on mobile; inner scroll + overscroll contain at lg+ only. */
 export const embeddedTabBodyClass =
-  "overflow-x-hidden lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain";
+  "crm-scroll overflow-x-hidden lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain";
 export const embeddedTabScrollXYClass =
-  "lg:min-h-0 lg:flex-1 lg:overflow-x-auto lg:overflow-y-auto lg:overscroll-contain";
+  "crm-scroll lg:min-h-0 lg:flex-1 lg:overflow-x-auto lg:overflow-y-auto lg:overscroll-contain";

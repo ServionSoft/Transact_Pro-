@@ -666,7 +666,7 @@ export default function FormattingRulesTab() {
       </div>
 
       <Dialog open={showCreate} onOpenChange={(open) => { if (!open) { setShowCreate(false); setEditingRule(null); } }}>
-        <DialogContent className="max-h-[88vh] min-w-0 w-[calc(100vw-1.5rem)] max-w-2xl overflow-y-auto overflow-x-hidden sm:w-full">
+        <DialogContent className="crm-scroll max-h-[88vh] min-w-0 w-[calc(100vw-1.5rem)] max-w-2xl overflow-y-auto overflow-x-hidden sm:w-full">
           <DialogHeader>
             <DialogTitle>
               {editingRule ? "Edit" : "Create"} {form.kind === "standard" ? "Standard" : "Conditional"} Rule
@@ -780,7 +780,7 @@ export default function FormattingRulesTab() {
                   Each row is one checklist line: open the field, search CRM uploads (Documents page pool), or type and
                   choose &quot;Use … as document name&quot;. Add another row for the next document.
                 </p>
-                <div className="space-y-2 max-h-[320px] overflow-y-auto overflow-x-hidden pr-1 min-w-0">
+                <div className="crm-scroll space-y-2 max-h-[320px] overflow-y-auto overflow-x-hidden pr-1 min-w-0">
                   {form.documents.map((doc) => (
                     <div key={doc.id} className="flex flex-wrap items-center gap-2 bg-secondary/50 rounded-md px-2 py-2 w-full min-w-0">
                       <GripVertical className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0 hidden sm:block" />
@@ -838,7 +838,7 @@ export default function FormattingRulesTab() {
                   When triggers match, each row applies to one document. Search the CRM library or set a custom name,
                   then choose the action type for that row.
                 </p>
-                <div className="space-y-2 max-h-[320px] overflow-y-auto overflow-x-hidden pr-1 min-w-0">
+                <div className="crm-scroll space-y-2 max-h-[320px] overflow-y-auto overflow-x-hidden pr-1 min-w-0">
                   {form.actions.map((a) => (
                     <div key={a.id} className="flex flex-wrap items-center gap-2 bg-secondary/50 rounded-md px-2 py-2 w-full min-w-0">
                       <GripVertical className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0 hidden sm:block" />

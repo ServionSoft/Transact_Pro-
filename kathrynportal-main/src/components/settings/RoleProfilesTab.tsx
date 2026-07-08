@@ -207,7 +207,7 @@ export default function RoleProfilesTab() {
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="crm-scroll max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingId ? "Edit profile" : "New profile"}</DialogTitle>
           </DialogHeader>
@@ -230,7 +230,7 @@ export default function RoleProfilesTab() {
             </div>
             <div className="space-y-2">
               <Label>Permissions</Label>
-              <div className="space-y-3 max-h-64 overflow-y-auto pr-1 border border-border rounded-md p-3">
+              <div className="crm-scroll space-y-3 max-h-64 overflow-y-auto pr-1 border border-border rounded-md p-3">
                 {Object.entries(grouped).map(([mod, rows]) => (
                   <div key={mod} className="space-y-2">
                     <p className="text-xs uppercase tracking-wide text-muted-foreground">{mod}</p>

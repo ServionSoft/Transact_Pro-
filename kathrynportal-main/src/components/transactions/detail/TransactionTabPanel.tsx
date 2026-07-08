@@ -14,7 +14,7 @@ export default function TransactionTabPanel({ children, className, scroll = true
       className={cn(
         "pt-4",
         scroll
-          ? "lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain"
+          ? "crm-scroll lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain"
           : "flex flex-col lg:min-h-0 lg:flex-1 lg:overflow-hidden",
         className,
       )}

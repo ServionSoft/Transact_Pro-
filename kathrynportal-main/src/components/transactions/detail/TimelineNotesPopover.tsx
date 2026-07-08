@@ -75,7 +75,7 @@ export default function TimelineNotesPopover({
         collisionPadding={16}
       >
         <p className="mb-3 break-words text-xs font-semibold">Notes — {title}</p>
-        <div className="max-h-[min(70vh,24rem)] space-y-2.5 overflow-y-auto overflow-x-hidden pr-1">
+        <div className="crm-scroll max-h-[min(70vh,24rem)] space-y-2.5 overflow-y-auto overflow-x-hidden pr-1">
           {sortedNotes.length === 0 ? (
             <p className="text-xs text-muted-foreground">No notes yet.</p>
           ) : (

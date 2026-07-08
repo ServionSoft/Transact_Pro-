@@ -394,7 +394,7 @@ export default function SettingsPage() {
           )}
           </div>
 
-          <div className={cn(listPageBodyClass, "min-h-0 flex-1 overflow-y-auto overscroll-contain pt-4")}>
+          <div className={cn(listPageBodyClass, "min-h-0 flex-1 pt-4")}>
           <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
             {templates.map((template, i) => (
               <motion.div
@@ -457,7 +457,7 @@ export default function SettingsPage() {
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+          className="crm-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain"
         >
           <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
             <p className="text-sm text-muted-foreground">
@@ -607,25 +607,25 @@ export default function SettingsPage() {
 
       {/* Conditional Formatting Rules Tab */}
       {activeTab === "formatting" && (
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className="crm-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <FormattingRulesTabComponent />
         </div>
       )}
 
       {activeTab === "roles" && canManageRoles && (
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className="crm-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <RoleProfilesTabComponent />
         </div>
       )}
 
       {activeTab === "smtp" && canManageSmtp && (
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className="crm-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <SmtpSettingsTab />
         </div>
       )}
 
       {activeTab === "docusign" && canManageSmtp && (
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className="crm-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <DocusignSettingsTab />
         </div>
       )}
@@ -636,7 +636,7 @@ export default function SettingsPage() {
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain"
+          className="crm-scroll min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain"
         >
           <div className="bg-card border border-border rounded-lg p-6">
             <h3 className="font-display font-semibold text-foreground mb-4">Profile Information</h3>

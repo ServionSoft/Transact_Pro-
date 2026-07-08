@@ -136,5 +136,5 @@ export default function PdfJsViewer({ fileData, scale, onPagesMeta, renderOverla
     return <div className="py-8 text-sm text-muted-foreground text-center">No pages in this PDF.</div>;
   }
 
-  return <div className="overflow-y-auto">{pageNodes}</div>;
+  return <div className="crm-scroll overflow-y-auto">{pageNodes}</div>;
 }

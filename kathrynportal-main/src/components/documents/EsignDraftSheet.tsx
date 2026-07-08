@@ -638,7 +638,7 @@ export default function EsignDraftSheet({
   return (
     <>
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-[980px] overflow-y-auto">
+      <SheetContent side="right" className="crm-scroll w-full sm:max-w-[980px] overflow-y-auto">
         <SheetHeader>
           <SheetTitle>E-sign Template Builder</SheetTitle>
           <SheetDescription>
@@ -742,7 +742,7 @@ export default function EsignDraftSheet({
                     </Button>
                   </div>
                 </div>
-                <div className="rounded-md border border-border bg-muted/30 p-2 max-h-[520px] overflow-y-auto">
+                <div className="crm-scroll rounded-md border border-border bg-muted/30 p-2 max-h-[520px] overflow-y-auto">
                   {previewLoading && <div className="py-8 text-sm text-muted-foreground text-center">Loading preview…</div>}
                   {!previewLoading && !pdfBytes && (
                     <div className="py-8 text-sm text-muted-foreground text-center">Preview unavailable.</div>

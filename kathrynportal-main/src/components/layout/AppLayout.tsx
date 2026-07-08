@@ -108,9 +108,9 @@ export default function AppLayout() {
             innerScroll
               ? "flex flex-col overflow-hidden"
               : isTransactionFormRoute(pathname)
-                ? "overflow-y-auto overflow-x-hidden overscroll-y-contain"
+                ? "crm-scroll overflow-y-auto overflow-x-hidden overscroll-y-contain"
                 : cn(
-                    "flex flex-col safe-bottom overflow-y-auto overflow-x-hidden",
+                    "crm-scroll flex flex-col safe-bottom overflow-y-auto overflow-x-hidden",
                     "overscroll-contain",
                   ),
           )}

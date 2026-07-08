@@ -382,7 +382,7 @@ export default function AppSidebar({ inDrawer = false, onNavigate }: AppSidebarP
       </div>
 
       {/* Nav */}
-      <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 py-4">
+      <nav className="crm-scroll-sidebar flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 py-4">
         {!isCollapsed && (
           <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-sidebar-muted">Menu</p>
         )}

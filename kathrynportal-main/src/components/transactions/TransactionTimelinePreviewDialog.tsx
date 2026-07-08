@@ -34,7 +34,7 @@ export default function TransactionTimelinePreviewDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+      <DialogContent className="crm-scroll max-h-[90vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Timeline preview</DialogTitle>
         </DialogHeader>

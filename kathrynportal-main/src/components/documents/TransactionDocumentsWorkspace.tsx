@@ -1404,7 +1404,7 @@ export default function TransactionDocumentsWorkspace({
           )}
         >
           <p className="mb-2 shrink-0 px-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Folders</p>
-          <div className="min-h-0 min-w-0 flex-1 space-y-0.5 overflow-x-hidden overflow-y-auto overscroll-contain pr-0.5">
+          <div className="crm-scroll min-h-0 min-w-0 flex-1 space-y-0.5 overflow-x-hidden overflow-y-auto overscroll-contain pr-0.5">
             <button
               type="button"
               onClick={() => setStorageScope("all")}
@@ -2102,7 +2102,7 @@ export default function TransactionDocumentsWorkspace({
           className={cn(
             embeddedInTransactionTab
               ? embeddedTabBodyClass
-              : "overflow-x-hidden overflow-y-auto overscroll-contain",
+              : "crm-scroll overflow-x-hidden overflow-y-auto overscroll-contain",
           )}
         >
           <div className="space-y-3 p-3 touch-pan-y xl:hidden">
@@ -2511,7 +2511,7 @@ export default function TransactionDocumentsWorkspace({
               Attach from pool
             </SheetTitle>
           </SheetHeader>
-          <div className="flex-1 overflow-y-auto py-4 space-y-3">
+          <div className="crm-scroll flex-1 overflow-y-auto py-4 space-y-3">
             <p className="text-sm text-muted-foreground">
               Link stored files to <span className="font-medium text-foreground">{attachTargetDoc?.name}</span>.
             </p>
@@ -2555,7 +2555,7 @@ export default function TransactionDocumentsWorkspace({
               Send to DocuSign
             </SheetTitle>
           </SheetHeader>
-          <div className="flex-1 overflow-y-auto py-4 space-y-4">
+          <div className="crm-scroll flex-1 overflow-y-auto py-4 space-y-4">
             <div>
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
                 Documents in envelope ({docuSignDocs.length})
