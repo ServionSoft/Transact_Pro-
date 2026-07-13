@@ -1,4 +1,5 @@
 import type { TransactionDetailTabId } from "@/components/transactions/detail/transactionDetailTabs";
+import type { EmailComposeAttachment } from "@/types/emailCompose";
 
 export type ProjectDetailLocationState = {
   tab?: TransactionDetailTabId;
@@ -6,6 +7,7 @@ export type ProjectDetailLocationState = {
   composeSubject?: string;
   composeBody?: string;
   composeTemplateId?: string;
+  composeAttachments?: EmailComposeAttachment[];
 };
 
 export function projectDetailState(
@@ -15,6 +17,7 @@ export function projectDetailState(
     composeSubject?: string;
     composeBody?: string;
     composeTemplateId?: string;
+    composeAttachments?: EmailComposeAttachment[];
   },
 ): ProjectDetailLocationState {
   return {
@@ -23,5 +26,8 @@ export function projectDetailState(
     ...(options?.composeSubject ? { composeSubject: options.composeSubject } : {}),
     ...(options?.composeBody ? { composeBody: options.composeBody } : {}),
     ...(options?.composeTemplateId ? { composeTemplateId: options.composeTemplateId } : {}),
+    ...(options?.composeAttachments && options.composeAttachments.length
+      ? { composeAttachments: options.composeAttachments }
+      : {}),
   };
 }

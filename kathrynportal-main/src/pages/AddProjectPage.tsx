@@ -690,7 +690,7 @@ export default function AddProjectPage() {
     county: "", yearBuilt: "", lotSize: "", squareFeet: "",
     disclosureLink: "",
     exemptSeller: "" as YesNo,
-    solar: "" as YesNo, well: "" as YesNo, septic: "" as YesNo,
+    solar: "" as YesNo, well: "" as YesNo, septic: "" as YesNo, propane: "" as YesNo,
     hoa: "" as YesNo, hoaOrderDetails: "",
     tenantOccupied: "" as YesNo,
   });
@@ -1328,6 +1328,7 @@ export default function AddProjectPage() {
       exemptSeller: yesNoToRuleTrigger(property.exemptSeller),
       hoa: yesNoToRuleTrigger(property.hoa),
       tenantOccupied: yesNoToRuleTrigger(property.tenantOccupied),
+      propane: yesNoToRuleTrigger(property.propane),
       county: property.county,
       dualAgency: "No",
       financing: transaction.loanType,
@@ -1905,8 +1906,8 @@ export default function AddProjectPage() {
                 </Select>
               </Field>
               <Field label="Year Built" className="xl:col-span-1"><Input value={property.yearBuilt} onChange={e => setProperty(p => ({ ...p, yearBuilt: sanitizeDigits(e.target.value) }))} /></Field>
-              <Field label="Lot Size" className="xl:col-span-1"><Input value={property.lotSize} onChange={e => setProperty(p => ({ ...p, lotSize: sanitizeDecimal(e.target.value) }))} /></Field>
               <Field label="Square Feet (home)" className="xl:col-span-1"><Input value={property.squareFeet} onChange={e => setProperty(p => ({ ...p, squareFeet: sanitizeDigits(e.target.value) }))} /></Field>
+              <Field label="Lot Size" className="xl:col-span-1"><Input value={property.lotSize} onChange={e => setProperty(p => ({ ...p, lotSize: sanitizeDecimal(e.target.value) }))} /></Field>
               <Field label="Disclosure Link" labelHelp={TX_FIELD_HELP.disclosureLink} className="xl:col-span-2">
                 <Input value={property.disclosureLink} onChange={e => setProperty(p => ({ ...p, disclosureLink: e.target.value }))} placeholder="https://..." />
               </Field>
@@ -1915,6 +1916,7 @@ export default function AddProjectPage() {
               <YesNoField label="Solar?" value={property.solar} onChange={(v) => setProperty(p => ({ ...p, solar: v }))} />
               <YesNoField label="Well?" value={property.well} onChange={(v) => setProperty(p => ({ ...p, well: v }))} />
               <YesNoField label="Septic?" value={property.septic} onChange={(v) => setProperty(p => ({ ...p, septic: v }))} />
+              <YesNoField label="Propane?" value={property.propane} onChange={(v) => setProperty(p => ({ ...p, propane: v }))} />
               <YesNoField label="HOA?" labelHelp={TX_FIELD_HELP.hoa} value={property.hoa} onChange={(v) => setProperty(p => ({ ...p, hoa: v }))} />
               <YesNoField label="Tenant Occupied?" value={property.tenantOccupied} onChange={(v) => setProperty(p => ({ ...p, tenantOccupied: v }))} />
               {isListing && property.hoa === "yes" && (
@@ -3022,7 +3024,7 @@ function YesNoField({
 }: {
   label: string;
   value: "yes" | "no" | "";
-  onChange: (v: "yes" | "no") => void;
+  onChange: (v: "yes" | "no" | "") => void;
   labelHelp?: TransactionFieldHelp;
 }) {
   return (
@@ -3033,7 +3035,7 @@ function YesNoField({
           <button
             key={v}
             type="button"
-            onClick={() => onChange(v)}
+            onClick={() => onChange(value === v ? "" : v)}
             className={`flex-1 h-10 rounded-md border text-sm font-medium capitalize transition-colors ${
               value === v
                 ? "bg-accent/15 border-accent text-foreground"

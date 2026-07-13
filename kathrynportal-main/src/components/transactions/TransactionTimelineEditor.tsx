@@ -24,7 +24,11 @@ import {
   applyCustomTimelineItemChange,
   buildTimelineEditorRows,
   createCustomTimelineItem,
+  formatTimelineDisplayDate,
   removeCustomTimelineItem,
+  timelineStatusOf,
+  TIMELINE_STATUS_COMPLETED,
+  TIMELINE_STATUS_NA,
   type CopSprpState,
   type CustomTimelineItem,
   type CustomTimelineState,
@@ -144,6 +148,8 @@ export default function TransactionTimelineEditor(props: TransactionTimelineEdit
   });
 
   const [detailCustomDraft, setDetailCustomDraft] = useState<CustomTimelineState>([]);
+  // Detail mode: fields the user switched back to date-entry despite a stored Completed/N/A status.
+  const [detailDateEntry, setDetailDateEntry] = useState<Record<string, boolean>>({});
   useEffect(() => {
     if (props.mode === "detail") setDetailCustomDraft(props.customTimeline);
   }, [props.mode, props.customTimeline]);
@@ -356,6 +362,20 @@ export default function TransactionTimelineEditor(props: TransactionTimelineEdit
     }
   };
 
+  /** Form mode: mark a milestone Completed / N/A (or back to Date) in place of a date. */
+  const handleFormStatusChange = (fieldId: TimelineFieldId, statusValue: string) => {
+    if (props.mode !== "form") return;
+    const changed = applyTimelineFieldChange(fieldId, statusValue, { timeline, cop, sprp });
+    const nextOffsets = { ...timelineOffsets };
+    delete nextOffsets[fieldId];
+    applyBundle({ ...changed, offsets: nextOffsets });
+    setWeekendNotes((prev) => {
+      const next = { ...prev };
+      delete next[fieldId];
+      return next;
+    });
+  };
+
   const handleFormOffsetChange = (
     fieldId: TimelineFieldId,
     partial: { days?: string | number; dayType?: "calendar" | "business"; anchorField?: TimelineFieldId },
@@ -374,6 +394,12 @@ export default function TransactionTimelineEditor(props: TransactionTimelineEdit
     if (props.mode !== "detail") return;
     if (!rawDate) return;
     const normalized = normalizeTimelineDate(rawDate);
+    setDetailDateEntry((prev) => {
+      if (!prev[row.fieldId]) return prev;
+      const next = { ...prev };
+      delete next[row.fieldId];
+      return next;
+    });
     if (normalized.date === row.storedValue) return;
     if (normalized.note) toast.info(normalized.note);
     if (row.deadlineId) {
@@ -383,17 +409,40 @@ export default function TransactionTimelineEditor(props: TransactionTimelineEdit
     props.onTimelineFieldDateChange?.(row.fieldId, normalized.date);
   };
 
+  /**
+   * Detail mode: mark a milestone Completed / N/A (persists a sentinel via the timeline-field
+   * endpoint, which drops the synced deadline) or reveal the date picker again ("date").
+   */
+  const handleDetailStatusChange = (row: (typeof rows)[number], choice: "date" | "completed" | "na") => {
+    if (props.mode !== "detail") return;
+    if (choice === "date") {
+      setDetailDateEntry((prev) => ({ ...prev, [row.fieldId]: true }));
+      return;
+    }
+    setDetailDateEntry((prev) => {
+      const next = { ...prev };
+      delete next[row.fieldId];
+      return next;
+    });
+    const sentinel = choice === "completed" ? TIMELINE_STATUS_COMPLETED : TIMELINE_STATUS_NA;
+    if (sentinel === row.storedValue) return;
+    props.onTimelineFieldDateChange?.(row.fieldId, sentinel);
+  };
+
   return (
     <div className="space-y-4">
       <p className="text-[11px] text-muted-foreground">
-        Deadline dates cannot fall on Saturday or Sunday — they roll to the nearest weekday automatically.
+        Deadlines that fall on a weekend or holiday move to the following business day automatically. Use the
+        status selector to mark a milestone <span className="font-medium">Completed</span> or{" "}
+        <span className="font-medium">N/A</span> instead of a date.
       </p>
       <div className="overflow-x-auto rounded-lg border border-border/80">
-        <table className="w-full min-w-[760px] border-collapse text-sm">
+        <table className="w-full min-w-[860px] border-collapse text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/40 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               <th className="px-3 py-2">Field</th>
               {props.mode === "form" ? <th className="w-52 px-3 py-2">Offset</th> : null}
+              <th className="w-28 px-3 py-2">Status</th>
               <th className="w-44 px-3 py-2">Date / Value</th>
               {props.mode === "detail" ? <th className="min-w-[140px] px-3 py-2">Notes</th> : null}
               {props.mode === "detail" ? <th className="w-24 px-3 py-2 text-right">Actions</th> : null}
@@ -421,7 +470,7 @@ export default function TransactionTimelineEditor(props: TransactionTimelineEdit
                 </td>
                 {props.mode === "form" ? (
                 <td className="px-3 py-2 align-middle">
-                  {row.kind === "date" && !row.disabled ? (
+                  {row.kind === "date" && !row.disabled && !timelineStatusOf(row.storedValue) ? (
                       <div className="flex flex-wrap items-center gap-1">
                         <Input
                           type="number"
@@ -455,25 +504,75 @@ export default function TransactionTimelineEditor(props: TransactionTimelineEdit
                 </td>
                 ) : null}
                 <td className="px-3 py-2 align-middle">
+                  {row.kind !== "date" ? (
+                    <span className="text-[10px] text-muted-foreground">—</span>
+                  ) : props.mode === "form" ? (
+                    <Select
+                      value={timelineStatusOf(row.storedValue) ?? "date"}
+                      disabled={row.disabled}
+                      onValueChange={(v) => {
+                        if (v === "completed") handleFormStatusChange(row.fieldId, TIMELINE_STATUS_COMPLETED);
+                        else if (v === "na") handleFormStatusChange(row.fieldId, TIMELINE_STATUS_NA);
+                        else handleFormStatusChange(row.fieldId, "");
+                      }}
+                    >
+                      <SelectTrigger className="h-8 w-[110px] text-xs" aria-label={`${row.title} status`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="date">Date</SelectItem>
+                        <SelectItem value="completed">Completed</SelectItem>
+                        <SelectItem value="na">N/A</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  ) : props.canEdit && row.formManaged && !row.disabled ? (
+                    <Select
+                      value={detailDateEntry[row.fieldId] ? "date" : timelineStatusOf(row.storedValue) ?? "date"}
+                      onValueChange={(v) => handleDetailStatusChange(row, v as "date" | "completed" | "na")}
+                    >
+                      <SelectTrigger className="h-8 w-[110px] text-xs" aria-label={`${row.title} status`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="date">Date</SelectItem>
+                        <SelectItem value="completed">Completed</SelectItem>
+                        <SelectItem value="na">N/A</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <span className="text-xs font-medium text-foreground">
+                      {row.disabled
+                        ? "N/A"
+                        : timelineStatusOf(row.value)
+                          ? formatTimelineDisplayDate(row.value)
+                          : "Date"}
+                    </span>
+                  )}
+                </td>
+                <td className="px-3 py-2 align-middle">
                   <div className="space-y-0.5">
                     {props.mode === "form" ? (
                       row.kind === "date" ? (
-                        <Input
-                          id={`timeline-${row.fieldId}`}
-                          name={`timeline.${row.fieldId}`}
-                          autoComplete="off"
-                          type="date"
-                          value={row.disabled ? "" : row.storedValue}
-                          disabled={row.disabled}
-                          required={row.required && !row.disabled}
-                          aria-invalid={invalidFieldIds[row.fieldId] || undefined}
-                          onChange={(e) => handleFormDateChange(row.fieldId, e.target.value)}
-                          className={cn(
-                            "h-8 text-xs",
-                            invalidFieldIds[row.fieldId] && "border-destructive focus-visible:ring-destructive",
-                            !invalidFieldIds[row.fieldId] && suggestedFieldIds[row.fieldId] && "border-amber-500/60 bg-amber-500/10 focus-visible:ring-amber-500/40",
-                          )}
-                        />
+                        timelineStatusOf(row.storedValue) ? (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        ) : (
+                          <Input
+                            id={`timeline-${row.fieldId}`}
+                            name={`timeline.${row.fieldId}`}
+                            autoComplete="off"
+                            type="date"
+                            value={row.disabled ? "" : row.storedValue}
+                            disabled={row.disabled}
+                            required={row.required && !row.disabled}
+                            aria-invalid={invalidFieldIds[row.fieldId] || undefined}
+                            onChange={(e) => handleFormDateChange(row.fieldId, e.target.value)}
+                            className={cn(
+                              "h-8 w-[140px] text-xs",
+                              invalidFieldIds[row.fieldId] && "border-destructive focus-visible:ring-destructive",
+                              !invalidFieldIds[row.fieldId] && suggestedFieldIds[row.fieldId] && "border-amber-500/60 bg-amber-500/10 focus-visible:ring-amber-500/40",
+                            )}
+                          />
+                        )
                       ) : (
                         <Input
                           id={`timeline-${row.fieldId}`}
@@ -485,17 +584,23 @@ export default function TransactionTimelineEditor(props: TransactionTimelineEdit
                         />
                       )
                     ) : row.kind === "date" && props.canEdit && row.formManaged && !row.disabled ? (
-                      <Input
-                        id={`timeline-${row.fieldId}`}
-                        name={`timeline.${row.fieldId}`}
-                        autoComplete="off"
-                        type="date"
-                        value={row.storedValue}
-                        className="h-8 text-xs"
-                        onChange={(e) => handleDetailDateChange(row, e.target.value)}
-                      />
+                      !detailDateEntry[row.fieldId] && timelineStatusOf(row.storedValue) ? (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      ) : (
+                        <Input
+                          id={`timeline-${row.fieldId}`}
+                          name={`timeline.${row.fieldId}`}
+                          autoComplete="off"
+                          type="date"
+                          value={timelineStatusOf(row.storedValue) ? "" : row.storedValue}
+                          className="h-8 w-[140px] text-xs"
+                          onChange={(e) => handleDetailDateChange(row, e.target.value)}
+                        />
+                      )
                     ) : (
-                      <span className="text-xs font-medium text-foreground">{row.disabled ? "N/A" : row.value || "—"}</span>
+                      <span className="text-xs font-medium text-foreground">
+                        {row.disabled ? "N/A" : row.value ? formatTimelineDisplayDate(row.value) : "—"}
+                      </span>
                     )}
                     {weekendNotes[row.fieldId] ? (
                       <span className="block text-[10px] text-amber-600 dark:text-amber-400">

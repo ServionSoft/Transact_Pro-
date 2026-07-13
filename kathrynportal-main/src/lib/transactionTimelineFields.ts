@@ -3,7 +3,6 @@ import { TX_FIELD_HELP } from "@/lib/transactionFieldHelp";
 import {
   addBusinessDays,
   addCalendarDays,
-  adjustOffWeekend,
   normalizeTimelineDate,
 } from "@/lib/businessDays";
 
@@ -187,7 +186,8 @@ export const TIMELINE_FIELD_DEFS: TimelineFieldDef[] = [
     title: "Estimated COE",
     kind: "date",
     section: "timeline",
-    order: 60,
+    // Ordered just below Verification of Property Condition (150) and above Possession (160).
+    order: 155,
     labelHelp: TX_FIELD_HELP.estimatedCoe,
     isRequired: (ctx) => ctx.timelineApplies && ctx.isBuyerFile,
   },
@@ -716,11 +716,28 @@ export type TimelineOverviewRow = {
   sortDate: number | null;
   isTextField?: boolean;
   offsetLabel?: string;
+  /** True when an offset-derived date was moved off a weekend/holiday to the next business day. */
+  adjusted?: boolean;
 };
 
 export function formatTimelineOffsetLabel(offset: TimelineFieldOffset): string {
   const unit = offset.dayType === "business" ? "business" : "calendar";
   return `+${offset.days} ${unit} days from ${getAnchorFieldLabel(offset.anchorField)}`;
+}
+
+/** True when applying an offset lands on a weekend/holiday that gets pushed to the next business day. */
+function isOffsetDateAdjusted(
+  offset: TimelineFieldOffset,
+  bundle: { timeline: TimelineFormState; cop: CopSprpState; sprp: CopSprpState },
+): boolean {
+  const anchorValue = readTimelineFieldValue(offset.anchorField, bundle.timeline, bundle.cop, bundle.sprp);
+  if (!anchorValue.trim()) return false;
+  const raw =
+    offset.dayType === "business"
+      ? addBusinessDays(anchorValue, offset.days)
+      : addCalendarDays(anchorValue, offset.days);
+  if (!raw) return false;
+  return normalizeTimelineDate(raw).date !== raw;
 }
 
 /** Overview / print: dated rows sorted chronologically, text fields last. */
@@ -743,15 +760,16 @@ export function buildOverviewTimelineRows(
   for (const row of editorRows) {
     if (!row.value.trim() || row.disabled) continue;
     seenTitles.add(row.title);
+    const hasOffset = row.kind === "date" && row.offset && row.offset.days > 0;
     rows.push({
       title: row.title,
       value: row.value,
       sortDate: row.kind === "date" ? parseSortDate(row.value) : null,
       isTextField: row.kind === "text",
-      offsetLabel:
-        row.kind === "date" && row.offset && row.offset.days > 0
-          ? formatTimelineOffsetLabel(row.offset)
-          : undefined,
+      offsetLabel: hasOffset ? formatTimelineOffsetLabel(row.offset!) : undefined,
+      adjusted: hasOffset
+        ? isOffsetDateAdjusted(row.offset!, { timeline: parsed.timeline, cop: parsed.cop, sprp: parsed.sprp })
+        : false,
     });
   }
 
@@ -784,7 +802,33 @@ export function buildOverviewTimelineRows(
   return [...dated, ...undated, ...text];
 }
 
+/**
+ * Sentinel values stored in a date field's slot when the user marks a milestone
+ * as done or not applicable instead of entering a date. They ride the existing
+ * value plumbing (form state → metadata → deadlines → email text).
+ */
+export const TIMELINE_STATUS_COMPLETED = "__COMPLETED__";
+export const TIMELINE_STATUS_NA = "__NA__";
+export type TimelineStatus = "completed" | "na";
+
+export function timelineStatusOf(value: string): TimelineStatus | null {
+  const trimmed = value.trim();
+  if (trimmed === TIMELINE_STATUS_COMPLETED) return "completed";
+  if (trimmed === TIMELINE_STATUS_NA) return "na";
+  return null;
+}
+
+export function isTimelineStatusValue(value: string): boolean {
+  return timelineStatusOf(value) !== null;
+}
+
+export function formatTimelineStatusLabel(status: TimelineStatus): string {
+  return status === "completed" ? "Completed" : "N/A";
+}
+
 export function formatTimelineDisplayDate(value: string): string {
+  const status = timelineStatusOf(value);
+  if (status) return formatTimelineStatusLabel(status);
   const parsed = parseSortDate(value);
   if (parsed === null) return value;
   return new Date(parsed).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "2-digit" });

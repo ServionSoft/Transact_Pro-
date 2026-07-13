@@ -79,7 +79,9 @@ import {
   transactionTabCardClass,
 } from "@/lib/listPageLayout";
 import { cn } from "@/lib/utils";
-import { emptyEmailComposeDraft, type EmailComposeDraft } from "@/types/emailCompose";
+import { emptyEmailComposeDraft, type EmailComposeAttachment, type EmailComposeDraft } from "@/types/emailCompose";
+import { buildTimelinePdfFile } from "@/lib/timelinePdf";
+import { uploadProjectStoredFileForEmail } from "@/api/storedFiles";
 import { isValidEmailAddress } from "@/lib/emailAddressList";
 import { emailBodyLooksLikeHtml } from "@/lib/emailHtmlUtils";
 
@@ -138,6 +140,7 @@ export default function ProjectDetailPage() {
   const [showComposeEmail, setShowComposeEmail] = useState(false);
   const [composeDraft, setComposeDraft] = useState<EmailComposeDraft>(() => emptyEmailComposeDraft());
   const [sendingEmail, setSendingEmail] = useState(false);
+  const [emailTimelineBusy, setEmailTimelineBusy] = useState(false);
   const emailTemplates = useAppStore((s) => s.emailTemplates);
   const setEmailTemplates = useAppStore((s) => s.setEmailTemplates);
 
@@ -267,6 +270,7 @@ export default function ProjectDetailPage() {
           subject: state.composeSubject?.trim() || `Re: ${project.propertyAddress}`,
           body: bodyToEditorHtml(state.composeBody ?? ""),
           templateId: state.composeTemplateId ?? "",
+          attachments: state.composeAttachments ?? [],
         }),
       );
     }
@@ -373,6 +377,7 @@ export default function ProjectDetailPage() {
     subject?: string;
     body?: string;
     templateId?: string;
+    attachments?: EmailComposeAttachment[];
   }) => {
     setActiveTab("emails");
     setShowComposeEmail(true);
@@ -383,6 +388,7 @@ export default function ProjectDetailPage() {
         subject: options?.subject?.trim() || `Re: ${project.propertyAddress}`,
         body: bodyToEditorHtml(options?.body ?? ""),
         templateId: options?.templateId ?? "",
+        attachments: options?.attachments ?? [],
       }),
     );
   };
@@ -392,7 +398,11 @@ export default function ProjectDetailPage() {
   };
 
   const handleEmailTimeline = () => {
-    const openWithTemplates = (templates: typeof emailTemplates) => {
+    if (emailTimelineBusy) return;
+    const openWithTemplates = (
+      templates: typeof emailTemplates,
+      attachments: EmailComposeAttachment[],
+    ) => {
       const prefill = buildTimelineEmailComposePrefill(project, client, templates);
       const suggestedTo =
         emailRecipientSuggestions.find((s) => /agent|escrow|buyer|seller/i.test(s.label))?.email ||
@@ -404,18 +414,43 @@ export default function ProjectDetailPage() {
         subject: prefill.subject,
         body: prefill.body,
         templateId: prefill.templateId,
+        attachments,
       });
     };
-    if (apiOn && emailTemplates.length === 0) {
-      void listEmailTemplatesFromApi()
-        .then((rows) => {
-          setEmailTemplates(rows);
-          openWithTemplates(rows);
-        })
-        .catch(() => openWithTemplates(emailTemplates));
-      return;
-    }
-    openWithTemplates(emailTemplates);
+
+    const run = async () => {
+      setEmailTimelineBusy(true);
+      try {
+        const templates =
+          apiOn && emailTemplates.length === 0
+            ? await listEmailTemplatesFromApi()
+                .then((rows) => {
+                  setEmailTemplates(rows);
+                  return rows;
+                })
+                .catch(() => emailTemplates)
+            : emailTemplates;
+
+        let attachments: EmailComposeAttachment[] = [];
+        // Attachments live in the server file pool, so we can only auto-attach with the API on.
+        const timelineRows = buildOverviewTimelineRows(metadataRecord, project.deadlines ?? []);
+        if (apiOn && timelineRows.length > 0) {
+          try {
+            const escrowOfficer = resolveProjectEscrowOfficer(project);
+            const file = buildTimelinePdfFile(project, timelineRows, { escrowOfficer });
+            const uploaded = await uploadProjectStoredFileForEmail(project.id, file);
+            attachments = [{ storedFileId: uploaded.id, name: uploaded.name, sizeBytes: file.size }];
+          } catch {
+            toast.error("Could not attach the timeline PDF automatically. You can add it manually.");
+          }
+        }
+        openWithTemplates(templates, attachments);
+      } finally {
+        setEmailTimelineBusy(false);
+      }
+    };
+
+    void run();
   };
 
   const handleComposeEmailTask = (task: ProjectTask) => {
@@ -1359,8 +1394,14 @@ export default function ProjectDetailPage() {
                     >
                       <Plus className="w-3.5 h-3.5" /> Add custom timeline item
                     </Button>
-                    <Button size="sm" variant="outline" className="gap-1 h-8" onClick={handleEmailTimeline}>
-                      <Mail className="w-3.5 h-3.5" /> Email timeline
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1 h-8"
+                      onClick={handleEmailTimeline}
+                      disabled={emailTimelineBusy}
+                    >
+                      <Mail className="w-3.5 h-3.5" /> {emailTimelineBusy ? "Preparing…" : "Email timeline with PDF"}
                     </Button>
                   </>
                 ) : null}

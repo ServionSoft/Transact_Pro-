@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Download, Mail, Printer } from "lucide-react";
-import { jsPDF } from "jspdf";
 import { getProjectFromApi } from "@/api/projects";
+import { uploadProjectStoredFileForEmail } from "@/api/storedFiles";
 import type { Project } from "@/data/mockData";
 import { useAppStore } from "@/store/appStore";
 import { getApiBaseUrl } from "@/lib/apiConfig";
@@ -13,21 +13,23 @@ import { getTransactionRecipientSuggestions } from "@/lib/transactionRecipientSu
 import { resolveProjectEscrowOfficer } from "@/lib/transactionMetadataParties";
 import {
   buildOverviewTimelineRows,
-  formatTimelineDisplayDate,
   type TimelineOverviewRow,
 } from "@/lib/transactionTimelineFields";
+import {
+  buildTimelinePdfDoc,
+  buildTimelinePdfFile,
+  timelineFileBase,
+  timelinePdfFileName,
+  timelineRowDisplayValue,
+} from "@/lib/timelinePdf";
+import type { EmailComposeAttachment } from "@/types/emailCompose";
 import TransactionTimelinePrintTable from "@/components/transactions/TransactionTimelinePrintTable";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import type { EmailTemplate } from "@/types/domain";
 
 function displayRowValue(row: TimelineOverviewRow): string {
-  if (row.isTextField) return row.value;
-  return formatTimelineDisplayDate(row.value);
-}
-
-function fileBaseFromProject(propertyAddress: string): string {
-  return propertyAddress.split(",")[0]?.trim().replace(/\s+/g, "-").toLowerCase() || "transaction";
+  return timelineRowDisplayValue(row);
 }
 
 export default function ProjectDeadlinesPrintPage() {
@@ -132,16 +134,18 @@ export default function ProjectDeadlinesPrintPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${fileBaseFromProject(project.propertyAddress)}-timeline.csv`;
+    a.download = `${timelineFileBase(project.propertyAddress)}-timeline.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 
+  const [emailBusy, setEmailBusy] = useState(false);
+
   const handleEmailTimeline = () => {
-    if (!project) return;
-    const openWithTemplates = (templates: EmailTemplate[]) => {
+    if (!project || emailBusy) return;
+    const openWithTemplates = (templates: EmailTemplate[], attachments: EmailComposeAttachment[]) => {
       const prefill = buildTimelineEmailComposePrefill(project, client, templates);
       const suggestions = getTransactionRecipientSuggestions(project, client);
       const suggestedTo =
@@ -155,131 +159,52 @@ export default function ProjectDeadlinesPrintPage() {
           composeSubject: prefill.subject,
           composeBody: prefill.body,
           composeTemplateId: prefill.templateId,
+          composeAttachments: attachments,
         }),
       });
     };
-    if (getApiBaseUrl() && emailTemplates.length === 0) {
-      void listEmailTemplatesFromApi()
-        .then((rows) => {
-          setEmailTemplates(rows);
-          openWithTemplates(rows);
-        })
-        .catch(() => openWithTemplates(emailTemplates));
-      return;
-    }
-    openWithTemplates(emailTemplates);
+
+    const run = async () => {
+      setEmailBusy(true);
+      try {
+        const templates =
+          getApiBaseUrl() && emailTemplates.length === 0
+            ? await listEmailTemplatesFromApi().then((rows) => {
+                setEmailTemplates(rows);
+                return rows;
+              }).catch(() => emailTemplates)
+            : emailTemplates;
+
+        let attachments: EmailComposeAttachment[] = [];
+        // Attachments live in the server file pool, so we can only auto-attach when the API is configured.
+        if (getApiBaseUrl() && timelineRows.length > 0) {
+          try {
+            const file = buildTimelinePdfFile(project, timelineRows, { escrowOfficer });
+            const uploaded = await uploadProjectStoredFileForEmail(project.id, file);
+            attachments = [
+              {
+                storedFileId: uploaded.id,
+                name: uploaded.name,
+                sizeBytes: file.size,
+              },
+            ];
+          } catch {
+            toast.error("Could not attach the timeline PDF automatically. You can add it manually.");
+          }
+        }
+        openWithTemplates(templates, attachments);
+      } finally {
+        setEmailBusy(false);
+      }
+    };
+
+    void run();
   };
 
   const savePdfFile = () => {
     if (!project) return;
-    const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 40;
-    const rowHeight = 22;
-    const cols = showDaysColumn
-      ? { idx: 28, milestone: 200, value: 90, days: 150 }
-      : { idx: 36, milestone: 260, value: 130, days: 0 };
-    const tableWidth = cols.idx + cols.milestone + cols.value + (showDaysColumn ? cols.days : 0);
-    const startX = margin;
-    let y = margin;
-
-    const drawHeader = () => {
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(10);
-      doc.setTextColor(100);
-      doc.text("TRANSACTION TIMELINE", startX, y);
-      y += 20;
-
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(22);
-      doc.setTextColor(20);
-      doc.text(project.propertyAddress.split(",")[0] || project.name, startX, y);
-      y += 16;
-
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(10);
-      doc.setTextColor(90);
-      doc.text(project.propertyAddress, startX, y);
-      y += 18;
-
-      const summary = [
-        `Client: ${project.clientName || "—"}`,
-        `Escrow: ${escrowOfficer || "—"}${project.escrowCompany ? ` · ${project.escrowCompany}` : ""}`,
-        `Type: ${project.type || "—"}`,
-        `Stage: ${project.stage || "—"}`,
-        `Generated: ${new Date().toLocaleDateString()}`,
-      ];
-      for (const line of summary) {
-        doc.text(line, startX, y);
-        y += 13;
-      }
-      y += 10;
-    };
-
-    const drawTableHeader = () => {
-      doc.setDrawColor(215);
-      doc.setFillColor(248, 250, 252);
-      doc.rect(startX, y - 14, tableWidth, rowHeight, "FD");
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(10);
-      doc.setTextColor(35);
-      doc.text("#", startX + 8, y);
-      doc.text("Milestone", startX + cols.idx + 8, y);
-      doc.text("Date / Value", startX + cols.idx + cols.milestone + 8, y);
-      if (showDaysColumn) {
-        doc.text("Days", startX + cols.idx + cols.milestone + cols.value + 8, y);
-      }
-      y += rowHeight;
-      doc.setFont("helvetica", "normal");
-    };
-
-    drawHeader();
-    drawTableHeader();
-
-    timelineRows.forEach((row, idx) => {
-      const milestoneLines = doc.splitTextToSize(row.title || "—", cols.milestone - 12);
-      const valueLines = doc.splitTextToSize(displayRowValue(row) || "—", cols.value - 12);
-      const daysLines = showDaysColumn
-        ? doc.splitTextToSize(row.offsetLabel || "—", cols.days - 12)
-        : [""];
-      const contentLines = Math.max(milestoneLines.length, valueLines.length, daysLines.length, 1);
-      const blockHeight = contentLines * 12 + 10;
-
-      if (y + blockHeight + 20 > pageHeight - margin) {
-        doc.addPage();
-        y = margin;
-        drawHeader();
-        drawTableHeader();
-      }
-
-      doc.setDrawColor(225);
-      doc.rect(startX, y - 14, tableWidth, blockHeight);
-
-      const colX = [
-        startX,
-        startX + cols.idx,
-        startX + cols.idx + cols.milestone,
-        startX + cols.idx + cols.milestone + cols.value,
-      ];
-      doc.line(colX[1], y - 14, colX[1], y - 14 + blockHeight);
-      doc.line(colX[2], y - 14, colX[2], y - 14 + blockHeight);
-      if (showDaysColumn) {
-        doc.line(colX[3], y - 14, colX[3], y - 14 + blockHeight);
-      }
-
-      doc.setFontSize(10);
-      doc.setTextColor(30);
-      doc.text(String(idx + 1), startX + 8, y);
-      doc.text(milestoneLines, startX + cols.idx + 8, y);
-      doc.text(valueLines, startX + cols.idx + cols.milestone + 8, y);
-      if (showDaysColumn) {
-        doc.text(daysLines, startX + cols.idx + cols.milestone + cols.value + 8, y);
-      }
-
-      y += blockHeight;
-    });
-
-    doc.save(`${fileBaseFromProject(project.propertyAddress)}-timeline.pdf`);
+    const doc = buildTimelinePdfDoc(project, timelineRows, { escrowOfficer });
+    doc.save(timelinePdfFileName(project));
     toast.success("PDF downloaded.");
   };
 
@@ -334,9 +259,9 @@ export default function ProjectDeadlinesPrintPage() {
             <Download className="h-3.5 w-3.5 shrink-0" />
             <span className="truncate">CSV</span>
           </Button>
-          <Button variant="outline" size="sm" className="h-10 gap-1 px-2 text-xs sm:px-3 sm:text-sm" onClick={handleEmailTimeline}>
+          <Button variant="outline" size="sm" className="h-10 gap-1 px-2 text-xs sm:px-3 sm:text-sm" onClick={handleEmailTimeline} disabled={emailBusy}>
             <Mail className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">Email timeline</span>
+            <span className="truncate">{emailBusy ? "Preparing…" : "Email timeline"}</span>
           </Button>
         </div>
       </div>
@@ -362,11 +287,14 @@ export default function ProjectDeadlinesPrintPage() {
           <TransactionTimelinePrintTable rows={timelineRows} />
         </section>
 
-        <footer className="mt-6 flex flex-col gap-2 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
-          <span>Prepared for client presentation.</span>
-          <Link to={`/projects/${project.id}`} className="no-print underline underline-offset-2">
-            Open transaction
-          </Link>
+        <footer className="mt-6 flex flex-col gap-2 border-t border-slate-200 pt-3 text-xs text-slate-500">
+          <span>Deadlines that fall on weekends or holidays move to the following business day.</span>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <span>Prepared for client presentation.</span>
+            <Link to={`/projects/${project.id}`} className="no-print underline underline-offset-2">
+              Open transaction
+            </Link>
+          </div>
         </footer>
       </article>
     </div>

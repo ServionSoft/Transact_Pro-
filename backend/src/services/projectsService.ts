@@ -333,7 +333,10 @@ function parseDateString(raw: string | undefined): string | null {
   return d.toISOString().split("T")[0];
 }
 
-/** Sat → Fri; Sun → Mon — deadline dates must not fall on weekends. */
+/** Sentinel values a timeline milestone can hold instead of a date (mirrors the frontend). */
+const TIMELINE_STATUS_SENTINELS = new Set(["__COMPLETED__", "__NA__"]);
+
+/** Weekend deadlines move forward to the following business day (Sat/Sun → Mon). */
 function adjustDeadlineOffWeekend(iso: string): string {
   const match = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return iso;
@@ -343,7 +346,7 @@ function adjustDeadlineOffWeekend(iso: string): string {
   const d = new Date(year, month, day);
   if (Number.isNaN(d.getTime())) return iso;
   const dow = d.getDay();
-  if (dow === 6) d.setDate(d.getDate() - 1);
+  if (dow === 6) d.setDate(d.getDate() + 2);
   else if (dow === 0) d.setDate(d.getDate() + 1);
   else return iso;
   const y = d.getFullYear();
@@ -3028,9 +3031,14 @@ export async function updateProjectTimelineFieldDate(
       error: { status: 400, code: "PROJECT_TIMELINE_FIELD_INVALID", message: "Unknown timeline field." },
     };
   }
-  const dueDate = parseDateString(date);
-  if (!dueDate) {
-    return { error: { status: 400, code: "PROJECT_DEADLINE_INVALID", message: "Deadline date is required." } };
+  const trimmedDate = date.trim();
+  // A milestone can be marked Completed / N/A (or cleared) instead of holding a date.
+  const isStatusOrCleared = trimmedDate === "" || TIMELINE_STATUS_SENTINELS.has(trimmedDate);
+  if (!isStatusOrCleared) {
+    const dueDate = parseDateString(date);
+    if (!dueDate) {
+      return { error: { status: 400, code: "PROJECT_DEADLINE_INVALID", message: "Deadline date is required." } };
+    }
   }
   const metadata = await loadProjectMetadata(pool, projectId);
   if (metadata === null && !(await pool.query(`SELECT 1 FROM public.projects WHERE id = $1::bigint AND deleted_at IS NULL`, [projectId])).rows[0]) {

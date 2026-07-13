@@ -12,12 +12,13 @@ type Props = {
 };
 
 function displayValue(row: TimelineOverviewRow): string {
-  if (row.isTextField) return row.value;
-  return formatTimelineDisplayDate(row.value);
+  const base = row.isTextField ? row.value : formatTimelineDisplayDate(row.value);
+  return row.adjusted ? `${base} *` : base;
 }
 
 export default function TransactionTimelinePrintTable({ rows, compact, className }: Props) {
   const showDaysColumn = rows.some((r) => r.offsetLabel);
+  const anyAdjusted = rows.some((r) => r.adjusted);
 
   if (rows.length === 0) {
     return (
@@ -79,6 +80,12 @@ export default function TransactionTimelinePrintTable({ rows, compact, className
           </tbody>
         </table>
       </div>
+
+      {anyAdjusted ? (
+        <p className={cn("mt-2 text-[11px] text-slate-500", className)}>
+          * Moved to the next business day (weekend or holiday).
+        </p>
+      ) : null}
     </>
   );
 }
