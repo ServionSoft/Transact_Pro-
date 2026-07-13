@@ -1,16 +1,24 @@
 import type { Pool } from "pg";
 
+export type ClientAssistant = {
+  firstName?: string;
+  lastName?: string;
+  preferredName?: string;
+  email?: string;
+};
+
 export type ClientDetails = {
   licenseNumber?: string;
   brokerageLicense?: string;
   logo?: string;
-  assistant?: {
-    firstName?: string;
-    lastName?: string;
-    preferredName?: string;
-    email?: string;
-  };
+  /** @deprecated single-assistant legacy shape; still read for back-compat, superseded by `assistants`. */
+  assistant?: ClientAssistant;
+  /** Escrow officer roster; the first entry is the default used to auto-fill transactions. */
+  assistants?: ClientAssistant[];
 };
+
+/** Guardrail against runaway roster input on an officer's contact. */
+const MAX_ASSISTANTS = 5;
 
 export type ClientApiRow = {
   id: string;
@@ -98,20 +106,26 @@ function sanitizeDetails(raw: unknown): ClientDetails {
   if (str(o.brokerageLicense)) details.brokerageLicense = str(o.brokerageLicense);
   // Logo is a data URL; keep as-is (only when it looks like one) without trimming away content.
   if (typeof o.logo === "string" && o.logo.startsWith("data:image/")) details.logo = o.logo;
-  const a = o.assistant && typeof o.assistant === "object" && !Array.isArray(o.assistant)
-    ? (o.assistant as Record<string, unknown>)
-    : null;
-  if (a) {
-    const assistant = {
+  const toAssistant = (raw: unknown): ClientAssistant | null => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const a = raw as Record<string, unknown>;
+    const assistant: ClientAssistant = {
       firstName: str(a.firstName),
       lastName: str(a.lastName),
       preferredName: str(a.preferredName),
       email: str(a.email),
     };
-    if (assistant.firstName || assistant.lastName || assistant.preferredName || assistant.email) {
-      details.assistant = assistant;
-    }
-  }
+    return assistant.firstName || assistant.lastName || assistant.preferredName || assistant.email
+      ? assistant
+      : null;
+  };
+  // Accept the new `assistants` array; fall back to the legacy single `assistant`.
+  const rawList = Array.isArray(o.assistants) ? o.assistants : o.assistant != null ? [o.assistant] : [];
+  const assistants = rawList
+    .map(toAssistant)
+    .filter((x): x is ClientAssistant => x !== null)
+    .slice(0, MAX_ASSISTANTS);
+  if (assistants.length) details.assistants = assistants;
   return details;
 }
 

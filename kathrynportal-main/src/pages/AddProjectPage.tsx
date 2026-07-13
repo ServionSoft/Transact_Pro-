@@ -21,7 +21,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { PrimaryContactPicker } from "@/components/shared/PrimaryContactPicker";
 import { ContactLinkPicker } from "@/components/shared/ContactLinkPicker";
 import { AddressAutocompleteInput } from "@/components/shared/AddressAutocompleteInput";
-import type { Client } from "@/types/domain";
+import type { Client, ClientAssistant } from "@/types/domain";
+import { clientAssistantLabel, getClientAssistants } from "@/types/domain";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import FieldLabelHelp from "@/components/shared/FieldLabelHelp";
@@ -314,6 +315,64 @@ const blankLender = (): LenderParty => ({
   name: "", firstName: "", lastName: "", preferredName: "", company: "",
 });
 
+/** Max buyers or sellers per transaction. Generous ceiling that still guards against runaway input. */
+const MAX_CLIENT_PARTIES = 10;
+
+/**
+ * Autosave key + version for the in-progress "New Transaction" draft. Bump the
+ * version whenever the persisted shape changes so stale drafts are ignored.
+ */
+const NEW_TRANSACTION_DRAFT_KEY = "tp:new-transaction-draft";
+const NEW_TRANSACTION_DRAFT_VERSION = 1;
+
+type NewTransactionDraft = {
+  version: number;
+  savedAt: number;
+  data: Record<string, unknown>;
+};
+
+function readNewTransactionDraft(): NewTransactionDraft | null {
+  try {
+    const raw = localStorage.getItem(NEW_TRANSACTION_DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as NewTransactionDraft;
+    if (
+      !parsed ||
+      parsed.version !== NEW_TRANSACTION_DRAFT_VERSION ||
+      typeof parsed.data !== "object" ||
+      parsed.data == null
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function clearNewTransactionDraft(): void {
+  try {
+    localStorage.removeItem(NEW_TRANSACTION_DRAFT_KEY);
+  } catch {
+    /* storage unavailable — nothing to clear */
+  }
+}
+
+/** Human-friendly "saved X ago" label for the restore banner. */
+function formatDraftSavedAt(savedAt: number): string {
+  const diffMs = Date.now() - savedAt;
+  const minutes = Math.round(diffMs / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  try {
+    return new Date(savedAt).toLocaleString();
+  } catch {
+    return "earlier";
+  }
+}
+
 /** Combines first/last into a single display name. */
 function combinePartyName(first: string, last: string): string {
   return [first.trim(), last.trim()].filter(Boolean).join(" ");
@@ -357,6 +416,20 @@ function simplePartyFromClient(c: Client): SimpleParty {
   };
 }
 
+/** Builds a transaction assistant party from an officer's stored assistant entry. */
+function simplePartyFromAssistant(a: ClientAssistant): SimpleParty {
+  const first = (a.firstName ?? "").trim();
+  const last = (a.lastName ?? "").trim();
+  return {
+    ...blankSimple(),
+    name: combinePartyName(first, last),
+    firstName: first,
+    lastName: last,
+    preferredName: (a.preferredName ?? "").trim(),
+    email: (a.email ?? "").trim(),
+  };
+}
+
 function applyEscrowAssistantFromOfficer(
   officer: Client | undefined,
   options: Client[],
@@ -364,20 +437,9 @@ function applyEscrowAssistantFromOfficer(
 ): SimpleParty | null {
   if (!officer) return null;
   if (!isSimplePartyEmpty(current)) return null;
-  // Prefer the inline assistant stored on the officer's contact record.
-  const inline = officer.details?.assistant;
-  if (inline && (inline.firstName || inline.lastName || inline.preferredName || inline.email)) {
-    const first = (inline.firstName ?? "").trim();
-    const last = (inline.lastName ?? "").trim();
-    return {
-      ...blankSimple(),
-      name: combinePartyName(first, last),
-      firstName: first,
-      lastName: last,
-      preferredName: (inline.preferredName ?? "").trim(),
-      email: (inline.email ?? "").trim(),
-    };
-  }
+  // Prefer the officer's assistant roster; the first entry is the default.
+  const roster = getClientAssistants(officer.details);
+  if (roster.length > 0) return simplePartyFromAssistant(roster[0]);
   // Fall back to the legacy linked assistant contact.
   if (!officer.assistantContactId?.trim()) return null;
   const assistant = options.find((x) => x.id === officer.assistantContactId);
@@ -632,6 +694,21 @@ export default function AddProjectPage() {
     hoa: "" as YesNo, hoaOrderDetails: "",
     tenantOccupied: "" as YesNo,
   });
+
+  // Assistant roster from the linked escrow officer; first entry is the default.
+  const escrowOfficerAssistants = useMemo(() => {
+    if (!escrow.contactId) return [];
+    const officer = clientOptions.find((x) => x.id === escrow.contactId);
+    return officer ? getClientAssistants(officer.details) : [];
+  }, [escrow.contactId, clientOptions]);
+  const selectedEscrowAssistantValue = (() => {
+    const idx = escrowOfficerAssistants.findIndex(
+      (a) =>
+        (a.email ?? "").trim().toLowerCase() === escrowAssistant.email.trim().toLowerCase() &&
+        combinePartyName((a.firstName ?? "").trim(), (a.lastName ?? "").trim()) === escrowAssistant.name.trim(),
+    );
+    return idx >= 0 ? String(idx) : "";
+  })();
 
   const isAllCash = transaction.loanType === "All Cash";
   const noHOA = property.hoa === "no";
@@ -972,6 +1049,223 @@ export default function AddProjectPage() {
     };
   }, [apiOn, existingProject, id, isEditMode, upsertProject]);
 
+  // --- New Transaction draft autosave (add mode only) ---------------------
+  const draftSnapshot = useMemo(
+    () => ({
+      version: NEW_TRANSACTION_DRAFT_VERSION,
+      type,
+      clientId,
+      nextStep,
+      nextStepDate,
+      timeline,
+      showCOP,
+      cop,
+      showSPRP,
+      sprp,
+      timelineOffsets,
+      customTimeline,
+      buyerAgents,
+      showBuyerAgent2,
+      additionalBuyerAgent,
+      buyerAgent3,
+      buyerAgentTC,
+      buyerAgentAssistant,
+      listingAgents,
+      showListingAgent2,
+      additionalListingAgent,
+      listingAgent3,
+      listingAgentTC,
+      listingAgentAssistant,
+      escrow,
+      escrowAssistant,
+      lender,
+      sellers,
+      buyers,
+      listing,
+      transaction,
+      property,
+      contractAccepted,
+    }),
+    [
+      type,
+      clientId,
+      nextStep,
+      nextStepDate,
+      timeline,
+      showCOP,
+      cop,
+      showSPRP,
+      sprp,
+      timelineOffsets,
+      customTimeline,
+      buyerAgents,
+      showBuyerAgent2,
+      additionalBuyerAgent,
+      buyerAgent3,
+      buyerAgentTC,
+      buyerAgentAssistant,
+      listingAgents,
+      showListingAgent2,
+      additionalListingAgent,
+      listingAgent3,
+      listingAgentTC,
+      listingAgentAssistant,
+      escrow,
+      escrowAssistant,
+      lender,
+      sellers,
+      buyers,
+      listing,
+      transaction,
+      property,
+      contractAccepted,
+    ],
+  );
+
+  // Only persist once the user has entered something meaningful, so a freshly
+  // opened form never overwrites a real draft from a previous session.
+  const draftHasContent = useMemo(() => {
+    const agentTouched = (a: AgentParty) =>
+      Boolean(a.contactId || a.name.trim() || a.firstName.trim() || a.lastName.trim() || a.email.trim());
+    const personTouched = (p: PersonParty) =>
+      Boolean(p.name.trim() || p.firstName.trim() || p.lastName.trim() || p.email.trim());
+    return Boolean(
+      clientId ||
+        property.address.trim() ||
+        nextStep.trim() ||
+        transaction.purchasePrice.trim() ||
+        [...buyerAgents, ...listingAgents, buyerAgent3, listingAgent3].some(agentTouched) ||
+        [...sellers, ...buyers].some(personTouched) ||
+        escrow.name.trim() ||
+        escrow.company.trim() ||
+        lender.name.trim(),
+    );
+  }, [
+    clientId,
+    property.address,
+    nextStep,
+    transaction.purchasePrice,
+    buyerAgents,
+    listingAgents,
+    buyerAgent3,
+    listingAgent3,
+    sellers,
+    buyers,
+    escrow.name,
+    escrow.company,
+    lender.name,
+  ]);
+
+  const draftSnapshotRef = useRef(draftSnapshot);
+  draftSnapshotRef.current = draftSnapshot;
+  const draftHasContentRef = useRef(draftHasContent);
+  draftHasContentRef.current = draftHasContent;
+
+  const [draftMeta, setDraftMeta] = useState<{ savedAt: number } | null>(null);
+  const draftRestoreHandledRef = useRef(false);
+  // Set once the transaction is saved so the unmount autosave doesn't recreate
+  // a draft we just cleared.
+  const draftSavingDisabledRef = useRef(false);
+
+  const writeDraft = useRef(() => {
+    if (draftSavingDisabledRef.current) return;
+    if (!draftHasContentRef.current) return;
+    try {
+      localStorage.setItem(
+        NEW_TRANSACTION_DRAFT_KEY,
+        JSON.stringify({
+          version: NEW_TRANSACTION_DRAFT_VERSION,
+          savedAt: Date.now(),
+          data: draftSnapshotRef.current,
+        }),
+      );
+    } catch {
+      /* storage full/unavailable — skip autosave */
+    }
+  }).current;
+
+  // Detect an existing draft on mount and offer to restore it.
+  useEffect(() => {
+    if (isEditMode) return;
+    const existing = readNewTransactionDraft();
+    if (existing) setDraftMeta({ savedAt: existing.savedAt });
+  }, [isEditMode]);
+
+  // Debounced autosave whenever the form has meaningful content.
+  useEffect(() => {
+    if (isEditMode || !draftHasContent) return;
+    const timer = setTimeout(writeDraft, 800);
+    return () => clearTimeout(timer);
+  }, [isEditMode, draftHasContent, draftSnapshot, writeDraft]);
+
+  // Persist on tab close/refresh and on in-app navigation away from the page.
+  useEffect(() => {
+    if (isEditMode) return;
+    window.addEventListener("beforeunload", writeDraft);
+    return () => {
+      window.removeEventListener("beforeunload", writeDraft);
+      writeDraft();
+    };
+  }, [isEditMode, writeDraft]);
+
+  const restoreDraft = () => {
+    const existing = readNewTransactionDraft();
+    if (!existing) {
+      setDraftMeta(null);
+      return;
+    }
+    const d = existing.data as Record<string, unknown>;
+    const asArray = <T,>(v: unknown, fallback: T[]): T[] =>
+      Array.isArray(v) && v.length > 0 ? (v as T[]) : fallback;
+
+    if (d.type === "Buyer File" || d.type === "Listing") setType(d.type as TxType);
+    setClientId(typeof d.clientId === "string" ? d.clientId : "");
+    setNextStep(typeof d.nextStep === "string" ? d.nextStep : "");
+    setNextStepDate(typeof d.nextStepDate === "string" ? d.nextStepDate : "");
+    if (d.timeline && typeof d.timeline === "object") setTimeline(prev => ({ ...prev, ...(d.timeline as typeof prev) }));
+    setShowCOP(Boolean(d.showCOP));
+    if (d.cop && typeof d.cop === "object") setCop(d.cop as typeof cop);
+    setShowSPRP(Boolean(d.showSPRP));
+    if (d.sprp && typeof d.sprp === "object") setSprp(d.sprp as typeof sprp);
+    if (d.timelineOffsets && typeof d.timelineOffsets === "object")
+      setTimelineOffsets(d.timelineOffsets as TimelineOffsetsState);
+    if (Array.isArray(d.customTimeline)) setCustomTimeline(d.customTimeline as CustomTimelineState);
+    setBuyerAgents(asArray<AgentParty>(d.buyerAgents, [blankAgent()]).map(hydrateAgent));
+    setShowBuyerAgent2(Boolean(d.showBuyerAgent2));
+    setAdditionalBuyerAgent(Boolean(d.additionalBuyerAgent));
+    if (d.buyerAgent3 && typeof d.buyerAgent3 === "object") setBuyerAgent3(hydrateAgent(d.buyerAgent3));
+    if (d.buyerAgentTC && typeof d.buyerAgentTC === "object") setBuyerAgentTC(hydrateSimple(d.buyerAgentTC));
+    if (d.buyerAgentAssistant && typeof d.buyerAgentAssistant === "object")
+      setBuyerAgentAssistant(hydrateSimple(d.buyerAgentAssistant));
+    setListingAgents(asArray<AgentParty>(d.listingAgents, [blankAgent()]).map(hydrateAgent));
+    setShowListingAgent2(Boolean(d.showListingAgent2));
+    setAdditionalListingAgent(Boolean(d.additionalListingAgent));
+    if (d.listingAgent3 && typeof d.listingAgent3 === "object") setListingAgent3(hydrateAgent(d.listingAgent3));
+    if (d.listingAgentTC && typeof d.listingAgentTC === "object") setListingAgentTC(hydrateSimple(d.listingAgentTC));
+    if (d.listingAgentAssistant && typeof d.listingAgentAssistant === "object")
+      setListingAgentAssistant(hydrateSimple(d.listingAgentAssistant));
+    if (d.escrow && typeof d.escrow === "object") setEscrow(hydrateEscrow(d.escrow));
+    if (d.escrowAssistant && typeof d.escrowAssistant === "object") setEscrowAssistant(hydrateSimple(d.escrowAssistant));
+    if (d.lender && typeof d.lender === "object") setLender(hydrateLender(d.lender));
+    setSellers(asArray<PersonParty>(d.sellers, [blankPerson()]).map(hydratePerson));
+    setBuyers(asArray<PersonParty>(d.buyers, [blankPerson()]).map(hydratePerson));
+    if (d.listing && typeof d.listing === "object") setListing(prev => ({ ...prev, ...(d.listing as typeof prev) }));
+    if (d.transaction && typeof d.transaction === "object")
+      setTransaction(prev => ({ ...prev, ...(d.transaction as typeof prev) }));
+    if (d.property && typeof d.property === "object") setProperty(prev => ({ ...prev, ...(d.property as typeof prev) }));
+    setContractAccepted(Boolean(d.contractAccepted));
+
+    draftRestoreHandledRef.current = true;
+    setDraftMeta(null);
+    toast.success("Draft restored.");
+  };
+
+  const dismissDraft = () => {
+    clearNewTransactionDraft();
+    draftRestoreHandledRef.current = true;
+    setDraftMeta(null);
+  };
+
   // Auto-fill from client
   const onClientChange = (v: string) => {
     setClientId(v);
@@ -985,12 +1279,32 @@ export default function AddProjectPage() {
         zip: prev.zip || c.zip,
       }));
     }
+    // Keep the primary contact and the lead agent in sync in both directions.
+    // Only fill the lead agent slot when it's still empty, so we never overwrite a
+    // manually entered agent.
+    if (v) {
+      const opts = mergePartyClientOptions();
+      const isEmptyAgent = (a?: AgentParty) => !a?.contactId && !(a?.name ?? "").trim();
+      if (isListing) {
+        setListingAgents(prev =>
+          isEmptyAgent(prev[0])
+            ? [applyAgentContact(prev[0] ?? blankAgent(), v, opts), ...prev.slice(1)]
+            : prev,
+        );
+      } else {
+        setBuyerAgents(prev =>
+          isEmptyAgent(prev[0])
+            ? [applyAgentContact(prev[0] ?? blankAgent(), v, opts), ...prev.slice(1)]
+            : prev,
+        );
+      }
+    }
   };
 
-  const addBuyer = () => buyers.length < 4 && setBuyers(prev => [...prev, blankPerson()]);
+  const addBuyer = () => buyers.length < MAX_CLIENT_PARTIES && setBuyers(prev => [...prev, blankPerson()]);
   const removeBuyer = (i: number) => setBuyers(prev => prev.filter((_, idx) => idx !== i));
-  const addSeller = () => sellers.length < 4 && setSellers(prev => [...prev, blankPerson()]);
-  const removeSeller = (i: number) => sellers.filter((_, idx) => idx !== i) && setSellers(prev => prev.filter((_, idx) => idx !== i));
+  const addSeller = () => sellers.length < MAX_CLIENT_PARTIES && setSellers(prev => [...prev, blankPerson()]);
+  const removeSeller = (i: number) => setSellers(prev => prev.filter((_, idx) => idx !== i));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1185,6 +1499,10 @@ export default function AddProjectPage() {
               : `${type} for ${property.address}`
             : `${type} for ${property.address} · Compass workflow tasks loaded · ${documents.length} docs from rules`,
         });
+        if (!isEditMode) {
+          draftSavingDisabledRef.current = true;
+          clearNewTransactionDraft();
+        }
         navigate(`/projects/${saved.id}`);
         return;
       } catch (err) {
@@ -1256,6 +1574,8 @@ export default function AddProjectPage() {
     toast.success("Transaction created!", {
       description: `${type} for ${property.address} · ${documents.length} docs auto-loaded from rules`,
     });
+    draftSavingDisabledRef.current = true;
+    clearNewTransactionDraft();
     navigate(`/projects/${created.id}`);
   };
 
@@ -1312,6 +1632,26 @@ export default function AddProjectPage() {
         {isEditMode && loadingEditProject ? (
           <div className="mb-4 rounded-md border border-border bg-secondary/20 p-3 text-sm text-muted-foreground">
             Loading transaction details...
+          </div>
+        ) : null}
+
+        {!isEditMode && draftMeta ? (
+          <div className="mb-4 flex flex-col gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-500/40 dark:bg-amber-500/10 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-2 text-amber-900 dark:text-amber-200">
+              <Info className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                You have an unsaved transaction draft from{" "}
+                <span className="font-semibold">{formatDraftSavedAt(draftMeta.savedAt)}</span>.
+              </span>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <Button type="button" size="sm" variant="outline" onClick={dismissDraft}>
+                Discard
+              </Button>
+              <Button type="button" size="sm" onClick={restoreDraft}>
+                Restore draft
+              </Button>
+            </div>
           </div>
         ) : null}
 
@@ -1848,6 +2188,8 @@ export default function AddProjectPage() {
                       applyAgentContact(prev[0] ?? blankAgent(), cid, opts),
                       ...prev.slice(1),
                     ]);
+                    // On a buyer file the first buyer's agent is the transaction's primary contact.
+                    if (!isListing && cid) setClientId(cid);
                   }}
                 />
               </div>
@@ -1987,6 +2329,8 @@ export default function AddProjectPage() {
                       applyAgentContact(prev[0] ?? blankAgent(), cid, opts),
                       ...prev.slice(1),
                     ]);
+                    // On a listing file the first listing agent is the transaction's primary contact.
+                    if (isListing && cid) setClientId(cid);
                   }}
                 />
               </div>
@@ -2098,8 +2442,8 @@ export default function AddProjectPage() {
 
             {/* Sellers */}
             <PartyGroup
-              title={`Sellers (${sellers.length}/4)`}
-              action={sellers.length < 4 && (
+              title={`Sellers (${sellers.length}/${MAX_CLIENT_PARTIES})`}
+              action={sellers.length < MAX_CLIENT_PARTIES && (
                 <Button type="button" size="sm" variant="outline" onClick={addSeller} className="gap-1">
                   <Plus className="w-3 h-3" /> Add Seller
                 </Button>
@@ -2204,6 +2548,30 @@ export default function AddProjectPage() {
                   }}
                 />
               </div>
+              {escrowOfficerAssistants.length > 1 ? (
+                <div className="mb-3">
+                  <Label className="text-xs text-muted-foreground">Assistant from escrow officer</Label>
+                  <Select
+                    value={selectedEscrowAssistantValue}
+                    onValueChange={(val) => {
+                      const chosen = escrowOfficerAssistants[Number(val)];
+                      if (chosen) setEscrowAssistant(simplePartyFromAssistant(chosen));
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Choose an assistant…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {escrowOfficerAssistants.map((a, i) => (
+                        <SelectItem key={i} value={String(i)}>
+                          {clientAssistantLabel(a)}
+                          {i === 0 ? " (default)" : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
               <SimpleForm value={escrowAssistant} onChange={setEscrowAssistant} />
             </PartyGroup>
             </div>
@@ -2251,8 +2619,8 @@ export default function AddProjectPage() {
             {showPostContractSections && (
             <div className="order-5">
             <PartyGroup
-              title={`Buyers (${buyers.length}/4)`}
-              action={buyers.length < 4 && (
+              title={`Buyers (${buyers.length}/${MAX_CLIENT_PARTIES})`}
+              action={buyers.length < MAX_CLIENT_PARTIES && (
                 <Button type="button" size="sm" variant="outline" onClick={addBuyer} className="gap-1">
                   <Plus className="w-3 h-3" /> Add Buyer
                 </Button>
@@ -2338,7 +2706,12 @@ export default function AddProjectPage() {
                 <p className="text-xs text-destructive">Select a primary contact before saving.</p>
               ) : showFieldSuggested("contact") ? (
                 <p className="text-xs text-amber-800 dark:text-amber-300">Select a primary contact for this transaction.</p>
-              ) : null}
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Auto-set to the first {isListing ? "listing agent" : "buyer's agent"} when you link them from a saved
+                  contact. You can override it here.
+                </p>
+              )}
             </div>
 
             <div className="pt-2 border-t border-border space-y-2">

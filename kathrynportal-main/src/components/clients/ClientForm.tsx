@@ -1,6 +1,8 @@
 import { toast } from "sonner";
+import { Plus, X } from "lucide-react";
 import type { ClientStatus } from "@/data/mockData";
 import type { Client, ClientDetails } from "@/types/domain";
+import { getClientAssistants } from "@/types/domain";
 import { CONTACT_ROLE_OPTIONS, isKnownContactRole } from "@/constants/contactRoles";
 import { AddressAutocompleteInput } from "@/components/shared/AddressAutocompleteInput";
 import { Button } from "@/components/ui/button";
@@ -11,6 +13,24 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 /** Max source image size accepted for an agent logo (stored inline as a base64 data URL). */
 const MAX_LOGO_BYTES = 600 * 1024;
+
+/** A single escrow-assistant row in the form (all fields kept as strings for controlled inputs). */
+export type ClientFormAssistant = {
+  firstName: string;
+  lastName: string;
+  preferredName: string;
+  email: string;
+};
+
+/** Max assistants an escrow officer can list; mirrors the backend guardrail. */
+export const MAX_CLIENT_ASSISTANTS = 5;
+
+const blankAssistant = (): ClientFormAssistant => ({
+  firstName: "",
+  lastName: "",
+  preferredName: "",
+  email: "",
+});
 
 export type ClientFormValues = {
   name: string;
@@ -32,10 +52,7 @@ export type ClientFormValues = {
   licenseNumber: string;
   brokerageLicense: string;
   logo: string;
-  assistantFirstName: string;
-  assistantLastName: string;
-  assistantPreferredName: string;
-  assistantEmail: string;
+  assistants: ClientFormAssistant[];
 };
 
 const roleKey = (role: string) => role.trim().toLowerCase();
@@ -59,15 +76,15 @@ export function buildClientDetails(values: ClientFormValues): ClientDetails {
     if (values.logo.trim()) details.logo = values.logo.trim();
   }
   if (role === "escrow officer") {
-    const assistant = {
-      firstName: values.assistantFirstName.trim() || undefined,
-      lastName: values.assistantLastName.trim() || undefined,
-      preferredName: values.assistantPreferredName.trim() || undefined,
-      email: values.assistantEmail.trim() || undefined,
-    };
-    if (assistant.firstName || assistant.lastName || assistant.preferredName || assistant.email) {
-      details.assistant = assistant;
-    }
+    const assistants = values.assistants
+      .map((a) => ({
+        firstName: a.firstName.trim() || undefined,
+        lastName: a.lastName.trim() || undefined,
+        preferredName: a.preferredName.trim() || undefined,
+        email: a.email.trim() || undefined,
+      }))
+      .filter((a) => a.firstName || a.lastName || a.preferredName || a.email);
+    if (assistants.length) details.assistants = assistants;
   }
   return details;
 }
@@ -75,37 +92,33 @@ export function buildClientDetails(values: ClientFormValues): ClientDetails {
 /** Flattens a contact's `details` back into form fields for editing. */
 export function detailsToFormValues(details: ClientDetails | undefined): Pick<
   ClientFormValues,
-  | "licenseNumber"
-  | "brokerageLicense"
-  | "logo"
-  | "assistantFirstName"
-  | "assistantLastName"
-  | "assistantPreferredName"
-  | "assistantEmail"
+  "licenseNumber" | "brokerageLicense" | "logo" | "assistants"
 > {
   const d = details ?? {};
-  const a = d.assistant ?? {};
+  const assistants = getClientAssistants(d).map((a) => ({
+    firstName: a.firstName ?? "",
+    lastName: a.lastName ?? "",
+    preferredName: a.preferredName ?? "",
+    email: a.email ?? "",
+  }));
   return {
     licenseNumber: d.licenseNumber ?? "",
     brokerageLicense: d.brokerageLicense ?? "",
     logo: d.logo ?? "",
-    assistantFirstName: a.firstName ?? "",
-    assistantLastName: a.lastName ?? "",
-    assistantPreferredName: a.preferredName ?? "",
-    assistantEmail: a.email ?? "",
+    assistants,
   };
 }
 
 /** Detail defaults for a blank form; spread into the initial `ClientFormValues`. */
-export const emptyClientDetailFields = {
+export const emptyClientDetailFields: Pick<
+  ClientFormValues,
+  "licenseNumber" | "brokerageLicense" | "logo" | "assistants"
+> = {
   licenseNumber: "",
   brokerageLicense: "",
   logo: "",
-  assistantFirstName: "",
-  assistantLastName: "",
-  assistantPreferredName: "",
-  assistantEmail: "",
-} as const;
+  assistants: [],
+};
 
 type ClientFormProps = {
   values: ClientFormValues;
@@ -160,6 +173,24 @@ export default function ClientForm({
   const handleLastName = (value: string) => {
     onChange("lastName", value);
     onChange("name", combineName(values.firstName, value));
+  };
+
+  const assistants = values.assistants;
+  const updateAssistant = (index: number, patch: Partial<ClientFormAssistant>) => {
+    onChange(
+      "assistants",
+      assistants.map((a, i) => (i === index ? { ...a, ...patch } : a)),
+    );
+  };
+  const addAssistant = () => {
+    if (assistants.length >= MAX_CLIENT_ASSISTANTS) return;
+    onChange("assistants", [...assistants, blankAssistant()]);
+  };
+  const removeAssistant = (index: number) => {
+    onChange(
+      "assistants",
+      assistants.filter((_, i) => i !== index),
+    );
   };
 
   const handleLogoFile = (file: File | null) => {
@@ -342,44 +373,73 @@ export default function ClientForm({
 
       {isEscrowOfficer ? (
         <div className="border-t border-border pt-6">
-          <h3 className="font-display font-semibold text-foreground mb-2">Escrow assistant</h3>
+          <h3 className="font-display font-semibold text-foreground mb-2">Escrow assistants</h3>
           <p className="text-xs text-muted-foreground mb-4">
-            Optional. Stored on this officer's record and used to auto-fill the assistant on transactions.
+            Optional. Stored on this officer's record. The first assistant auto-fills on transactions; any others are
+            selectable there.
           </p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="assistantFirstName">Assistant first name</Label>
-              <Input
-                id="assistantFirstName"
-                value={values.assistantFirstName}
-                onChange={(e) => onChange("assistantFirstName", e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="assistantLastName">Assistant last name</Label>
-              <Input
-                id="assistantLastName"
-                value={values.assistantLastName}
-                onChange={(e) => onChange("assistantLastName", e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="assistantPreferredName">Assistant preferred name</Label>
-              <Input
-                id="assistantPreferredName"
-                value={values.assistantPreferredName}
-                onChange={(e) => onChange("assistantPreferredName", e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="assistantEmail">Assistant email</Label>
-              <Input
-                id="assistantEmail"
-                type="email"
-                value={values.assistantEmail}
-                onChange={(e) => onChange("assistantEmail", e.target.value)}
-              />
-            </div>
+          <div className="space-y-4">
+            {assistants.map((assistant, index) => (
+              <div key={index} className="rounded-md border border-border p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    Assistant {index + 1}
+                    {index === 0 ? " (default)" : ""}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-muted-foreground"
+                    onClick={() => removeAssistant(index)}
+                    aria-label={`Remove assistant ${index + 1}`}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor={`assistantFirstName-${index}`}>Assistant first name</Label>
+                    <Input
+                      id={`assistantFirstName-${index}`}
+                      value={assistant.firstName}
+                      onChange={(e) => updateAssistant(index, { firstName: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor={`assistantLastName-${index}`}>Assistant last name</Label>
+                    <Input
+                      id={`assistantLastName-${index}`}
+                      value={assistant.lastName}
+                      onChange={(e) => updateAssistant(index, { lastName: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor={`assistantPreferredName-${index}`}>Assistant preferred name</Label>
+                    <Input
+                      id={`assistantPreferredName-${index}`}
+                      value={assistant.preferredName}
+                      onChange={(e) => updateAssistant(index, { preferredName: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor={`assistantEmail-${index}`}>Assistant email</Label>
+                    <Input
+                      id={`assistantEmail-${index}`}
+                      type="email"
+                      value={assistant.email}
+                      onChange={(e) => updateAssistant(index, { email: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+            {assistants.length < MAX_CLIENT_ASSISTANTS ? (
+              <Button type="button" variant="outline" size="sm" onClick={addAssistant}>
+                <Plus className="h-4 w-4 mr-1" />
+                {assistants.length === 0 ? "Add assistant" : "Add another assistant"}
+              </Button>
+            ) : null}
           </div>
         </div>
       ) : null}

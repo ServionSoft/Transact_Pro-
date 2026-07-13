@@ -52,16 +52,41 @@ export interface ReminderDraft {
 
 export type TaskStatus = "Pending" | "In Progress" | "Complete";
 
+export interface ClientAssistant {
+  firstName?: string;
+  lastName?: string;
+  preferredName?: string;
+  email?: string;
+}
+
 export interface ClientDetails {
   licenseNumber?: string;
   brokerageLicense?: string;
   logo?: string;
-  assistant?: {
-    firstName?: string;
-    lastName?: string;
-    preferredName?: string;
-    email?: string;
-  };
+  /** @deprecated legacy single assistant; still read for back-compat, superseded by `assistants`. */
+  assistant?: ClientAssistant;
+  /** Escrow officer roster; the first entry is the default used to auto-fill transactions. */
+  assistants?: ClientAssistant[];
+}
+
+/** Resolves an officer's assistant roster, reading the new array and falling back to the legacy single assistant. */
+export function getClientAssistants(details: ClientDetails | undefined): ClientAssistant[] {
+  if (!details) return [];
+  const list = Array.isArray(details.assistants)
+    ? details.assistants
+    : details.assistant
+    ? [details.assistant]
+    : [];
+  return list.filter((a) => a && (a.firstName || a.lastName || a.preferredName || a.email));
+}
+
+/** Human-readable label for an assistant entry (prefers preferred name). */
+export function clientAssistantLabel(a: ClientAssistant): string {
+  return (
+    [a.preferredName || a.firstName, a.lastName].filter(Boolean).join(" ").trim() ||
+    (a.email ?? "").trim() ||
+    "Assistant"
+  );
 }
 
 export interface Client {

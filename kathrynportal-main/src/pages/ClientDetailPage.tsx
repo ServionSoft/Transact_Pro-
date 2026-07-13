@@ -18,6 +18,7 @@ import { useAuthStore } from "@/store/authStore";
 import { isTransactionProject } from "@/data/mockData";
 import { toast } from "sonner";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
+import { clientAssistantLabel, getClientAssistants } from "@/types/domain";
 
 export default function ClientDetailPage() {
   const { id } = useParams();
@@ -104,13 +105,8 @@ export default function ClientDetailPage() {
   const roleKey = client.role.trim().toLowerCase();
   const isAgent = roleKey === "agent";
   const isEscrowOfficer = roleKey === "escrow officer";
-  const assistant = details.assistant;
-  const assistantName = assistant
-    ? [assistant.preferredName || assistant.firstName, assistant.lastName].filter(Boolean).join(" ")
-    : "";
-  const hasAssistant = Boolean(
-    assistant && (assistant.firstName || assistant.lastName || assistant.preferredName || assistant.email)
-  );
+  const assistants = getClientAssistants(details);
+  const hasAssistant = assistants.length > 0;
 
   const clientProjects = projects.filter(
     (p) => p.clientId === client.id && isTransactionProject(p)
@@ -375,9 +371,24 @@ export default function ClientDetailPage() {
           </div>
           {isEscrowOfficer && hasAssistant ? (
             <div className="mt-5 pt-4 border-t border-border">
-              <p className="text-xs font-medium text-muted-foreground mb-2">Escrow assistant</p>
-              {assistantName ? <p className="text-sm text-foreground">{assistantName}</p> : null}
-              {assistant?.email ? <p className="text-sm text-muted-foreground">{assistant.email}</p> : null}
+              <p className="text-xs font-medium text-muted-foreground mb-2">
+                {assistants.length > 1 ? "Escrow assistants" : "Escrow assistant"}
+              </p>
+              <div className="space-y-2">
+                {assistants.map((assistant, index) => (
+                  <div key={index}>
+                    <p className="text-sm text-foreground">
+                      {clientAssistantLabel(assistant)}
+                      {index === 0 && assistants.length > 1 ? (
+                        <span className="ml-2 text-xs text-muted-foreground">Default</span>
+                      ) : null}
+                    </p>
+                    {assistant.email ? (
+                      <p className="text-sm text-muted-foreground">{assistant.email}</p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
             </div>
           ) : null}
           <div className="mt-5 pt-4 border-t border-border">
