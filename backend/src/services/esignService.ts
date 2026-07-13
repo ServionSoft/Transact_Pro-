@@ -674,13 +674,13 @@ export async function markEsignDraftReady(
     if (hasVendorSignature) {
       const settingsRes = await client.query<{ vendor_signature_file_id: string | null }>(
         `SELECT vendor_signature_file_id::text AS vendor_signature_file_id
-         FROM public.smtp_settings
-         WHERE id = 1
-         LIMIT 1`
-      );
+       FROM public.smtp_settings
+       WHERE id = 1
+       LIMIT 1`
+    );
       if (!settingsRes.rows[0]?.vendor_signature_file_id) {
-        await client.query("ROLLBACK");
-        return {
+      await client.query("ROLLBACK");
+      return {
           error: {
             status: 422,
             code: "VENDOR_SIGNATURE_REQUIRED",

@@ -2,7 +2,12 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createClientApi, type ClientUpsertBody } from "@/api/clients";
-import ClientForm, { type ClientFormValues } from "@/components/clients/ClientForm";
+import ClientForm, {
+  buildClientDetails,
+  emptyClientDetailFields,
+  normalizeClientForm,
+  type ClientFormValues,
+} from "@/components/clients/ClientForm";
 import PageHeader from "@/components/shared/PageHeader";
 import { toast } from "sonner";
 import { useAppStore } from "@/store/appStore";
@@ -18,11 +23,13 @@ export default function AddClientPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [form, setForm] = useState<ClientFormValues>({
     name: "",
+    firstName: "",
+    lastName: "",
     preferredName: "",
     email: "",
     phone: "",
     company: "",
-    role: "Listing Agent",
+    role: "Agent",
     propertyAddress: "",
     city: "",
     state: "CA",
@@ -30,6 +37,7 @@ export default function AddClientPage() {
     notes: "",
     status: "Active",
     assistantContactId: "",
+    ...emptyClientDetailFields,
   });
   const contactOptions = useAppStore((s) => s.clients);
 
@@ -48,21 +56,27 @@ export default function AddClientPage() {
       navigate("/clients");
       return;
     }
-    if (!form.name.trim() || !form.email.trim()) {
-      toast.error("Name and email are required.");
+    const isLender = form.role.trim().toLowerCase() === "lender";
+    if (!form.firstName.trim() || !form.lastName.trim() || !form.preferredName.trim()) {
+      toast.error("First name, last name, and preferred name are required.");
       return;
     }
+    if (!isLender && !form.email.trim()) {
+      toast.error("Email is required for this contact type.");
+      return;
+    }
+    const normalized = normalizeClientForm(form);
     setIsSubmitting(true);
     try {
       if (getApiBaseUrl()) {
-        const body: ClientUpsertBody = { ...form };
+        const body: ClientUpsertBody = { ...normalized, details: buildClientDetails(normalized) };
         const created = await createClientApi(body);
         upsertClient(created);
         toast.success("Contact created successfully!", { description: `${created.name} has been added.` });
         navigate(`/clients/${created.id}`);
         return;
       }
-      const created = addClient(form);
+      const created = addClient({ ...normalized, details: buildClientDetails(normalized) });
       toast.success("Contact created successfully!", { description: `${created.name} has been added.` });
       navigate(`/clients/${created.id}`);
     } catch (err) {

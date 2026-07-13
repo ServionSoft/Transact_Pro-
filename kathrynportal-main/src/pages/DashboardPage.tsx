@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowRight,
   AlertTriangle,
@@ -6,6 +6,7 @@ import {
   Users,
   Calendar as CalendarIcon,
   ListTodo,
+  Plus,
   RefreshCw,
   Inbox,
 } from "lucide-react";
@@ -258,6 +259,7 @@ function DashboardEmptyState({
 }
 
 export default function DashboardPage() {
+  const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const projects = useAppStore((s) => s.projects);
   const clients = useAppStore((s) => s.clients);
@@ -267,6 +269,7 @@ export default function DashboardPage() {
 
   const canViewProjects = hasPermission(user, "projects.view");
   const canViewClients = hasPermission(user, "clients.view");
+  const canCreateProjects = hasPermission(user, "projects.create");
 
   const apiOn = Boolean(getApiBaseUrl());
   const [liveRows, setLiveRows] = useState<ProjectListItem[] | null>(null);
@@ -546,6 +549,12 @@ export default function DashboardPage() {
             <span className="text-[11px] text-muted-foreground whitespace-nowrap">
               Updated {lastSynced.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
             </span>
+          )}
+          {canCreateProjects && (
+            <Button type="button" size="sm" className="h-10 gap-1.5 sm:h-8" onClick={() => navigate("/projects/new")}>
+              <Plus className="h-3.5 w-3.5" />
+              New transaction
+            </Button>
           )}
           <Button type="button" variant="outline" size="sm" className="h-10 gap-1.5 sm:h-8" disabled={loading} onClick={() => void refresh()}>
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />

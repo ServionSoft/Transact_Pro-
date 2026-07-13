@@ -1,8 +1,22 @@
 import type { Pool } from "pg";
 
+export type ClientDetails = {
+  licenseNumber?: string;
+  brokerageLicense?: string;
+  logo?: string;
+  assistant?: {
+    firstName?: string;
+    lastName?: string;
+    preferredName?: string;
+    email?: string;
+  };
+};
+
 export type ClientApiRow = {
   id: string;
   name: string;
+  firstName: string;
+  lastName: string;
   preferredName: string;
   email: string;
   phone: string;
@@ -15,12 +29,15 @@ export type ClientApiRow = {
   zip: string;
   notes: string;
   assistantContactId: string;
+  details: ClientDetails;
   createdAt: string;
   projectCount: number;
 };
 
 export type ClientUpsertInput = {
-  name: string;
+  name?: string;
+  firstName?: string;
+  lastName?: string;
   preferredName?: string;
   email: string;
   phone?: string;
@@ -33,6 +50,7 @@ export type ClientUpsertInput = {
   zip?: string;
   notes?: string;
   assistantContactId?: string;
+  details?: ClientDetails;
 };
 
 export type ServiceError = {
@@ -63,18 +81,76 @@ function normalizeText(v: string | undefined): string {
   return (v ?? "").trim();
 }
 
-function validateClientInput(input: ClientUpsertInput): ServiceError | null {
-  const name = normalizeText(input.name);
+/** Lender contacts intentionally omit email (safety measure) and phone. */
+function isLenderRole(role: string | undefined): boolean {
+  return normalizeText(role).toLowerCase() === "lender";
+}
+
+/** Whitelists the type-specific detail fields; never trusts arbitrary JSON from the client. */
+function sanitizeDetails(raw: unknown): ClientDetails {
+  const o = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const str = (v: unknown): string | undefined => {
+    const s = typeof v === "string" ? v.trim() : "";
+    return s ? s : undefined;
+  };
+  const details: ClientDetails = {};
+  if (str(o.licenseNumber)) details.licenseNumber = str(o.licenseNumber);
+  if (str(o.brokerageLicense)) details.brokerageLicense = str(o.brokerageLicense);
+  // Logo is a data URL; keep as-is (only when it looks like one) without trimming away content.
+  if (typeof o.logo === "string" && o.logo.startsWith("data:image/")) details.logo = o.logo;
+  const a = o.assistant && typeof o.assistant === "object" && !Array.isArray(o.assistant)
+    ? (o.assistant as Record<string, unknown>)
+    : null;
+  if (a) {
+    const assistant = {
+      firstName: str(a.firstName),
+      lastName: str(a.lastName),
+      preferredName: str(a.preferredName),
+      email: str(a.email),
+    };
+    if (assistant.firstName || assistant.lastName || assistant.preferredName || assistant.email) {
+      details.assistant = assistant;
+    }
+  }
+  return details;
+}
+
+/**
+ * Resolves the name parts from the input. `first`/`last` are the source of truth;
+ * `name` is the combined value kept for display/sort/tokens; `preferred` is required
+ * (validated separately) and used by email templates for greetings.
+ */
+function deriveNames(input: ClientUpsertInput): {
+  name: string;
+  first: string;
+  last: string;
+  preferred: string | null;
+} {
+  const first = normalizeText(input.firstName);
+  const last = normalizeText(input.lastName);
+  const combined = [first, last].filter(Boolean).join(" ") || normalizeText(input.name);
+  const preferred = normalizeText(input.preferredName);
+  return { name: combined, first, last, preferred: preferred || null };
+}
+
+function validateClientInput(input: ClientUpsertInput, resolvedName: string): ServiceError | null {
+  const name = normalizeText(resolvedName);
   const email = normalizeText(input.email);
   if (!name) {
     return { status: 400, code: "CLIENT_NAME_REQUIRED", message: "Client name is required." };
   }
-  if (!email) {
+  if (!normalizeText(input.preferredName)) {
+    return { status: 400, code: "CLIENT_PREFERRED_NAME_REQUIRED", message: "Preferred name is required." };
+  }
+  const lender = isLenderRole(input.role);
+  if (!lender && !email) {
     return { status: 400, code: "CLIENT_EMAIL_REQUIRED", message: "Client email is required." };
   }
-  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-  if (!emailOk) {
-    return { status: 400, code: "CLIENT_EMAIL_INVALID", message: "Enter a valid email address." };
+  if (email) {
+    const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    if (!emailOk) {
+      return { status: 400, code: "CLIENT_EMAIL_INVALID", message: "Enter a valid email address." };
+    }
   }
   if (input.status !== undefined && statusToDb(input.status) == null) {
     return {
@@ -89,6 +165,8 @@ function validateClientInput(input: ClientUpsertInput): ServiceError | null {
 type ClientDbRow = {
   id: string;
   name: string;
+  first_name: string | null;
+  last_name: string | null;
   preferred_name: string | null;
   email: string | null;
   phone: string | null;
@@ -101,6 +179,7 @@ type ClientDbRow = {
   zip: string | null;
   notes: string | null;
   assistant_contact_id: string | null;
+  details: unknown;
   created_at: Date;
   project_count: number | string | null;
 };
@@ -134,6 +213,8 @@ function rowToClient(row: ClientDbRow): ClientApiRow {
   return {
     id: row.id,
     name: row.name,
+    firstName: row.first_name ?? "",
+    lastName: row.last_name ?? "",
     preferredName: row.preferred_name ?? "",
     email: row.email ?? "",
     phone: row.phone ?? "",
@@ -146,6 +227,7 @@ function rowToClient(row: ClientDbRow): ClientApiRow {
     zip: row.zip ?? "",
     notes: row.notes ?? "",
     assistantContactId: row.assistant_contact_id ?? "",
+    details: sanitizeDetails(row.details),
     createdAt,
     projectCount: Number(row.project_count ?? 0),
   };
@@ -203,6 +285,8 @@ export async function listClients(
     `SELECT
        c.id::text,
        c.name,
+       c.first_name,
+       c.last_name,
        c.preferred_name,
        c.email,
        c.phone,
@@ -215,6 +299,7 @@ export async function listClients(
        c.zip,
        c.notes,
        c.assistant_contact_id::text,
+       c.details,
        c.created_at,
        COUNT(p.id)::int AS project_count
      FROM public.contacts c
@@ -238,6 +323,8 @@ export async function getClientById(
     `SELECT
        c.id::text,
        c.name,
+       c.first_name,
+       c.last_name,
        c.preferred_name,
        c.email,
        c.phone,
@@ -250,6 +337,7 @@ export async function getClientById(
        c.zip,
        c.notes,
        c.assistant_contact_id::text,
+       c.details,
        c.created_at,
        COUNT(p.id)::int AS project_count
      FROM public.contacts c
@@ -268,42 +356,49 @@ export async function createClient(
   input: ClientUpsertInput,
   createdByUserId: number | undefined
 ): Promise<{ client: ClientApiRow } | { error: ServiceError }> {
-  const validation = validateClientInput(input);
+  const names = deriveNames(input);
+  const validation = validateClientInput(input, names.name);
   if (validation) return { error: validation };
 
   const assistantErr = await validateAssistantContactId(pool, input.assistantContactId);
   if (assistantErr) return { error: assistantErr };
 
   const emailKey = normalizeText(input.email).toLowerCase();
-  const existingId = await pool.query<{ id: string }>(
-    `SELECT id::text FROM public.contacts
-     WHERE deleted_at IS NULL
-       AND email IS NOT NULL
-       AND lower(btrim(email::text)) = $1
-     LIMIT 1`,
-    [emailKey]
-  );
-  if (existingId.rows[0]?.id) {
-    const existing = await getClientById(pool, existingId.rows[0].id);
-    if (existing) return { client: existing };
+  if (emailKey) {
+    const existingId = await pool.query<{ id: string }>(
+      `SELECT id::text FROM public.contacts
+       WHERE deleted_at IS NULL
+         AND email IS NOT NULL
+         AND lower(btrim(email::text)) = $1
+       LIMIT 1`,
+      [emailKey]
+    );
+    if (existingId.rows[0]?.id) {
+      const existing = await getClientById(pool, existingId.rows[0].id);
+      if (existing) return { client: existing };
+    }
   }
 
   const status = statusToDb(input.status) ?? "active";
   const createdBy = await resolveCreatedByUserId(pool, createdByUserId);
+  const lender = isLenderRole(input.role);
+  const details = sanitizeDetails(input.details);
   const { rows } = await pool.query<{ id: string }>(
     `INSERT INTO public.contacts (
-       name, preferred_name, email, phone, company, agent_role_text, status, notes,
-       primary_address, city, state, zip, assistant_contact_id, created_by_user_id, created_at, updated_at
+       name, first_name, last_name, preferred_name, email, phone, company, agent_role_text, status, notes,
+       primary_address, city, state, zip, assistant_contact_id, details, created_by_user_id, created_at, updated_at
      ) VALUES (
-       $1, $2, $3, $4, $5, $6, $7::public.client_status, $8,
-       $9, $10, $11, $12, $13::bigint, $14, now(), now()
+       $1, $2, $3, $4, $5, $6, $7, $8, $9::public.client_status, $10,
+       $11, $12, $13, $14, $15::bigint, $16::jsonb, $17, now(), now()
      )
      RETURNING id::text`,
     [
-      normalizeText(input.name),
-      normalizeText(input.preferredName) || null,
-      normalizeText(input.email),
-      normalizeText(input.phone),
+      names.name,
+      names.first || null,
+      names.last || null,
+      names.preferred,
+      lender ? "" : normalizeText(input.email),
+      lender ? "" : normalizeText(input.phone),
       normalizeText(input.company),
       normalizeText(input.role),
       status,
@@ -313,6 +408,7 @@ export async function createClient(
       normalizeText(input.state),
       normalizeText(input.zip),
       normalizeText(input.assistantContactId) || null,
+      JSON.stringify(details),
       createdBy,
     ]
   );
@@ -337,13 +433,16 @@ export async function updateClient(
   if (!/^\d+$/.test(id)) {
     return { error: { status: 404, code: "CLIENT_NOT_FOUND", message: "Client not found." } };
   }
-  const validation = validateClientInput(input);
+  const names = deriveNames(input);
+  const validation = validateClientInput(input, names.name);
   if (validation) return { error: validation };
 
   const assistantErr = await validateAssistantContactId(pool, input.assistantContactId, id);
   if (assistantErr) return { error: assistantErr };
 
-  const emailNorm = normalizeText(input.email).toLowerCase();
+  const lender = isLenderRole(input.role);
+  const details = sanitizeDetails(input.details);
+  const emailNorm = lender ? "" : normalizeText(input.email).toLowerCase();
   if (emailNorm) {
     const dup = await pool.query<{ id: string }>(
       `SELECT id::text
@@ -373,26 +472,31 @@ export async function updateClient(
     const res = await pool.query(
       `UPDATE public.contacts
        SET name = $1,
-           preferred_name = $2,
-           email = $3,
-           phone = $4,
-           company = $5,
-           agent_role_text = $6,
-           status = $7::public.client_status,
-           notes = $8,
-           primary_address = $9,
-           city = $10,
-           state = $11,
-           zip = $12,
-           assistant_contact_id = $13::bigint,
+           first_name = $2,
+           last_name = $3,
+           preferred_name = $4,
+           email = $5,
+           phone = $6,
+           company = $7,
+           agent_role_text = $8,
+           status = $9::public.client_status,
+           notes = $10,
+           primary_address = $11,
+           city = $12,
+           state = $13,
+           zip = $14,
+           assistant_contact_id = $15::bigint,
+           details = $16::jsonb,
            updated_at = now()
-       WHERE id = $14::bigint
+       WHERE id = $17::bigint
          AND deleted_at IS NULL`,
       [
-        normalizeText(input.name),
-        normalizeText(input.preferredName) || null,
-        normalizeText(input.email),
-        normalizeText(input.phone),
+        names.name,
+        names.first || null,
+        names.last || null,
+        names.preferred,
+        lender ? "" : normalizeText(input.email),
+        lender ? "" : normalizeText(input.phone),
         normalizeText(input.company),
         normalizeText(input.role),
         status,
@@ -402,6 +506,7 @@ export async function updateClient(
         normalizeText(input.state),
         normalizeText(input.zip),
         normalizeText(input.assistantContactId) || null,
+        JSON.stringify(details),
         id,
       ]
     );

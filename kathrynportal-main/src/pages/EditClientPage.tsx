@@ -3,15 +3,31 @@ import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { getClientFromApi, updateClientApi, type ClientUpsertBody } from "@/api/clients";
-import ClientForm, { type ClientFormValues } from "@/components/clients/ClientForm";
+import ClientForm, {
+  buildClientDetails,
+  detailsToFormValues,
+  emptyClientDetailFields,
+  normalizeClientForm,
+  type ClientFormValues,
+} from "@/components/clients/ClientForm";
+import type { ClientDetails } from "@/types/domain";
 import PageHeader from "@/components/shared/PageHeader";
 import { getApiBaseUrl } from "@/lib/apiConfig";
 import { hasPermission } from "@/lib/permissions";
 import { useAppStore } from "@/store/appStore";
 import { useAuthStore } from "@/store/authStore";
 
+function splitName(fullName: string): { first: string; last: string } {
+  const trimmed = fullName.trim();
+  const spaceIdx = trimmed.indexOf(" ");
+  if (spaceIdx === -1) return { first: trimmed, last: "" };
+  return { first: trimmed.slice(0, spaceIdx), last: trimmed.slice(spaceIdx + 1).trim() };
+}
+
 function toFormValues(client: {
   name: string;
+  firstName?: string;
+  lastName?: string;
   preferredName?: string;
   email: string;
   phone: string;
@@ -24,9 +40,13 @@ function toFormValues(client: {
   zip: string;
   notes: string;
   assistantContactId?: string;
+  details?: ClientDetails;
 }): ClientFormValues {
+  const fallback = splitName(client.name);
   return {
     name: client.name,
+    firstName: client.firstName?.trim() || fallback.first,
+    lastName: client.lastName?.trim() || fallback.last,
     preferredName: client.preferredName ?? "",
     email: client.email,
     phone: client.phone,
@@ -39,6 +59,7 @@ function toFormValues(client: {
     zip: client.zip,
     notes: client.notes,
     assistantContactId: client.assistantContactId ?? "",
+    ...detailsToFormValues(client.details),
   };
 }
 
@@ -56,11 +77,13 @@ export default function EditClientPage() {
       ? toFormValues(storeClient)
       : {
           name: "",
+          firstName: "",
+          lastName: "",
           preferredName: "",
           email: "",
           phone: "",
           company: "",
-          role: "Listing Agent",
+          role: "Agent",
           status: "Active",
           propertyAddress: "",
           city: "",
@@ -68,6 +91,7 @@ export default function EditClientPage() {
           zip: "",
           notes: "",
           assistantContactId: "",
+          ...emptyClientDetailFields,
         }
   );
   const [loading, setLoading] = useState(!storeClient && Boolean(getApiBaseUrl()));
@@ -118,21 +142,27 @@ export default function EditClientPage() {
       navigate(`/clients/${id}`);
       return;
     }
-    if (!form.name.trim() || !form.email.trim()) {
-      toast.error("Name and email are required.");
+    const isLender = form.role.trim().toLowerCase() === "lender";
+    if (!form.firstName.trim() || !form.lastName.trim() || !form.preferredName.trim()) {
+      toast.error("First name, last name, and preferred name are required.");
       return;
     }
+    if (!isLender && !form.email.trim()) {
+      toast.error("Email is required for this contact type.");
+      return;
+    }
+    const normalized = normalizeClientForm(form);
     setIsSubmitting(true);
     try {
       if (getApiBaseUrl()) {
-        const body: ClientUpsertBody = { ...form };
+        const body: ClientUpsertBody = { ...normalized, details: buildClientDetails(normalized) };
         const updated = await updateClientApi(id, body);
         upsertClient(updated);
         toast.success("Contact updated.");
         navigate(`/clients/${updated.id}`);
         return;
       }
-      updateClientLocal(id, form);
+      updateClientLocal(id, { ...normalized, details: buildClientDetails(normalized) });
       toast.success("Contact updated.");
       navigate(`/clients/${id}`);
     } catch (err) {

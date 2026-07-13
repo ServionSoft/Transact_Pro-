@@ -100,6 +100,18 @@ export default function ClientDetailPage() {
     );
   }
 
+  const details = client.details ?? {};
+  const roleKey = client.role.trim().toLowerCase();
+  const isAgent = roleKey === "agent";
+  const isEscrowOfficer = roleKey === "escrow officer";
+  const assistant = details.assistant;
+  const assistantName = assistant
+    ? [assistant.preferredName || assistant.firstName, assistant.lastName].filter(Boolean).join(" ")
+    : "";
+  const hasAssistant = Boolean(
+    assistant && (assistant.firstName || assistant.lastName || assistant.preferredName || assistant.email)
+  );
+
   const clientProjects = projects.filter(
     (p) => p.clientId === client.id && isTransactionProject(p)
   );
@@ -296,38 +308,78 @@ export default function ClientDetailPage() {
         {/* Contact Info Card */}
         <div className="bg-card border border-border rounded-lg p-6">
           <h3 className="font-display font-semibold text-foreground mb-4">Contact Information</h3>
+          {isAgent && details.logo ? (
+            <div className="mb-4">
+              <img
+                src={details.logo}
+                alt={`${client.name} logo`}
+                className="h-16 w-16 rounded-md border border-border object-contain bg-muted"
+              />
+            </div>
+          ) : null}
           <div className="space-y-4">
-            <div className="flex items-center gap-3">
-              <Mail className="w-4 h-4 text-muted-foreground" />
-              <div>
-                <p className="text-xs text-muted-foreground">Email</p>
-                <p className="text-sm text-foreground">{client.email}</p>
+            {client.email ? (
+              <div className="flex items-center gap-3">
+                <Mail className="w-4 h-4 text-muted-foreground" />
+                <div>
+                  <p className="text-xs text-muted-foreground">Email</p>
+                  <p className="text-sm text-foreground">{client.email}</p>
+                </div>
               </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <Phone className="w-4 h-4 text-muted-foreground" />
-              <div>
-                <p className="text-xs text-muted-foreground">Phone</p>
-                <p className="text-sm text-foreground">{client.phone}</p>
+            ) : null}
+            {client.phone ? (
+              <div className="flex items-center gap-3">
+                <Phone className="w-4 h-4 text-muted-foreground" />
+                <div>
+                  <p className="text-xs text-muted-foreground">Phone</p>
+                  <p className="text-sm text-foreground">{client.phone}</p>
+                </div>
               </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <Building className="w-4 h-4 text-muted-foreground" />
-              <div>
-                <p className="text-xs text-muted-foreground">Company</p>
-                <p className="text-sm text-foreground">{client.company}</p>
+            ) : null}
+            {client.company ? (
+              <div className="flex items-center gap-3">
+                <Building className="w-4 h-4 text-muted-foreground" />
+                <div>
+                  <p className="text-xs text-muted-foreground">{isAgent ? "Brokerage" : "Company"}</p>
+                  <p className="text-sm text-foreground">{client.company}</p>
+                </div>
               </div>
-            </div>
+            ) : null}
+            {isAgent && details.licenseNumber ? (
+              <div className="flex items-center gap-3">
+                <Building className="w-4 h-4 text-muted-foreground" />
+                <div>
+                  <p className="text-xs text-muted-foreground">License number</p>
+                  <p className="text-sm text-foreground">{details.licenseNumber}</p>
+                </div>
+              </div>
+            ) : null}
+            {isAgent && details.brokerageLicense ? (
+              <div className="flex items-center gap-3">
+                <Building className="w-4 h-4 text-muted-foreground" />
+                <div>
+                  <p className="text-xs text-muted-foreground">Brokerage license number</p>
+                  <p className="text-sm text-foreground">{details.brokerageLicense}</p>
+                </div>
+              </div>
+            ) : null}
             {client.propertyAddress && (
               <div className="flex items-center gap-3">
                 <MapPin className="w-4 h-4 text-muted-foreground" />
                 <div>
-                  <p className="text-xs text-muted-foreground">Primary Address</p>
+                  <p className="text-xs text-muted-foreground">{isEscrowOfficer ? "Company Address" : "Primary Address"}</p>
                   <p className="text-sm text-foreground">{client.propertyAddress}, {client.city}, {client.state} {client.zip}</p>
                 </div>
               </div>
             )}
           </div>
+          {isEscrowOfficer && hasAssistant ? (
+            <div className="mt-5 pt-4 border-t border-border">
+              <p className="text-xs font-medium text-muted-foreground mb-2">Escrow assistant</p>
+              {assistantName ? <p className="text-sm text-foreground">{assistantName}</p> : null}
+              {assistant?.email ? <p className="text-sm text-muted-foreground">{assistant.email}</p> : null}
+            </div>
+          ) : null}
           <div className="mt-5 pt-4 border-t border-border">
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">Status</span>
@@ -344,7 +396,7 @@ export default function ClientDetailPage() {
         <div className="lg:col-span-2 space-y-6">
           {/* Notes */}
           <div className="bg-card border border-border rounded-lg p-6">
-            <h3 className="font-display font-semibold text-foreground mb-3">Notes</h3>
+            <h3 className="font-display font-semibold text-foreground mb-3">{isAgent ? "Agent notes" : "Notes"}</h3>
             <p className="text-sm text-muted-foreground">{client.notes || "No notes yet."}</p>
           </div>
 

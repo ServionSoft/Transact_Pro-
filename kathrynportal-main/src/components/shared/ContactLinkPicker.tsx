@@ -21,7 +21,12 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import type { Client } from "@/data/mockData";
-import ClientForm, { type ClientFormValues } from "@/components/clients/ClientForm";
+import ClientForm, {
+  buildClientDetails,
+  emptyClientDetailFields,
+  normalizeClientForm,
+  type ClientFormValues,
+} from "@/components/clients/ClientForm";
 import { createClientApi, type ClientUpsertBody } from "@/api/clients";
 import { getApiBaseUrl } from "@/lib/apiConfig";
 import { useAppStore } from "@/store/appStore";
@@ -39,6 +44,8 @@ function displayContactLabel(c: Client): string {
 function emptyCreateForm(defaultRole: string): ClientFormValues {
   return {
     name: "",
+    firstName: "",
+    lastName: "",
     preferredName: "",
     email: "",
     phone: "",
@@ -50,7 +57,9 @@ function emptyCreateForm(defaultRole: string): ClientFormValues {
     state: "CA",
     zip: "",
     notes: "",
-};
+    assistantContactId: "",
+    ...emptyClientDetailFields,
+  };
 }
 
 export type ContactLinkPickerProps = {
@@ -107,13 +116,19 @@ export function ContactLinkPicker({
 
   const submitNewContact = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!createForm.name.trim() || !createForm.email.trim()) {
-      toast.error("Name and email are required.");
+    const isLender = createForm.role.trim().toLowerCase() === "lender";
+    if (!createForm.firstName.trim() || !createForm.lastName.trim() || !createForm.preferredName.trim()) {
+      toast.error("First name, last name, and preferred name are required.");
+      return;
+    }
+    if (!isLender && !createForm.email.trim()) {
+      toast.error("Email is required for this contact type.");
       return;
     }
     setSaving(true);
     try {
-      const body: ClientUpsertBody = { ...createForm };
+      const normalized = normalizeClientForm(createForm);
+      const body: ClientUpsertBody = { ...normalized, details: buildClientDetails(normalized) };
       let created: Client;
       if (apiOn) {
         created = await createClientApi(body);

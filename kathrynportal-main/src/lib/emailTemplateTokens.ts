@@ -114,6 +114,18 @@ export function buildTransactionEmailTokenMap(
     project.metadata && typeof project.metadata === "object" && !Array.isArray(project.metadata)
       ? (project.metadata as Record<string, unknown>)
       : undefined;
+  const propertyMeta =
+    metadata?.property && typeof metadata.property === "object" && !Array.isArray(metadata.property)
+      ? (metadata.property as Record<string, unknown>)
+      : undefined;
+  const metaStr = (key: string): string => {
+    const v = propertyMeta?.[key];
+    return typeof v === "string" ? v.trim() : "";
+  };
+  const propertyStreet = metaStr("address") || parts[0] || "";
+  const propertyCity = metaStr("city") || parts[1] || "";
+  const propertyState = metaStr("state") || parts[2] || "";
+  const propertyZip = metaStr("zip") || parts[3] || "";
   const isBuyer = isBuyerTransaction(project.type);
   const listingAgent = firstListingAgentName(metadata);
   const buyerAgent = firstBuyerAgentName(metadata);
@@ -154,10 +166,10 @@ export function buildTransactionEmailTokenMap(
     buyer_email: buyerEmail,
     buyer_phone: buyerPhone,
     property_address: project.propertyAddress || "",
-    property_street: parts[0] || "",
-    property_city: parts[1] || "",
-    property_state: parts[2] || "",
-    property_zip: parts[3] || "",
+    property_street: propertyStreet,
+    property_city: propertyCity,
+    property_state: propertyState,
+    property_zip: propertyZip,
     transaction_name: project.name || "",
     transaction_type: project.type || "",
     stage_name: project.stage || "",

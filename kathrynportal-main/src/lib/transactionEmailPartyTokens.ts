@@ -16,6 +16,21 @@ export function partyNameFromMetadataRow(row: unknown): string {
   return name || preferred;
 }
 
+/**
+ * First name for greetings. Prefers the explicit `firstName` field, then the
+ * preferred name, then the first token of the combined name.
+ */
+export function partyFirstNameFromMetadataRow(row: unknown): string {
+  const o = asRecord(row);
+  if (!o) return "";
+  const first = typeof o.firstName === "string" ? o.firstName.trim() : "";
+  if (first) return first;
+  const preferred = typeof o.preferredName === "string" ? o.preferredName.trim() : "";
+  if (preferred) return preferred;
+  const name = typeof o.name === "string" ? o.name.trim() : "";
+  return name ? name.split(/\s+/)[0] : "";
+}
+
 function partyFieldFromMetadataRow(row: unknown, field: "email" | "phone"): string {
   const o = asRecord(row);
   if (!o) return "";

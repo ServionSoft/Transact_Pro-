@@ -52,9 +52,23 @@ export interface ReminderDraft {
 
 export type TaskStatus = "Pending" | "In Progress" | "Complete";
 
+export interface ClientDetails {
+  licenseNumber?: string;
+  brokerageLicense?: string;
+  logo?: string;
+  assistant?: {
+    firstName?: string;
+    lastName?: string;
+    preferredName?: string;
+    email?: string;
+  };
+}
+
 export interface Client {
   id: string;
   name: string;
+  firstName?: string;
+  lastName?: string;
   preferredName?: string;
   email: string;
   phone: string;
@@ -67,6 +81,7 @@ export interface Client {
   zip: string;
   notes: string;
   assistantContactId?: string;
+  details?: ClientDetails;
   createdAt: string;
   projectCount: number;
 }

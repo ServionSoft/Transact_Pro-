@@ -1,4 +1,4 @@
-import type { Client, ClientStatus } from "@/data/mockData";
+import type { Client, ClientDetails, ClientStatus } from "@/data/mockData";
 import { getApiBaseUrl } from "@/lib/apiConfig";
 import { ApiRequestError } from "@/api/storedFiles";
 import { authFetch } from "@/lib/authFetch";
@@ -6,6 +6,8 @@ import { authFetch } from "@/lib/authFetch";
 type ClientApiPayload = {
   id: string;
   name: string;
+  firstName?: string;
+  lastName?: string;
   preferredName?: string;
   email: string;
   phone: string;
@@ -18,12 +20,15 @@ type ClientApiPayload = {
   zip: string;
   notes: string;
   assistantContactId?: string;
+  details?: ClientDetails;
   createdAt: string;
   projectCount: number;
 };
 
 export type ClientUpsertBody = {
   name: string;
+  firstName?: string;
+  lastName?: string;
   preferredName?: string;
   email: string;
   phone: string;
@@ -36,6 +41,7 @@ export type ClientUpsertBody = {
   zip: string;
   notes: string;
   assistantContactId?: string;
+  details?: ClientDetails;
 };
 
 function requireBase(): string {
@@ -48,6 +54,8 @@ function mapClient(p: ClientApiPayload): Client {
   return {
     id: p.id,
     name: p.name,
+    firstName: p.firstName ?? "",
+    lastName: p.lastName ?? "",
     preferredName: p.preferredName ?? "",
     email: p.email,
     phone: p.phone,
@@ -60,6 +68,7 @@ function mapClient(p: ClientApiPayload): Client {
     zip: p.zip,
     notes: p.notes,
     assistantContactId: p.assistantContactId ?? "",
+    details: p.details ?? {},
     createdAt: p.createdAt,
     projectCount: p.projectCount,
   };

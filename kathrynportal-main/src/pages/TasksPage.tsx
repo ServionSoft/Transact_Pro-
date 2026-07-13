@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ListTodo, Search } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { ListTodo, Plus, Search } from "lucide-react";
 import { useAppStore } from "@/store/appStore";
+import { useAuthStore } from "@/store/authStore";
+import { hasPermission } from "@/lib/permissions";
 import { isTransactionProject, type Project } from "@/data/mockData";
 import { getProjectFromApi, listProjectsFromApi, type ProjectListItem } from "@/api/projects";
 import { getApiBaseUrl } from "@/lib/apiConfig";
@@ -77,6 +80,7 @@ function compareNextStepRows(a: NextStepTableRow, b: NextStepTableRow): number {
 }
 
 export default function TasksPage() {
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [filterStage, setFilterStage] = useState<string>("All");
   const [loading, setLoading] = useState(() => Boolean(getApiBaseUrl()));
@@ -85,7 +89,9 @@ export default function TasksPage() {
   const storeProjects = useAppStore((s) => s.projects);
   const clients = useAppStore((s) => s.clients);
   const upsertProject = useAppStore((s) => s.upsertProject);
+  const user = useAuthStore((s) => s.user);
   const apiOn = Boolean(getApiBaseUrl());
+  const canCreate = !apiOn || hasPermission(user, "projects.create");
 
   const refresh = useCallback(async () => {
     if (!apiOn) return;
@@ -166,6 +172,13 @@ export default function TasksPage() {
             loading
               ? "Loading next steps…"
               : `${filtered.length} transaction${filtered.length === 1 ? "" : "s"} with next steps`
+          }
+          actions={
+            canCreate ? (
+              <Button onClick={() => navigate("/projects/new")} className="gap-2">
+                <Plus className="h-4 w-4" /> New transaction
+              </Button>
+            ) : undefined
           }
         />
       </div>

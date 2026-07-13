@@ -17,6 +17,8 @@ function parseClientBody(body: unknown): ClientUpsertInput | null {
   const b = body as Record<string, unknown>;
   return {
     name: typeof b.name === "string" ? b.name : "",
+    firstName: typeof b.firstName === "string" ? b.firstName : "",
+    lastName: typeof b.lastName === "string" ? b.lastName : "",
     preferredName: typeof b.preferredName === "string" ? b.preferredName : "",
     email: typeof b.email === "string" ? b.email : "",
     phone: typeof b.phone === "string" ? b.phone : "",
@@ -29,6 +31,10 @@ function parseClientBody(body: unknown): ClientUpsertInput | null {
     zip: typeof b.zip === "string" ? b.zip : "",
     notes: typeof b.notes === "string" ? b.notes : "",
     assistantContactId: typeof b.assistantContactId === "string" ? b.assistantContactId : "",
+    details:
+      b.details != null && typeof b.details === "object" && !Array.isArray(b.details)
+        ? (b.details as ClientUpsertInput["details"])
+        : undefined,
   };
 }
 

@@ -35,7 +35,10 @@
     "db:seed:root-emails:local": "tsx scripts/seedRootEmails.ts --local",
     "db:seed:root-emails:render": "tsx scripts/seedRootEmails.ts --render",
     "db:export-document-rules-csv": "python scripts/export_checklist_from_excel.py",
-    "db:seed:admin-user": "tsx scripts/seedAdminUser.ts"
+    "db:seed:admin-user": "tsx scripts/seedAdminUser.ts",
+    "db:remap:contact-roles": "tsx scripts/remapContactRoles.ts --all",
+    "db:remap:contact-roles:local": "tsx scripts/remapContactRoles.ts --local",
+    "db:remap:contact-roles:render": "tsx scripts/remapContactRoles.ts --render"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",

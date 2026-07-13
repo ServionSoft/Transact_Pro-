@@ -259,38 +259,82 @@ async function loadVaultEsignByOriginalFileIdMap(): Promise<Map<string, string>>
 interface AgentParty {
   contactId?: string;
   name: string;
+  firstName: string; lastName: string;
   preferredName: string;
   email: string; phone: string;
   licenseNumber: string; brokerage: string; brokerageLicense: string;
   notes: string;
 }
-interface SimpleParty { contactId?: string; name: string; preferredName: string; email: string; }
+interface SimpleParty {
+  contactId?: string;
+  name: string;
+  firstName: string; lastName: string;
+  preferredName: string; email: string; phone: string;
+}
 interface EscrowParty {
   contactId?: string;
   name: string;
+  firstName: string; lastName: string;
   preferredName: string;
   email: string; phone: string; company: string;
-  address: string; cityStateZip: string;
+  address: string; city: string; state: string; zip: string;
 }
 interface PersonParty {
   contactId?: string;
   name: string;
+  firstName: string; lastName: string;
   preferredName: string;
-  email: string; salutation: string;
+  email: string; phone: string; salutation: string;
   entityType: string; entityName: string; title: string;
 }
 
 const blankAgent = (): AgentParty => ({
-  name: "", preferredName: "", email: "", phone: "", licenseNumber: "",
+  name: "", firstName: "", lastName: "", preferredName: "", email: "", phone: "", licenseNumber: "",
   brokerage: "", brokerageLicense: "", notes: "",
 });
-const blankSimple = (): SimpleParty => ({ name: "", preferredName: "", email: "" });
+const blankSimple = (): SimpleParty => ({
+  name: "", firstName: "", lastName: "", preferredName: "", email: "", phone: "",
+});
 const blankEscrow = (): EscrowParty => ({
-  name: "", preferredName: "", email: "", phone: "", company: "", address: "", cityStateZip: "",
+  name: "", firstName: "", lastName: "", preferredName: "", email: "", phone: "", company: "",
+  address: "", city: "", state: "", zip: "",
 });
 const blankPerson = (): PersonParty => ({
-  name: "", preferredName: "", email: "", salutation: "", entityType: "", entityName: "", title: "",
+  name: "", firstName: "", lastName: "", preferredName: "", email: "", phone: "", salutation: "",
+  entityType: "", entityName: "", title: "",
 });
+
+interface LenderParty {
+  contactId?: string;
+  name: string;
+  firstName: string; lastName: string;
+  preferredName: string; company: string;
+}
+const blankLender = (): LenderParty => ({
+  name: "", firstName: "", lastName: "", preferredName: "", company: "",
+});
+
+/** Combines first/last into a single display name. */
+function combinePartyName(first: string, last: string): string {
+  return [first.trim(), last.trim()].filter(Boolean).join(" ");
+}
+
+/** Best-effort split of a combined name into first (first token) and last (remainder). */
+function splitPartyName(fullName: string): { first: string; last: string } {
+  const trimmed = fullName.trim();
+  const idx = trimmed.indexOf(" ");
+  if (idx === -1) return { first: trimmed, last: "" };
+  return { first: trimmed.slice(0, idx), last: trimmed.slice(idx + 1).trim() };
+}
+
+/** Resolves first/last for a linked contact, falling back to splitting the combined name. */
+function contactNameParts(c: Client): { first: string; last: string; name: string } {
+  const first = (c.firstName ?? "").trim();
+  const last = (c.lastName ?? "").trim();
+  if (first || last) return { first, last, name: combinePartyName(first, last) || c.name };
+  const split = splitPartyName(c.name);
+  return { first: split.first, last: split.last, name: c.name };
+}
 
 function labelFromClient(c: Client): string {
   return (c.preferredName?.trim()) || c.name;
@@ -301,11 +345,15 @@ function isSimplePartyEmpty(p: SimpleParty): boolean {
 }
 
 function simplePartyFromClient(c: Client): SimpleParty {
+  const parts = contactNameParts(c);
   return {
     contactId: c.id,
-    name: c.name,
+    name: parts.name,
+    firstName: parts.first,
+    lastName: parts.last,
     preferredName: (c.preferredName ?? "").trim(),
     email: c.email,
+    phone: c.phone ?? "",
   };
 }
 
@@ -314,8 +362,24 @@ function applyEscrowAssistantFromOfficer(
   options: Client[],
   current: SimpleParty,
 ): SimpleParty | null {
-  if (!officer?.assistantContactId?.trim()) return null;
+  if (!officer) return null;
   if (!isSimplePartyEmpty(current)) return null;
+  // Prefer the inline assistant stored on the officer's contact record.
+  const inline = officer.details?.assistant;
+  if (inline && (inline.firstName || inline.lastName || inline.preferredName || inline.email)) {
+    const first = (inline.firstName ?? "").trim();
+    const last = (inline.lastName ?? "").trim();
+    return {
+      ...blankSimple(),
+      name: combinePartyName(first, last),
+      firstName: first,
+      lastName: last,
+      preferredName: (inline.preferredName ?? "").trim(),
+      email: (inline.email ?? "").trim(),
+    };
+  }
+  // Fall back to the legacy linked assistant contact.
+  if (!officer.assistantContactId?.trim()) return null;
   const assistant = options.find((x) => x.id === officer.assistantContactId);
   if (!assistant) return null;
   return simplePartyFromClient(assistant);
@@ -325,14 +389,19 @@ function applyAgentContact(prev: AgentParty, id: string, options: Client[]): Age
   if (!id) return { ...prev, contactId: undefined };
   const c = options.find((x) => x.id === id);
   if (!c) return { ...prev, contactId: id };
+  const parts = contactNameParts(c);
   return {
     ...prev,
     contactId: id,
-    name: c.name,
+    name: parts.name,
+    firstName: parts.first,
+    lastName: parts.last,
     preferredName: (c.preferredName ?? "").trim(),
     email: c.email || prev.email,
     phone: c.phone || prev.phone,
+    licenseNumber: c.details?.licenseNumber || prev.licenseNumber,
     brokerage: c.company || prev.brokerage,
+    brokerageLicense: c.details?.brokerageLicense || prev.brokerageLicense,
   };
 }
 
@@ -340,12 +409,16 @@ function applySimpleContact(prev: SimpleParty, id: string, options: Client[]): S
   if (!id) return { ...prev, contactId: undefined };
   const c = options.find((x) => x.id === id);
   if (!c) return { ...prev, contactId: id };
+  const parts = contactNameParts(c);
   return {
     ...prev,
     contactId: id,
-    name: c.name,
+    name: parts.name,
+    firstName: parts.first,
+    lastName: parts.last,
     preferredName: (c.preferredName ?? "").trim(),
     email: c.email || prev.email,
+    phone: c.phone || prev.phone,
   };
 }
 
@@ -353,17 +426,21 @@ function applyEscrowContact(prev: EscrowParty, id: string, options: Client[]): E
   if (!id) return { ...prev, contactId: undefined };
   const c = options.find((x) => x.id === id);
   if (!c) return { ...prev, contactId: id };
-  const cityLine = [c.city, c.state, c.zip].filter(Boolean).join(" ");
+  const parts = contactNameParts(c);
   return {
     ...prev,
     contactId: id,
-    name: c.name,
+    name: parts.name,
+    firstName: parts.first,
+    lastName: parts.last,
     preferredName: (c.preferredName ?? "").trim(),
     email: c.email || prev.email,
     phone: c.phone || prev.phone,
     company: c.company || prev.company,
     address: c.propertyAddress || prev.address,
-    cityStateZip: cityLine || prev.cityStateZip,
+    city: c.city || prev.city,
+    state: c.state || prev.state,
+    zip: c.zip || prev.zip,
   };
 }
 
@@ -371,27 +448,73 @@ function applyPersonContact(prev: PersonParty, id: string, options: Client[]): P
   if (!id) return { ...prev, contactId: undefined };
   const c = options.find((x) => x.id === id);
   if (!c) return { ...prev, contactId: id };
+  const parts = contactNameParts(c);
   return {
     ...prev,
     contactId: id,
-    name: c.name,
+    name: parts.name,
+    firstName: parts.first,
+    lastName: parts.last,
     preferredName: (c.preferredName ?? "").trim(),
     email: c.email || prev.email,
+    phone: c.phone || prev.phone,
   };
 }
 
+function asPartyRecord(raw: unknown): Record<string, unknown> {
+  return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+}
+
+/** Backfills first/last from a combined name when a saved row predates the split. */
+function fixNameParts<T extends { name: string; firstName: string; lastName: string }>(p: T): T {
+  const name = (p.name ?? "").trim();
+  const first = (p.firstName ?? "").trim();
+  const last = (p.lastName ?? "").trim();
+  if (!first && !last && name) {
+    const s = splitPartyName(name);
+    return { ...p, name, firstName: s.first, lastName: s.last };
+  }
+  return { ...p, name: name || combinePartyName(first, last), firstName: first, lastName: last };
+}
+
+function hydrateAgent(raw: unknown): AgentParty {
+  return fixNameParts({ ...blankAgent(), ...asPartyRecord(raw) } as AgentParty);
+}
+function hydrateSimple(raw: unknown): SimpleParty {
+  return fixNameParts({ ...blankSimple(), ...asPartyRecord(raw) } as SimpleParty);
+}
+function hydratePerson(raw: unknown): PersonParty {
+  return fixNameParts({ ...blankPerson(), ...asPartyRecord(raw) } as PersonParty);
+}
+function hydrateLender(raw: unknown): LenderParty {
+  return fixNameParts({ ...blankLender(), ...asPartyRecord(raw) } as LenderParty);
+}
+function hydrateEscrow(raw: unknown): EscrowParty {
+  const o = asPartyRecord(raw);
+  const escrow = fixNameParts({ ...blankEscrow(), ...o } as EscrowParty);
+  // Migrate the old combined "City, State, Zip" field when the split ones are empty.
+  const legacy = typeof o.cityStateZip === "string" ? o.cityStateZip.trim() : "";
+  if (legacy && !escrow.city && !escrow.state && !escrow.zip) {
+    return { ...escrow, city: legacy };
+  }
+  return escrow;
+}
+
 function applyLenderContact(
-  prev: { contactId?: string; name: string; preferredName: string; company: string },
+  prev: LenderParty,
   id: string,
   options: Client[]
-): { contactId?: string; name: string; preferredName: string; company: string } {
+): LenderParty {
   if (!id) return { ...prev, contactId: undefined };
   const c = options.find((x) => x.id === id);
   if (!c) return { ...prev, contactId: id };
+  const parts = contactNameParts(c);
   return {
     ...prev,
     contactId: id,
-    name: c.name,
+    name: parts.name,
+    firstName: parts.first,
+    lastName: parts.last,
     preferredName: (c.preferredName ?? "").trim(),
     company: c.company || prev.company,
   };
@@ -464,9 +587,10 @@ export default function AddProjectPage() {
   const [additionalListingAgent, setAdditionalListingAgent] = useState(false);
   const [listingAgent3, setListingAgent3] = useState<AgentParty>(blankAgent());
   const [listingAgentTC, setListingAgentTC] = useState<SimpleParty>(blankSimple());
+  const [listingAgentAssistant, setListingAgentAssistant] = useState<SimpleParty>(blankSimple());
   const [escrow, setEscrow] = useState<EscrowParty>(blankEscrow());
   const [escrowAssistant, setEscrowAssistant] = useState<SimpleParty>(blankSimple());
-  const [lender, setLender] = useState<{ contactId?: string; name: string; preferredName: string; company: string }>({ name: "", preferredName: "", company: "" });
+  const [lender, setLender] = useState<LenderParty>(blankLender());
   const [sellers, setSellers] = useState<PersonParty[]>([blankPerson()]);
   const [buyers, setBuyers] = useState<PersonParty[]>([blankPerson()]);
 
@@ -800,23 +924,24 @@ export default function AddProjectPage() {
         setSprp((md.sprp as typeof sprp) ?? { intoContract: "", coe: "" });
       }
       if (md.buyerAgents && Array.isArray(md.buyerAgents) && md.buyerAgents.length > 0) {
-        setBuyerAgents(md.buyerAgents as typeof buyerAgents);
+        setBuyerAgents(md.buyerAgents.map(hydrateAgent));
       }
       if (md.listingAgents && Array.isArray(md.listingAgents) && md.listingAgents.length > 0) {
-        setListingAgents(md.listingAgents as typeof listingAgents);
+        setListingAgents(md.listingAgents.map(hydrateAgent));
       }
       if (md.additionalBuyerAgent && typeof md.additionalBuyerAgent === "boolean") setAdditionalBuyerAgent(md.additionalBuyerAgent);
       if (md.additionalListingAgent && typeof md.additionalListingAgent === "boolean") setAdditionalListingAgent(md.additionalListingAgent);
-      if (md.buyerAgent3 && typeof md.buyerAgent3 === "object") setBuyerAgent3(md.buyerAgent3 as typeof buyerAgent3);
-      if (md.listingAgent3 && typeof md.listingAgent3 === "object") setListingAgent3(md.listingAgent3 as typeof listingAgent3);
-      if (md.buyerAgentTC && typeof md.buyerAgentTC === "object") setBuyerAgentTC(md.buyerAgentTC as typeof buyerAgentTC);
-      if (md.buyerAgentAssistant && typeof md.buyerAgentAssistant === "object") setBuyerAgentAssistant(md.buyerAgentAssistant as typeof buyerAgentAssistant);
-      if (md.listingAgentTC && typeof md.listingAgentTC === "object") setListingAgentTC(md.listingAgentTC as typeof listingAgentTC);
-      if (md.escrow && typeof md.escrow === "object") setEscrow(md.escrow as typeof escrow);
-      if (md.escrowAssistant && typeof md.escrowAssistant === "object") setEscrowAssistant(md.escrowAssistant as typeof escrowAssistant);
-      if (md.lender && typeof md.lender === "object") setLender(md.lender as typeof lender);
-      if (md.sellers && Array.isArray(md.sellers) && md.sellers.length > 0) setSellers(md.sellers as typeof sellers);
-      if (md.buyers && Array.isArray(md.buyers) && md.buyers.length > 0) setBuyers(md.buyers as typeof buyers);
+      if (md.buyerAgent3 && typeof md.buyerAgent3 === "object") setBuyerAgent3(hydrateAgent(md.buyerAgent3));
+      if (md.listingAgent3 && typeof md.listingAgent3 === "object") setListingAgent3(hydrateAgent(md.listingAgent3));
+      if (md.buyerAgentTC && typeof md.buyerAgentTC === "object") setBuyerAgentTC(hydrateSimple(md.buyerAgentTC));
+      if (md.buyerAgentAssistant && typeof md.buyerAgentAssistant === "object") setBuyerAgentAssistant(hydrateSimple(md.buyerAgentAssistant));
+      if (md.listingAgentTC && typeof md.listingAgentTC === "object") setListingAgentTC(hydrateSimple(md.listingAgentTC));
+      if (md.listingAgentAssistant && typeof md.listingAgentAssistant === "object") setListingAgentAssistant(hydrateSimple(md.listingAgentAssistant));
+      if (md.escrow && typeof md.escrow === "object") setEscrow(hydrateEscrow(md.escrow));
+      if (md.escrowAssistant && typeof md.escrowAssistant === "object") setEscrowAssistant(hydrateSimple(md.escrowAssistant));
+      if (md.lender && typeof md.lender === "object") setLender(hydrateLender(md.lender));
+      if (md.sellers && Array.isArray(md.sellers) && md.sellers.length > 0) setSellers(md.sellers.map(hydratePerson));
+      if (md.buyers && Array.isArray(md.buyers) && md.buyers.length > 0) setBuyers(md.buyers.map(hydratePerson));
       if (md.listing && typeof md.listing === "object") setListing((prev) => ({ ...prev, ...(md.listing as typeof prev) }));
       if (md.transaction && typeof md.transaction === "object") setTransaction((prev) => ({ ...prev, ...(md.transaction as typeof prev) }));
       if (md.property && typeof md.property === "object") setProperty((prev) => ({ ...prev, ...(md.property as typeof prev) }));
@@ -995,6 +1120,7 @@ export default function AddProjectPage() {
       additionalListingAgent,
       listingAgent3,
       listingAgentTC,
+      listingAgentAssistant,
       escrow,
       escrowAssistant,
       lender,
@@ -1246,6 +1372,12 @@ export default function AddProjectPage() {
                   aria-invalid={showFieldError("address")}
                 />
               </Field>
+              <div className="md:col-span-2 grid grid-cols-2 md:grid-cols-4 gap-3">
+                <Field label="City"><Input value={property.city} onChange={e => setProperty(p => ({ ...p, city: e.target.value }))} /></Field>
+                <Field label="State"><Input value={property.state} onChange={e => setProperty(p => ({ ...p, state: e.target.value }))} /></Field>
+                <Field label="ZIP"><Input value={property.zip} onChange={e => setProperty(p => ({ ...p, zip: sanitizeDigits(e.target.value) }))} /></Field>
+                <Field label="County"><Input value={property.county} onChange={e => setProperty(p => ({ ...p, county: e.target.value }))} /></Field>
+              </div>
               <Field label="Next Step *" invalid={showFieldError("next-step")} suggested={showFieldSuggested("next-step")}>
                 <Input
                   value={nextStep}
@@ -1432,10 +1564,6 @@ export default function AddProjectPage() {
                   </SelectContent>
                 </Select>
               </Field>
-              <Field label="City" className="xl:col-span-1"><Input value={property.city} onChange={e => setProperty(p => ({ ...p, city: e.target.value }))} /></Field>
-              <Field label="State" className="xl:col-span-1"><Input value={property.state} onChange={e => setProperty(p => ({ ...p, state: e.target.value }))} /></Field>
-              <Field label="ZIP" className="xl:col-span-1"><Input value={property.zip} onChange={e => setProperty(p => ({ ...p, zip: sanitizeDigits(e.target.value) }))} /></Field>
-              <Field label="County" className="xl:col-span-1"><Input value={property.county} onChange={e => setProperty(p => ({ ...p, county: e.target.value }))} /></Field>
               <Field label="Year Built" className="xl:col-span-1"><Input value={property.yearBuilt} onChange={e => setProperty(p => ({ ...p, yearBuilt: sanitizeDigits(e.target.value) }))} /></Field>
               <Field label="Lot Size" className="xl:col-span-1"><Input value={property.lotSize} onChange={e => setProperty(p => ({ ...p, lotSize: sanitizeDecimal(e.target.value) }))} /></Field>
               <Field label="Square Feet (home)" className="xl:col-span-1"><Input value={property.squareFeet} onChange={e => setProperty(p => ({ ...p, squareFeet: sanitizeDigits(e.target.value) }))} /></Field>
@@ -1710,7 +1838,7 @@ export default function AddProjectPage() {
                 <Label className="text-xs text-muted-foreground">Saved contact</Label>
                 <ContactLinkPicker
                   variant="party"
-                  defaultCreateRole="Buyer's Agent"
+                  defaultCreateRole="Agent"
                   partyPlaceholder="Link buyer's agent…"
                   value={buyerAgents[0]?.contactId ?? ""}
                   options={clientOptions}
@@ -1750,7 +1878,7 @@ export default function AddProjectPage() {
                   <Label className="text-xs text-muted-foreground">Saved contact</Label>
                   <ContactLinkPicker
                     variant="party"
-                    defaultCreateRole="Buyer's Agent"
+                    defaultCreateRole="Agent"
                     partyPlaceholder="Link buyer's agent 2…"
                     value={buyerAgents[1]?.contactId ?? ""}
                     options={clientOptions}
@@ -1791,7 +1919,7 @@ export default function AddProjectPage() {
                   <Label className="text-xs text-muted-foreground">Saved contact</Label>
                   <ContactLinkPicker
                     variant="party"
-                    defaultCreateRole="Buyer's Agent"
+                    defaultCreateRole="Agent"
                     partyPlaceholder="Link additional buyer's agent…"
                     value={buyerAgent3.contactId ?? ""}
                     options={clientOptions}
@@ -1810,7 +1938,7 @@ export default function AddProjectPage() {
                   <Label className="text-xs text-muted-foreground">Saved contact</Label>
                   <ContactLinkPicker
                     variant="party"
-                    defaultCreateRole="Buyer's Agent's TC"
+                    defaultCreateRole="TC"
                     partyPlaceholder="Link TC contact…"
                     value={buyerAgentTC.contactId ?? ""}
                     options={clientOptions}
@@ -1820,14 +1948,14 @@ export default function AddProjectPage() {
                     }}
                   />
                 </div>
-                <SimpleForm value={buyerAgentTC} onChange={setBuyerAgentTC} />
+                <SimpleForm value={buyerAgentTC} onChange={setBuyerAgentTC} showPhone />
               </PartyGroup>
               <PartyGroup title="Buyer's Agent's Assistant/Team Member">
                 <div className="mb-3">
                   <Label className="text-xs text-muted-foreground">Saved contact</Label>
                   <ContactLinkPicker
                     variant="party"
-                    defaultCreateRole="Buyer's Agent's Assistant/Team Member"
+                    defaultCreateRole="Buyer's Agent Team Member/Assistant"
                     partyPlaceholder="Link assistant contact…"
                     value={buyerAgentAssistant.contactId ?? ""}
                     options={clientOptions}
@@ -1837,7 +1965,7 @@ export default function AddProjectPage() {
                     }}
                   />
                 </div>
-                <SimpleForm value={buyerAgentAssistant} onChange={setBuyerAgentAssistant} />
+                <SimpleForm value={buyerAgentAssistant} onChange={setBuyerAgentAssistant} showPhone />
               </PartyGroup>
             </div>
             </div>
@@ -1849,7 +1977,7 @@ export default function AddProjectPage() {
                 <Label className="text-xs text-muted-foreground">Saved contact</Label>
                 <ContactLinkPicker
                   variant="party"
-                  defaultCreateRole="Listing Agent"
+                  defaultCreateRole="Agent"
                   partyPlaceholder="Link listing agent…"
                   value={listingAgents[0]?.contactId ?? ""}
                   options={clientOptions}
@@ -1877,7 +2005,7 @@ export default function AddProjectPage() {
                   <Label className="text-xs text-muted-foreground">Saved contact</Label>
                   <ContactLinkPicker
                     variant="party"
-                    defaultCreateRole="Listing Agent"
+                    defaultCreateRole="Agent"
                     partyPlaceholder="Link listing agent 2…"
                     value={listingAgents[1]?.contactId ?? ""}
                     options={clientOptions}
@@ -1918,7 +2046,7 @@ export default function AddProjectPage() {
                   <Label className="text-xs text-muted-foreground">Saved contact</Label>
                   <ContactLinkPicker
                     variant="party"
-                    defaultCreateRole="Listing Agent"
+                    defaultCreateRole="Agent"
                     partyPlaceholder="Link additional listing agent…"
                     value={listingAgent3.contactId ?? ""}
                     options={clientOptions}
@@ -1931,23 +2059,42 @@ export default function AddProjectPage() {
                 <AgentForm value={listingAgent3} onChange={setListingAgent3} />
               </PartyGroup>
             )}
-            <PartyGroup title="Listing Agent's TC">
-              <div className="mb-3">
-                <Label className="text-xs text-muted-foreground">Saved contact</Label>
-                <ContactLinkPicker
-                  variant="party"
-                  defaultCreateRole="Listing Agent's TC"
-                  partyPlaceholder="Link listing TC contact…"
-                  value={listingAgentTC.contactId ?? ""}
-                  options={clientOptions}
-                  onValueChange={(cid) => {
-                    const opts = mergePartyClientOptions();
-                    setListingAgentTC((prev) => applySimpleContact(prev, cid, opts));
-                  }}
-                />
-              </div>
-              <SimpleForm value={listingAgentTC} onChange={setListingAgentTC} />
-            </PartyGroup>
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              <PartyGroup title="Listing Agent's TC">
+                <div className="mb-3">
+                  <Label className="text-xs text-muted-foreground">Saved contact</Label>
+                  <ContactLinkPicker
+                    variant="party"
+                    defaultCreateRole="TC"
+                    partyPlaceholder="Link listing TC contact…"
+                    value={listingAgentTC.contactId ?? ""}
+                    options={clientOptions}
+                    onValueChange={(cid) => {
+                      const opts = mergePartyClientOptions();
+                      setListingAgentTC((prev) => applySimpleContact(prev, cid, opts));
+                    }}
+                  />
+                </div>
+                <SimpleForm value={listingAgentTC} onChange={setListingAgentTC} showPhone />
+              </PartyGroup>
+              <PartyGroup title="Listing Agent's Assistant/Team Member">
+                <div className="mb-3">
+                  <Label className="text-xs text-muted-foreground">Saved contact</Label>
+                  <ContactLinkPicker
+                    variant="party"
+                    defaultCreateRole="Listing Agent Team Member/Assistant"
+                    partyPlaceholder="Link assistant contact…"
+                    value={listingAgentAssistant.contactId ?? ""}
+                    options={clientOptions}
+                    onValueChange={(cid) => {
+                      const opts = mergePartyClientOptions();
+                      setListingAgentAssistant((prev) => applySimpleContact(prev, cid, opts));
+                    }}
+                  />
+                </div>
+                <SimpleForm value={listingAgentAssistant} onChange={setListingAgentAssistant} showPhone />
+              </PartyGroup>
+            </div>
 
             {/* Sellers */}
             <PartyGroup
@@ -2016,15 +2163,30 @@ export default function AddProjectPage() {
                 />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <Field label="Name"><Input value={escrow.name} onChange={e => setEscrow({ ...escrow, name: e.target.value })} /></Field>
+                <Field label="First Name">
+                  <Input
+                    value={escrow.firstName}
+                    onChange={e => setEscrow({ ...escrow, firstName: e.target.value, name: combinePartyName(e.target.value, escrow.lastName) })}
+                  />
+                </Field>
+                <Field label="Last Name">
+                  <Input
+                    value={escrow.lastName}
+                    onChange={e => setEscrow({ ...escrow, lastName: e.target.value, name: combinePartyName(escrow.firstName, e.target.value) })}
+                  />
+                </Field>
                 <Field label="Preferred Name" hint="Optional. Shown in emails and Overview when different from legal name.">
                   <Input value={escrow.preferredName} onChange={e => setEscrow({ ...escrow, preferredName: e.target.value })} />
                 </Field>
                 <Field label="Email"><Input type="email" value={escrow.email} onChange={e => setEscrow({ ...escrow, email: e.target.value })} /></Field>
                 <Field label="Phone"><Input value={escrow.phone} onChange={e => setEscrow({ ...escrow, phone: sanitizeDigits(e.target.value) })} /></Field>
-                <Field label="Company"><Input value={escrow.company} onChange={e => setEscrow({ ...escrow, company: e.target.value })} /></Field>
-                <Field label="Address" className="md:col-span-2"><Input value={escrow.address} onChange={e => setEscrow({ ...escrow, address: e.target.value })} /></Field>
-                <Field label="City, State, Zip" className="md:col-span-2"><Input value={escrow.cityStateZip} onChange={e => setEscrow({ ...escrow, cityStateZip: e.target.value })} /></Field>
+                <Field label="Company Name"><Input value={escrow.company} onChange={e => setEscrow({ ...escrow, company: e.target.value })} /></Field>
+                <Field label="Company Street Address" className="md:col-span-2"><Input value={escrow.address} onChange={e => setEscrow({ ...escrow, address: e.target.value })} /></Field>
+                <Field label="City"><Input value={escrow.city} onChange={e => setEscrow({ ...escrow, city: e.target.value })} /></Field>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="State"><Input value={escrow.state} onChange={e => setEscrow({ ...escrow, state: e.target.value })} /></Field>
+                  <Field label="Zip"><Input value={escrow.zip} onChange={e => setEscrow({ ...escrow, zip: e.target.value })} /></Field>
+                </div>
               </div>
             </PartyGroup>
             <PartyGroup title="Escrow Assistant/Team Member">
@@ -2032,7 +2194,7 @@ export default function AddProjectPage() {
                 <Label className="text-xs text-muted-foreground">Saved contact</Label>
                 <ContactLinkPicker
                   variant="party"
-                  defaultCreateRole="Escrow Assistant/Team Member"
+                  defaultCreateRole="Other"
                   partyPlaceholder="Link escrow assistant…"
                   value={escrowAssistant.contactId ?? ""}
                   options={clientOptions}
@@ -2064,7 +2226,18 @@ export default function AddProjectPage() {
                 />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <Field label="Name"><Input value={lender.name} onChange={e => setLender({ ...lender, name: e.target.value })} /></Field>
+                <Field label="First Name">
+                  <Input
+                    value={lender.firstName}
+                    onChange={e => setLender({ ...lender, firstName: e.target.value, name: combinePartyName(e.target.value, lender.lastName) })}
+                  />
+                </Field>
+                <Field label="Last Name">
+                  <Input
+                    value={lender.lastName}
+                    onChange={e => setLender({ ...lender, lastName: e.target.value, name: combinePartyName(lender.firstName, e.target.value) })}
+                  />
+                </Field>
                 <Field label="Preferred Name" hint="Optional. Shown in Overview when different from legal name.">
                   <Input value={lender.preferredName} onChange={e => setLender({ ...lender, preferredName: e.target.value })} />
                 </Field>
@@ -2576,9 +2749,12 @@ function ReviewItem({
 
 function AgentForm({ value, onChange }: { value: AgentParty; onChange: (v: AgentParty) => void }) {
   const set = (k: keyof AgentParty, v: string) => onChange({ ...value, [k]: v });
+  const setFirst = (v: string) => onChange({ ...value, firstName: v, name: combinePartyName(v, value.lastName) });
+  const setLast = (v: string) => onChange({ ...value, lastName: v, name: combinePartyName(value.firstName, v) });
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-      <Field label="Name"><Input value={value.name} onChange={e => set("name", e.target.value)} /></Field>
+      <Field label="First Name"><Input value={value.firstName} onChange={e => setFirst(e.target.value)} /></Field>
+      <Field label="Last Name"><Input value={value.lastName} onChange={e => setLast(e.target.value)} /></Field>
       <Field label="Preferred Name" hint="Optional. Shown in emails and Overview when different from legal name.">
         <Input value={value.preferredName} onChange={e => set("preferredName", e.target.value)} />
       </Field>
@@ -2594,27 +2770,45 @@ function AgentForm({ value, onChange }: { value: AgentParty; onChange: (v: Agent
   );
 }
 
-function SimpleForm({ value, onChange }: { value: SimpleParty; onChange: (v: SimpleParty) => void }) {
+function SimpleForm({
+  value,
+  onChange,
+  showPhone = false,
+}: {
+  value: SimpleParty;
+  onChange: (v: SimpleParty) => void;
+  showPhone?: boolean;
+}) {
+  const setFirst = (v: string) => onChange({ ...value, firstName: v, name: combinePartyName(v, value.lastName) });
+  const setLast = (v: string) => onChange({ ...value, lastName: v, name: combinePartyName(value.firstName, v) });
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-      <Field label="Name"><Input value={value.name} onChange={e => onChange({ ...value, name: e.target.value })} /></Field>
+      <Field label="First Name"><Input value={value.firstName} onChange={e => setFirst(e.target.value)} /></Field>
+      <Field label="Last Name"><Input value={value.lastName} onChange={e => setLast(e.target.value)} /></Field>
       <Field label="Preferred Name" hint="Optional. Shown in emails and Overview when different from legal name.">
         <Input value={value.preferredName} onChange={e => onChange({ ...value, preferredName: e.target.value })} />
       </Field>
       <Field label="Email"><Input type="email" value={value.email} onChange={e => onChange({ ...value, email: e.target.value })} /></Field>
+      {showPhone ? (
+        <Field label="Phone"><Input value={value.phone} onChange={e => onChange({ ...value, phone: sanitizeDigits(e.target.value) })} /></Field>
+      ) : null}
     </div>
   );
 }
 
 function PersonForm({ value, onChange }: { value: PersonParty; onChange: (v: PersonParty) => void }) {
   const set = (k: keyof PersonParty, v: string) => onChange({ ...value, [k]: v });
+  const setFirst = (v: string) => onChange({ ...value, firstName: v, name: combinePartyName(v, value.lastName) });
+  const setLast = (v: string) => onChange({ ...value, lastName: v, name: combinePartyName(value.firstName, v) });
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-      <Field label="Name"><Input value={value.name} onChange={e => set("name", e.target.value)} /></Field>
+      <Field label="First Name"><Input value={value.firstName} onChange={e => setFirst(e.target.value)} /></Field>
+      <Field label="Last Name"><Input value={value.lastName} onChange={e => setLast(e.target.value)} /></Field>
       <Field label="Preferred Name" hint="Optional. Shown in emails and Overview when different from legal name.">
         <Input value={value.preferredName} onChange={e => set("preferredName", e.target.value)} />
       </Field>
       <Field label="Email"><Input type="email" value={value.email} onChange={e => set("email", e.target.value)} /></Field>
+      <Field label="Phone"><Input value={value.phone} onChange={e => set("phone", sanitizeDigits(e.target.value))} /></Field>
       <Field label="Salutation"><Input value={value.salutation} onChange={e => set("salutation", e.target.value)} placeholder="Mr., Mrs., Dr." /></Field>
       <Field label="Title"><Input value={value.title} onChange={e => set("title", e.target.value)} /></Field>
       <Field label="Entity Type"><Input value={value.entityType} onChange={e => set("entityType", e.target.value)} placeholder="Individual, Trust, LLC..." /></Field>
