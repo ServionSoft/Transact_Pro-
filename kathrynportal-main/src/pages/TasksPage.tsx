@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { listPageBodyClass, listPageRootClass, listPageShellClass } from "@/lib/listPageLayout";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { TRANSACTION_STAGES, dueDateBucket } from "@/lib/transactionListUtils";
+import { TRANSACTION_STAGES } from "@/lib/transactionListUtils";
 import {
   projectCloseOfEscrowDate,
   projectLatestNotePreview,
@@ -59,24 +59,6 @@ function buildNextStepRow(listItem: ProjectListItem, full?: Project | null): Nex
     coeDate: full ? projectCloseOfEscrowDate(full) || "—" : "—",
     notesPreview: full ? projectLatestNotePreview(full) : "",
   };
-}
-
-const BUCKET_ORDER: Record<ReturnType<typeof dueDateBucket>, number> = {
-  overdue: 0,
-  today: 1,
-  week: 2,
-  later: 3,
-  none: 4,
-};
-
-function compareNextStepRows(a: NextStepTableRow, b: NextStepTableRow): number {
-  const ba = dueDateBucket(a.nextStepDate);
-  const bb = dueDateBucket(b.nextStepDate);
-  if (BUCKET_ORDER[ba] !== BUCKET_ORDER[bb]) return BUCKET_ORDER[ba] - BUCKET_ORDER[bb];
-  const da = a.nextStepDate?.trim() ? new Date(a.nextStepDate).getTime() : Number.POSITIVE_INFINITY;
-  const db = b.nextStepDate?.trim() ? new Date(b.nextStepDate).getTime() : Number.POSITIVE_INFINITY;
-  if (da !== db) return da - db;
-  return a.propertyAddress.localeCompare(b.propertyAddress);
 }
 
 export default function TasksPage() {
@@ -133,9 +115,8 @@ export default function TasksPage() {
     const list = apiOn
       ? projectRows
       : storeProjects.filter(isTransactionProject).map(mapStoreProjectToListItem).filter(hasNextStepItem);
-    return list
-      .map((item) => buildNextStepRow(item, projectById.get(item.id)))
-      .sort(compareNextStepRows);
+    // Sort order is owned by NextStepsTable (default: next-step date, earliest first).
+    return list.map((item) => buildNextStepRow(item, projectById.get(item.id)));
   }, [apiOn, projectRows, storeProjects, projectById]);
 
   const clientEmailById = useMemo(() => {
