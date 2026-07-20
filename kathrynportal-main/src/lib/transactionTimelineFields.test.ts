@@ -68,8 +68,9 @@ describe("transactionTimelineFields", () => {
       sprp: { intoContract: "", coe: "" },
       offsets: {},
     });
-    expect(bundle.timeline.preapproval).toBe("2026-06-26");
-    expect(bundle.weekendNote).toContain("Saturday");
+    // Saturday → following Monday
+    expect(bundle.timeline.preapproval).toBe("2026-06-29");
+    expect(bundle.weekendNote).toBeTruthy();
   });
 
   it("skips loan fields when all cash", () => {
@@ -103,6 +104,36 @@ describe("transactionTimelineFields", () => {
     expect(parsed[0]?.title).toBe("Final walkthrough");
     expect(serializeCustomTimelineForMetadata([{ ...item, legacy: true }])).toHaveLength(0);
     expect(serializeCustomTimelineForMetadata([item])).toEqual([item]);
+  });
+
+  it("keeps Contract Date and Acceptance Date on weekends without bumping", () => {
+    const empty = {
+      timeline: { ...DEFAULT_TIMELINE },
+      cop: { intoContract: "", coe: "" },
+      sprp: { intoContract: "", coe: "" },
+      offsets: {},
+    };
+    // 2026-06-27 = Saturday
+    const contract = applyTimelineDateInput("contractDate", "2026-06-27", empty);
+    expect(contract.timeline.contractDate).toBe("2026-06-27");
+    expect(contract.weekendNote).toBeUndefined();
+
+    const acceptance = applyTimelineDateInput("acceptanceDate", "2026-06-27", empty);
+    expect(acceptance.timeline.acceptanceDate).toBe("2026-06-27");
+    expect(acceptance.weekendNote).toBeUndefined();
+  });
+
+  it("still bumps other deadline dates off weekends", () => {
+    const empty = {
+      timeline: { ...DEFAULT_TIMELINE },
+      cop: { intoContract: "", coe: "" },
+      sprp: { intoContract: "", coe: "" },
+      offsets: {},
+    };
+    // 2026-06-27 = Saturday → Monday 2026-06-29
+    const emd = applyTimelineDateInput("emdToEscrow", "2026-06-27", empty);
+    expect(emd.timeline.emdToEscrow).toBe("2026-06-29");
+    expect(emd.weekendNote).toBeTruthy();
   });
 
   it("builds plain-text timeline table for email", () => {

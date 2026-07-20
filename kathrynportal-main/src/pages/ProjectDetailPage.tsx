@@ -1151,6 +1151,32 @@ export default function ProjectDetailPage() {
     toast.error("Timeline dates require API mode.");
   };
 
+  const handleBulkTimelineFieldDateChange = (
+    updates: Array<{ fieldId: TimelineFieldDef["id"]; date: string }>,
+  ) => {
+    if (updates.length === 0) return;
+    if (!apiOn) {
+      toast.error("Timeline dates require API mode.");
+      return;
+    }
+    void (async () => {
+      try {
+        let latest = project;
+        for (const update of updates) {
+          latest = await updateProjectTimelineFieldDateApi(project.id, update.fieldId, update.date);
+          upsertProject(latest);
+        }
+        toast.success(
+          updates.length === 1
+            ? "Timeline date updated."
+            : `Waived ${updates.length} Contingency Removals.`,
+        );
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Could not update timeline dates.");
+      }
+    })();
+  };
+
   const handleCustomTimelineChange = (next: CustomTimelineState) => {
     const serialized = serializeCustomTimelineForMetadata(next);
     if (apiOn) {
@@ -1426,6 +1452,7 @@ export default function ProjectDetailPage() {
                 onCustomTimelineChange={handleCustomTimelineChange}
                 onDeadlineDateChange={handleDeadlineDateChange}
                 onTimelineFieldDateChange={handleTimelineFieldDateChange}
+                onBulkTimelineFieldDateChange={handleBulkTimelineFieldDateChange}
                 onDeadlineDelete={(id, title, formManaged) => void handleDeleteDeadline(id, title, formManaged)}
                 addCustomTrigger="external"
                 showAddCustom={showAddCustomTimeline}

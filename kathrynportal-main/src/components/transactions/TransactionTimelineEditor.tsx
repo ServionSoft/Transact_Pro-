@@ -7,6 +7,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -29,6 +39,9 @@ import {
   timelineStatusOf,
   TIMELINE_STATUS_COMPLETED,
   TIMELINE_STATUS_NA,
+  TIMELINE_STATUS_WAIVED,
+  allowsTimelineWaived,
+  normalizeTimelineFieldDate,
   type CopSprpState,
   type CustomTimelineItem,
   type CustomTimelineState,
@@ -94,6 +107,8 @@ type DetailModeProps = {
   onCustomTimelineChange?: (next: CustomTimelineState) => void;
   onDeadlineDateChange?: (deadlineId: string, date: string) => void;
   onTimelineFieldDateChange?: (fieldId: TimelineFieldDef["id"], date: string) => void;
+  /** Optional bulk update (one toast). Falls back to per-field onTimelineFieldDateChange. */
+  onBulkTimelineFieldDateChange?: (updates: Array<{ fieldId: TimelineFieldDef["id"]; date: string }>) => void;
   onDeadlineDelete?: (deadlineId: string, title: string, formManaged?: boolean) => void;
   /** When "external", the trigger button is rendered outside this component (e.g. tab header). */
   addCustomTrigger?: "inline" | "external";
@@ -393,7 +408,7 @@ export default function TransactionTimelineEditor(props: TransactionTimelineEdit
   const handleDetailDateChange = (row: (typeof rows)[number], rawDate: string) => {
     if (props.mode !== "detail") return;
     if (!rawDate) return;
-    const normalized = normalizeTimelineDate(rawDate);
+    const normalized = normalizeTimelineFieldDate(row.fieldId, rawDate);
     setDetailDateEntry((prev) => {
       if (!prev[row.fieldId]) return prev;
       const next = { ...prev };
@@ -410,10 +425,13 @@ export default function TransactionTimelineEditor(props: TransactionTimelineEdit
   };
 
   /**
-   * Detail mode: mark a milestone Completed / N/A (persists a sentinel via the timeline-field
-   * endpoint, which drops the synced deadline) or reveal the date picker again ("date").
+   * Detail mode: mark a milestone Completed / N/A / Waived (persists a sentinel via the
+   * timeline-field endpoint, which drops the synced deadline) or reveal the date picker again ("date").
    */
-  const handleDetailStatusChange = (row: (typeof rows)[number], choice: "date" | "completed" | "na") => {
+  const handleDetailStatusChange = (
+    row: (typeof rows)[number],
+    choice: "date" | "completed" | "na" | "waived",
+  ) => {
     if (props.mode !== "detail") return;
     if (choice === "date") {
       setDetailDateEntry((prev) => ({ ...prev, [row.fieldId]: true }));
@@ -424,25 +442,121 @@ export default function TransactionTimelineEditor(props: TransactionTimelineEdit
       delete next[row.fieldId];
       return next;
     });
-    const sentinel = choice === "completed" ? TIMELINE_STATUS_COMPLETED : TIMELINE_STATUS_NA;
+    const sentinel =
+      choice === "completed"
+        ? TIMELINE_STATUS_COMPLETED
+        : choice === "waived"
+          ? TIMELINE_STATUS_WAIVED
+          : TIMELINE_STATUS_NA;
     if (sentinel === row.storedValue) return;
     props.onTimelineFieldDateChange?.(row.fieldId, sentinel);
   };
 
+  const waiveableContingencyRows = rows.filter(
+    (row) =>
+      allowsTimelineWaived(row.fieldId) &&
+      !row.disabled &&
+      timelineStatusOf(row.storedValue) !== "waived",
+  );
+  const canWaiveAll =
+    waiveableContingencyRows.length > 0 &&
+    (props.mode === "form" || (props.mode === "detail" && props.canEdit));
+  const [confirmWaiveAllOpen, setConfirmWaiveAllOpen] = useState(false);
+
+  const applyWaiveAllContingencies = () => {
+    const targets = waiveableContingencyRows;
+    if (targets.length === 0) return;
+
+    if (props.mode === "form") {
+      let bundle = { timeline, cop, sprp };
+      const nextOffsets = { ...timelineOffsets };
+      for (const row of targets) {
+        bundle = applyTimelineFieldChange(row.fieldId, TIMELINE_STATUS_WAIVED, bundle);
+        delete nextOffsets[row.fieldId];
+      }
+      applyBundle({ ...bundle, offsets: nextOffsets });
+      setWeekendNotes((prev) => {
+        const next = { ...prev };
+        for (const row of targets) delete next[row.fieldId];
+        return next;
+      });
+      toast.success(`Waived ${targets.length} Contingency Removal${targets.length === 1 ? "" : "s"}.`);
+      return;
+    }
+
+    setDetailDateEntry((prev) => {
+      const next = { ...prev };
+      for (const row of targets) delete next[row.fieldId];
+      return next;
+    });
+
+    const updates = targets.map((row) => ({
+      fieldId: row.fieldId,
+      date: TIMELINE_STATUS_WAIVED,
+    }));
+    if (props.onBulkTimelineFieldDateChange) {
+      props.onBulkTimelineFieldDateChange(updates);
+      return;
+    }
+    for (const update of updates) {
+      props.onTimelineFieldDateChange?.(update.fieldId, update.date);
+    }
+  };
+
   return (
     <div className="space-y-4">
-      <p className="text-[11px] text-muted-foreground">
-        Deadlines that fall on a weekend or holiday move to the following business day automatically. Use the
-        status selector to mark a milestone <span className="font-medium">Completed</span> or{" "}
-        <span className="font-medium">N/A</span> instead of a date.
-      </p>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <p className="text-[11px] text-muted-foreground">
+          Contract Date and Acceptance Date can land on weekends or holidays. Other deadlines and close of
+          escrow dates move to the following business day automatically. Use the status selector to mark a
+          milestone <span className="font-medium">Completed</span> or{" "}
+          <span className="font-medium">N/A</span> instead of a date. Contingency Removal lines also offer{" "}
+          <span className="font-medium">Waived</span>.
+        </p>
+        {canWaiveAll ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 shrink-0 text-xs"
+            onClick={() => setConfirmWaiveAllOpen(true)}
+          >
+            Waive all Contingency Removals
+          </Button>
+        ) : null}
+      </div>
+
+      <AlertDialog open={confirmWaiveAllOpen} onOpenChange={setConfirmWaiveAllOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Waive all Contingency Removals?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Set {waiveableContingencyRows.length} active Contingency Removal
+              {waiveableContingencyRows.length === 1 ? "" : "s"} to Waived. Disabled lines (e.g. All Cash / No HOA)
+              are left unchanged. Existing dates on those lines will be replaced.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                applyWaiveAllContingencies();
+                setConfirmWaiveAllOpen(false);
+              }}
+            >
+              Waive all
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <div className="overflow-x-auto rounded-lg border border-border/80">
         <table className="w-full min-w-[860px] border-collapse text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/40 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               <th className="px-3 py-2">Field</th>
               {props.mode === "form" ? <th className="w-52 px-3 py-2">Offset</th> : null}
-              <th className="w-28 px-3 py-2">Status</th>
+              <th className="w-32 px-3 py-2">Status</th>
               <th className="w-44 px-3 py-2">Date / Value</th>
               {props.mode === "detail" ? <th className="min-w-[140px] px-3 py-2">Notes</th> : null}
               {props.mode === "detail" ? <th className="w-24 px-3 py-2 text-right">Actions</th> : null}
@@ -513,30 +627,39 @@ export default function TransactionTimelineEditor(props: TransactionTimelineEdit
                       onValueChange={(v) => {
                         if (v === "completed") handleFormStatusChange(row.fieldId, TIMELINE_STATUS_COMPLETED);
                         else if (v === "na") handleFormStatusChange(row.fieldId, TIMELINE_STATUS_NA);
+                        else if (v === "waived") handleFormStatusChange(row.fieldId, TIMELINE_STATUS_WAIVED);
                         else handleFormStatusChange(row.fieldId, "");
                       }}
                     >
-                      <SelectTrigger className="h-8 w-[110px] text-xs" aria-label={`${row.title} status`}>
+                      <SelectTrigger className="h-8 w-[120px] text-xs" aria-label={`${row.title} status`}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="date">Date</SelectItem>
                         <SelectItem value="completed">Completed</SelectItem>
                         <SelectItem value="na">N/A</SelectItem>
+                        {allowsTimelineWaived(row.fieldId) ? (
+                          <SelectItem value="waived">Waived</SelectItem>
+                        ) : null}
                       </SelectContent>
                     </Select>
                   ) : props.canEdit && row.formManaged && !row.disabled ? (
                     <Select
                       value={detailDateEntry[row.fieldId] ? "date" : timelineStatusOf(row.storedValue) ?? "date"}
-                      onValueChange={(v) => handleDetailStatusChange(row, v as "date" | "completed" | "na")}
+                      onValueChange={(v) =>
+                        handleDetailStatusChange(row, v as "date" | "completed" | "na" | "waived")
+                      }
                     >
-                      <SelectTrigger className="h-8 w-[110px] text-xs" aria-label={`${row.title} status`}>
+                      <SelectTrigger className="h-8 w-[120px] text-xs" aria-label={`${row.title} status`}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="date">Date</SelectItem>
                         <SelectItem value="completed">Completed</SelectItem>
                         <SelectItem value="na">N/A</SelectItem>
+                        {allowsTimelineWaived(row.fieldId) ? (
+                          <SelectItem value="waived">Waived</SelectItem>
+                        ) : null}
                       </SelectContent>
                     </Select>
                   ) : (

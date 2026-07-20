@@ -4,7 +4,7 @@ import { formatTimelineDisplayDate, type TimelineOverviewRow } from "@/lib/trans
 
 /** Required note printed at the bottom of every timeline PDF page. */
 export const TIMELINE_PDF_FOOTER_NOTE =
-  "Deadlines that fall on weekends or holidays move to the following business day.";
+  "Deadlines and close of escrow that fall on weekends or holidays move to the following business day. Contract Date and Acceptance Date are not adjusted.";
 
 export function timelineRowDisplayValue(row: TimelineOverviewRow): string {
   if (row.isTextField) return row.value;

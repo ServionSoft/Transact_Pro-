@@ -334,9 +334,9 @@ function parseDateString(raw: string | undefined): string | null {
 }
 
 /** Sentinel values a timeline milestone can hold instead of a date (mirrors the frontend). */
-const TIMELINE_STATUS_SENTINELS = new Set(["__COMPLETED__", "__NA__"]);
+const TIMELINE_STATUS_SENTINELS = new Set(["__COMPLETED__", "__NA__", "__WAIVED__"]);
 
-/** Weekend deadlines move forward to the following business day (Sat/Sun → Mon). */
+/** Weekend/holiday deadlines move forward to the following business day (Sat/Sun → Mon). */
 function adjustDeadlineOffWeekend(iso: string): string {
   const match = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return iso;
@@ -353,6 +353,14 @@ function adjustDeadlineOffWeekend(iso: string): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${dd}`;
+}
+
+/** Contract / Acceptance are fixed calendar dates and must not be weekend-bumped. */
+const FIXED_CALENDAR_DEADLINE_TITLES = new Set(["Contract Date", "Acceptance Date"]);
+
+function maybeAdjustDeadlineDate(iso: string, title: string): string {
+  if (FIXED_CALENDAR_DEADLINE_TITLES.has(title)) return iso;
+  return adjustDeadlineOffWeekend(iso);
 }
 
 /** Titles seeded from Add Project → Timeline / COP / SPRP; removed on re-sync so custom deadlines keep other titles. */
@@ -385,7 +393,7 @@ function collectDeadlineRowsFromProjectMetadata(metadata: unknown): { title: str
   const pushDate = (raw: unknown, title: string) => {
     if (typeof raw !== "string") return;
     const d = parseDateString(raw);
-    if (d) out.push({ title, dueDate: adjustDeadlineOffWeekend(d) });
+    if (d) out.push({ title, dueDate: maybeAdjustDeadlineDate(d, title) });
   };
 
   const timeline = md.timeline;
@@ -521,7 +529,7 @@ function applyFormDeadlineDateToMetadata(
   let storedDate = dateValue.trim();
   if (storedDate) {
     const parsed = parseDateString(storedDate);
-    if (parsed) storedDate = adjustDeadlineOffWeekend(parsed);
+    if (parsed) storedDate = maybeAdjustDeadlineDate(parsed, title);
   }
 
   if (mapping.scope === "timeline") {

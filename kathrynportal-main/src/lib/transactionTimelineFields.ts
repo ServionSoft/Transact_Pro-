@@ -4,6 +4,7 @@ import {
   addBusinessDays,
   addCalendarDays,
   normalizeTimelineDate,
+  type WeekendAdjustResult,
 } from "@/lib/businessDays";
 
 export type TimelineDayType = "calendar" | "business";
@@ -457,13 +458,15 @@ function clearFieldOffset(offsets: TimelineOffsetsState, fieldId: TimelineFieldI
   return next;
 }
 
-/** Manual date entry: normalize weekend, clear offset on this field, recalc dependents if anchor. */
+/** Manual date entry: bump weekends/holidays for deadlines; Contract/Acceptance stay as entered. */
 export function applyTimelineDateInput(
   fieldId: TimelineFieldId,
   rawDate: string,
   current: TimelineStateBundle,
 ): TimelineStateBundle & { weekendNote?: string } {
-  const normalized = rawDate.trim() ? normalizeTimelineDate(rawDate) : { date: "", adjusted: false };
+  const normalized = rawDate.trim()
+    ? normalizeTimelineFieldDate(fieldId, rawDate)
+    : { date: "", adjusted: false };
   let bundle: TimelineStateBundle = {
     ...setFieldValue(current, fieldId, normalized.date),
     offsets: clearFieldOffset(current.offsets, fieldId),
@@ -528,6 +531,24 @@ export function recalculateDependentOffsets(
 export function normalizeTimelineDateForSave(iso: string): string {
   if (!iso.trim()) return "";
   return normalizeTimelineDate(iso).date;
+}
+
+/**
+ * Contract Date and Acceptance Date are fixed calendar dates — they may land on
+ * weekends/holidays. All other timeline deadlines bump to the next business day.
+ */
+export const FIXED_CALENDAR_TIMELINE_FIELD_IDS = ["contractDate", "acceptanceDate"] as const;
+
+export function isFixedCalendarTimelineField(fieldId: TimelineFieldId): boolean {
+  return (FIXED_CALENDAR_TIMELINE_FIELD_IDS as readonly string[]).includes(fieldId);
+}
+
+/** Normalize a date for a specific timeline field (skips bump for Contract/Acceptance). */
+export function normalizeTimelineFieldDate(fieldId: TimelineFieldId, rawDate: string): WeekendAdjustResult {
+  const trimmed = rawDate.trim();
+  if (!trimmed) return { date: "", adjusted: false };
+  if (isFixedCalendarTimelineField(fieldId)) return { date: trimmed, adjusted: false };
+  return normalizeTimelineDate(trimmed);
 }
 
 export function getTimelineEditorContext(metadata: Record<string, unknown> | undefined): TimelineEditorContext {
@@ -804,17 +825,34 @@ export function buildOverviewTimelineRows(
 
 /**
  * Sentinel values stored in a date field's slot when the user marks a milestone
- * as done or not applicable instead of entering a date. They ride the existing
- * value plumbing (form state → metadata → deadlines → email text).
+ * as done, not applicable, or waived instead of entering a date. They ride the
+ * existing value plumbing (form state → metadata → deadlines → email text).
  */
 export const TIMELINE_STATUS_COMPLETED = "__COMPLETED__";
 export const TIMELINE_STATUS_NA = "__NA__";
-export type TimelineStatus = "completed" | "na";
+export const TIMELINE_STATUS_WAIVED = "__WAIVED__";
+export type TimelineStatus = "completed" | "na" | "waived";
+
+/** Contingency Removal rows that offer Waived in addition to Date / Completed / N/A. */
+export const CONTINGENCY_REMOVAL_FIELD_IDS = [
+  "investigationContingency",
+  "insuranceContingency",
+  "reviewSellerDocs",
+  "reviewPrelim",
+  "reviewCommIntDiscl",
+  "appraisalContingency",
+  "loanContingency",
+] as const satisfies readonly TimelineFieldId[];
+
+export function allowsTimelineWaived(fieldId: TimelineFieldId): boolean {
+  return (CONTINGENCY_REMOVAL_FIELD_IDS as readonly string[]).includes(fieldId);
+}
 
 export function timelineStatusOf(value: string): TimelineStatus | null {
   const trimmed = value.trim();
   if (trimmed === TIMELINE_STATUS_COMPLETED) return "completed";
   if (trimmed === TIMELINE_STATUS_NA) return "na";
+  if (trimmed === TIMELINE_STATUS_WAIVED) return "waived";
   return null;
 }
 
@@ -823,7 +861,9 @@ export function isTimelineStatusValue(value: string): boolean {
 }
 
 export function formatTimelineStatusLabel(status: TimelineStatus): string {
-  return status === "completed" ? "Completed" : "N/A";
+  if (status === "completed") return "Completed";
+  if (status === "waived") return "Waived";
+  return "N/A";
 }
 
 export function formatTimelineDisplayDate(value: string): string {
