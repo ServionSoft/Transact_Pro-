@@ -3,7 +3,7 @@ import { Plus, X } from "lucide-react";
 import type { ClientStatus } from "@/data/mockData";
 import type { Client, ClientDetails } from "@/types/domain";
 import { getClientAssistants } from "@/types/domain";
-import { CONTACT_ROLE_OPTIONS, isKnownContactRole } from "@/constants/contactRoles";
+import { CONTACT_ROLE_OPTIONS, isKnownContactRole, normalizeContactRole } from "@/constants/contactRoles";
 import { AddressAutocompleteInput } from "@/components/shared/AddressAutocompleteInput";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,7 +63,8 @@ export function normalizeClientForm(values: ClientFormValues): ClientFormValues 
   const lastName = values.lastName.trim();
   const name = [firstName, lastName].filter(Boolean).join(" ") || values.name.trim();
   const preferredName = values.preferredName.trim();
-  return { ...values, firstName, lastName, name, preferredName };
+  const role = normalizeContactRole(values.role) || values.role.trim();
+  return { ...values, firstName, lastName, name, preferredName, role };
 }
 
 /** Assembles the type-specific `details` object from flat form values, keyed by role. */
@@ -242,6 +243,17 @@ export default function ClientForm({
             required
           />
         </div>
+        {isAgent ? (
+          <div className="space-y-2">
+            <Label htmlFor="licenseNumber">License number</Label>
+            <Input
+              id="licenseNumber"
+              value={values.licenseNumber}
+              onChange={(e) => onChange("licenseNumber", e.target.value)}
+              placeholder="DRE #01234567"
+            />
+          </div>
+        ) : null}
         <div className="space-y-2">
           <Label htmlFor="role">Type of Contact</Label>
           <Select value={values.role} onValueChange={(v) => onChange("role", v)}>
@@ -257,6 +269,19 @@ export default function ClientForm({
                   {opt.label}
                 </SelectItem>
               ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="status">Status</Label>
+          <Select value={values.status} onValueChange={(v) => onChange("status", v as ClientStatus)}>
+            <SelectTrigger id="status">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="Active">Active</SelectItem>
+              <SelectItem value="Inactive">Inactive</SelectItem>
+              <SelectItem value="Prospect">Prospect</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -296,40 +321,16 @@ export default function ClientForm({
           </div>
         ) : null}
         {isAgent ? (
-          <>
-            <div className="space-y-2">
-              <Label htmlFor="licenseNumber">License number</Label>
-              <Input
-                id="licenseNumber"
-                value={values.licenseNumber}
-                onChange={(e) => onChange("licenseNumber", e.target.value)}
-                placeholder="DRE #01234567"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="brokerageLicense">Brokerage license number</Label>
-              <Input
-                id="brokerageLicense"
-                value={values.brokerageLicense}
-                onChange={(e) => onChange("brokerageLicense", e.target.value)}
-                placeholder="DRE #01987654"
-              />
-            </div>
-          </>
+          <div className="space-y-2">
+            <Label htmlFor="brokerageLicense">Brokerage license number</Label>
+            <Input
+              id="brokerageLicense"
+              value={values.brokerageLicense}
+              onChange={(e) => onChange("brokerageLicense", e.target.value)}
+              placeholder="DRE #01987654"
+            />
+          </div>
         ) : null}
-        <div className="space-y-2">
-          <Label htmlFor="status">Status</Label>
-          <Select value={values.status} onValueChange={(v) => onChange("status", v as ClientStatus)}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="Active">Active</SelectItem>
-              <SelectItem value="Inactive">Inactive</SelectItem>
-              <SelectItem value="Prospect">Prospect</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
       </div>
 
       {isAgent ? (

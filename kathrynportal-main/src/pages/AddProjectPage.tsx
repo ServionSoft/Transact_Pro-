@@ -1687,6 +1687,22 @@ export default function AddProjectPage() {
             })}
           </div>
         </div>
+        <p className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground" aria-label="Field status legend">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-sm border-2 border-solid border-emerald-600/60 bg-emerald-500/20 dark:border-emerald-500/50" aria-hidden />
+            Filled
+          </span>
+          <span className="text-border" aria-hidden>·</span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-sm border-2 border-dashed border-orange-500 bg-orange-500/20 dark:border-orange-400" aria-hidden />
+            Blank
+          </span>
+          <span className="text-border" aria-hidden>·</span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-sm border-2 border-solid border-amber-500 bg-amber-500/20" aria-hidden />
+            Required
+          </span>
+        </p>
       </div>
 
       <form id="transaction-form" onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 xl:grid-cols-12 xl:gap-6">
@@ -1694,7 +1710,7 @@ export default function AddProjectPage() {
           {/* General */}
           <Section title="General" tone="core" visible={currentStep === "general"} open={open.general} onToggle={() => toggle("general")}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <Field label="Property Address *" className="md:col-span-2" invalid={showFieldError("address")} suggested={showFieldSuggested("address")}>
+              <Field label="Property Address *" className="md:col-span-2" invalid={showFieldError("address")} suggested={showFieldSuggested("address")} value={property.address}>
                 <AddressAutocompleteInput
                   value={property.address}
                   onChange={(street) => setProperty((p) => ({ ...p, address: street }))}
@@ -1714,12 +1730,12 @@ export default function AddProjectPage() {
                 />
               </Field>
               <div className="md:col-span-2 grid grid-cols-2 md:grid-cols-4 gap-3">
-                <Field label="City"><Input value={property.city} onChange={e => setProperty(p => ({ ...p, city: e.target.value }))} /></Field>
-                <Field label="State"><Input value={property.state} onChange={e => setProperty(p => ({ ...p, state: e.target.value }))} /></Field>
-                <Field label="ZIP"><Input value={property.zip} onChange={e => setProperty(p => ({ ...p, zip: sanitizeDigits(e.target.value) }))} /></Field>
-                <Field label="County"><Input value={property.county} onChange={e => setProperty(p => ({ ...p, county: e.target.value }))} /></Field>
+                <Field label="City" value={property.city}><Input value={property.city} onChange={e => setProperty(p => ({ ...p, city: e.target.value }))} /></Field>
+                <Field label="State" value={property.state}><Input value={property.state} onChange={e => setProperty(p => ({ ...p, state: e.target.value }))} /></Field>
+                <Field label="ZIP" value={property.zip}><Input value={property.zip} onChange={e => setProperty(p => ({ ...p, zip: sanitizeDigits(e.target.value) }))} /></Field>
+                <Field label="County" value={property.county}><Input value={property.county} onChange={e => setProperty(p => ({ ...p, county: e.target.value }))} /></Field>
               </div>
-              <Field label="Next Step *" invalid={showFieldError("next-step")} suggested={showFieldSuggested("next-step")}>
+              <Field label="Next Step *" invalid={showFieldError("next-step")} suggested={showFieldSuggested("next-step")} value={nextStep}>
                 <Input
                   value={nextStep}
                   onChange={e => setNextStep(e.target.value)}
@@ -1728,7 +1744,7 @@ export default function AddProjectPage() {
                   aria-invalid={showFieldError("next-step")}
                 />
               </Field>
-              <Field label="Next Step Date *" invalid={showFieldError("next-step-date")} suggested={showFieldSuggested("next-step-date")}>
+              <Field label="Next Step Date *" invalid={showFieldError("next-step-date")} suggested={showFieldSuggested("next-step-date")} value={nextStepDate}>
                 <Input
                   type="date"
                   value={nextStepDate}
@@ -1766,7 +1782,7 @@ export default function AddProjectPage() {
           {showPostContractSections && (
           <Section title="Transaction Details" tone="financial" visible={currentStep === "transaction"} open={open.transaction} onToggle={() => toggle("transaction")}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <Field label="Purchase Price ($) *" invalid={showFieldError("price")} suggested={showFieldSuggested("price")}>
+              <Field label="Purchase Price ($) *" invalid={showFieldError("price")} suggested={showFieldSuggested("price")} value={transaction.purchasePrice}>
                 <Input
                   value={transaction.purchasePrice}
                   onChange={e => setTransaction(p => ({ ...p, purchasePrice: sanitizeDecimal(e.target.value) }))}
@@ -1783,7 +1799,7 @@ export default function AddProjectPage() {
                   onChange={(v) => setTransaction(p => ({ ...p, docuSign: v }))}
                 />
               )}
-              <Field label="Loan Type">
+              <Field label="Loan Type" value={transaction.loanType}>
                 <Select value={transaction.loanType} onValueChange={(v) => setTransaction(p => ({ ...p, loanType: v as LoanType }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -1793,7 +1809,7 @@ export default function AddProjectPage() {
                   </SelectContent>
                 </Select>
               </Field>
-              <Field label="SPBB %" labelHelp={TX_FIELD_HELP.spbbPct}>
+              <Field label="SPBB %" labelHelp={TX_FIELD_HELP.spbbPct} value={transaction.spbbPct}>
                 <Input value={transaction.spbbPct} onChange={e => setTransaction(p => ({ ...p, spbbPct: sanitizePercent(e.target.value) }))} placeholder="2.5%" />
               </Field>
               <YesNoField
@@ -1804,10 +1820,10 @@ export default function AddProjectPage() {
               />
               {transaction.ftc === "yes" && (
                 <>
-                  <Field label="FTC Amount ($)" labelHelp={TX_FIELD_HELP.ftcAmount}>
+                  <Field label="FTC Amount ($)" labelHelp={TX_FIELD_HELP.ftcAmount} value={transaction.ftcAmount}>
                     <Input value={transaction.ftcAmount} onChange={e => setTransaction(p => ({ ...p, ftcAmount: sanitizeDecimal(e.target.value) }))} placeholder="$5,000" />
                   </Field>
-                  <Field label="FTC Paid By" labelHelp={TX_FIELD_HELP.ftcPaidBy}>
+                  <Field label="FTC Paid By" labelHelp={TX_FIELD_HELP.ftcPaidBy} value={transaction.ftcPaidBy}>
                     <Select value={transaction.ftcPaidBy} onValueChange={(v) => setTransaction(p => ({ ...p, ftcPaidBy: v }))}>
                       <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
                       <SelectContent>
@@ -1818,14 +1834,14 @@ export default function AddProjectPage() {
                   </Field>
                 </>
               )}
-              <Field label="RPA Seller" labelHelp={TX_FIELD_HELP.rpaSeller} hint="Optional. Seller name/vesting exactly as shown on the RPA.">
+              <Field label="RPA Seller" labelHelp={TX_FIELD_HELP.rpaSeller} hint="Optional. Seller name/vesting exactly as shown on the RPA." value={transaction.rpaSeller}>
                 <Input
                   value={transaction.rpaSeller}
                   onChange={e => setTransaction(p => ({ ...p, rpaSeller: e.target.value }))}
                   placeholder="e.g. John Smith and Jane Smith, Trustees..."
                 />
               </Field>
-              <Field label="Prelim Seller" labelHelp={TX_FIELD_HELP.prelimSeller} hint="Optional. Seller name/vesting exactly as shown on the Preliminary Title Report.">
+              <Field label="Prelim Seller" labelHelp={TX_FIELD_HELP.prelimSeller} hint="Optional. Seller name/vesting exactly as shown on the Preliminary Title Report." value={transaction.prelimSeller}>
                 <Input
                   value={transaction.prelimSeller}
                   onChange={e => setTransaction(p => ({ ...p, prelimSeller: e.target.value }))}
@@ -1836,6 +1852,7 @@ export default function AddProjectPage() {
                 label="Seller Name Match?"
                 labelHelp={TX_FIELD_HELP.sellerNameMatch}
                 className="md:col-span-2"
+                empty={!sellerNameMatchStatus}
                 hint={autoTransactionSellerNameMatch
                   ? "Auto-calculated from both names. You can override if needed."
                   : "Pending until both RPA Seller and Prelim Seller are filled."}
@@ -1875,11 +1892,11 @@ export default function AddProjectPage() {
                   />
                 </Field>
               )}
-              <Field label="NHD Details (RPA)" labelHelp={TX_FIELD_HELP.nhdRpa} className="md:col-span-2">
+              <Field label="NHD Details (RPA)" labelHelp={TX_FIELD_HELP.nhdRpa} className="md:col-span-2" value={transaction.nhdRpa}>
                 <Input value={transaction.nhdRpa} onChange={e => setTransaction(p => ({ ...p, nhdRpa: e.target.value }))} placeholder="Company, with/without environmental, who pays" />
               </Field>
-              <Field label="Home Warranty"><Input value={transaction.homeWarranty} onChange={e => setTransaction(p => ({ ...p, homeWarranty: e.target.value }))} /></Field>
-              <Field label="Escrow #" labelHelp={TX_FIELD_HELP.escrowNumber}>
+              <Field label="Home Warranty" value={transaction.homeWarranty}><Input value={transaction.homeWarranty} onChange={e => setTransaction(p => ({ ...p, homeWarranty: e.target.value }))} /></Field>
+              <Field label="Escrow #" labelHelp={TX_FIELD_HELP.escrowNumber} value={transaction.escrowNumber}>
                 <Input value={transaction.escrowNumber} onChange={e => setTransaction(p => ({ ...p, escrowNumber: e.target.value }))} />
               </Field>
               <Field label="Transaction Notes" className="md:col-span-2">
@@ -1892,10 +1909,10 @@ export default function AddProjectPage() {
           {/* Property Details */}
           <Section title="Property Details" tone="property" visible={currentStep === "property"} open={open.property} onToggle={() => toggle("property")}>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-              <Field label="MLS #" labelHelp={TX_FIELD_HELP.mlsNumber} className="xl:col-span-1">
+              <Field label="MLS #" labelHelp={TX_FIELD_HELP.mlsNumber} className="xl:col-span-1" value={property.mlsNumber}>
                 <Input value={property.mlsNumber} onChange={e => setProperty(p => ({ ...p, mlsNumber: sanitizeDigits(e.target.value) }))} />
               </Field>
-              <Field label="Property Type" className="xl:col-span-1">
+              <Field label="Property Type" className="xl:col-span-1" value={property.propertyType}>
                 <Select value={property.propertyType} onValueChange={(v) => setProperty(p => ({ ...p, propertyType: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -1905,10 +1922,10 @@ export default function AddProjectPage() {
                   </SelectContent>
                 </Select>
               </Field>
-              <Field label="Year Built" className="xl:col-span-1"><Input value={property.yearBuilt} onChange={e => setProperty(p => ({ ...p, yearBuilt: sanitizeDigits(e.target.value) }))} /></Field>
-              <Field label="Square Feet (home)" className="xl:col-span-1"><Input value={property.squareFeet} onChange={e => setProperty(p => ({ ...p, squareFeet: sanitizeDigits(e.target.value) }))} /></Field>
-              <Field label="Lot Size" className="xl:col-span-1"><Input value={property.lotSize} onChange={e => setProperty(p => ({ ...p, lotSize: sanitizeDecimal(e.target.value) }))} /></Field>
-              <Field label="Disclosure Link" labelHelp={TX_FIELD_HELP.disclosureLink} className="xl:col-span-2">
+              <Field label="Year Built" className="xl:col-span-1" value={property.yearBuilt}><Input value={property.yearBuilt} onChange={e => setProperty(p => ({ ...p, yearBuilt: sanitizeDigits(e.target.value) }))} /></Field>
+              <Field label="Square Feet (home)" className="xl:col-span-1" value={property.squareFeet}><Input value={property.squareFeet} onChange={e => setProperty(p => ({ ...p, squareFeet: sanitizeDigits(e.target.value) }))} /></Field>
+              <Field label="Lot Size" className="xl:col-span-1" value={property.lotSize}><Input value={property.lotSize} onChange={e => setProperty(p => ({ ...p, lotSize: sanitizeDecimal(e.target.value) }))} /></Field>
+              <Field label="Disclosure Link" labelHelp={TX_FIELD_HELP.disclosureLink} className="xl:col-span-2" value={property.disclosureLink}>
                 <Input value={property.disclosureLink} onChange={e => setProperty(p => ({ ...p, disclosureLink: e.target.value }))} placeholder="https://..." />
               </Field>
 
@@ -1920,7 +1937,7 @@ export default function AddProjectPage() {
               <YesNoField label="HOA?" labelHelp={TX_FIELD_HELP.hoa} value={property.hoa} onChange={(v) => setProperty(p => ({ ...p, hoa: v }))} />
               <YesNoField label="Tenant Occupied?" value={property.tenantOccupied} onChange={(v) => setProperty(p => ({ ...p, tenantOccupied: v }))} />
               {isListing && property.hoa === "yes" && (
-                <Field label="HOA Order Details" labelHelp={TX_FIELD_HELP.hoaOrderDetails} className="md:col-span-2">
+                <Field label="HOA Order Details" labelHelp={TX_FIELD_HELP.hoaOrderDetails} className="md:col-span-2" value={property.hoaOrderDetails}>
                   <Input value={property.hoaOrderDetails} onChange={e => setProperty(p => ({ ...p, hoaOrderDetails: e.target.value }))} placeholder="Listing files only — fill in details" />
                 </Field>
               )}
@@ -1931,10 +1948,10 @@ export default function AddProjectPage() {
           {isListing && (
             <Section title="Listing Details" tone="listing" visible={currentStep === "listing"} open={open.listing} onToggle={() => toggle("listing")} subtitle="Listing files only">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <Field label="Target OMD" labelHelp={TX_FIELD_HELP.targetOmd}>
+                <Field label="Target OMD" labelHelp={TX_FIELD_HELP.targetOmd} value={listing.targetOMD}>
                   <Input value={listing.targetOMD} onChange={e => setListing(p => ({ ...p, targetOMD: e.target.value }))} placeholder="Fill in the blank" />
                 </Field>
-                <Field label="Disclosure Timing" labelHelp={TX_FIELD_HELP.disclosureTiming}>
+                <Field label="Disclosure Timing" labelHelp={TX_FIELD_HELP.disclosureTiming} value={listing.disclosureTiming}>
                   <Input value={listing.disclosureTiming} onChange={e => setListing(p => ({ ...p, disclosureTiming: e.target.value }))} placeholder="Fill in the blank" />
                 </Field>
                 <YesNoField
@@ -1943,14 +1960,14 @@ export default function AddProjectPage() {
                   value={listing.questionnairesElectronically}
                   onChange={(v) => setListing(p => ({ ...p, questionnairesElectronically: v }))}
                 />
-                <Field label="Seller name on Listing Agreement" labelHelp={TX_FIELD_HELP.sellerOnListingAgreement} hint="Optional. Seller name/vesting exactly as shown on the listing agreement.">
+                <Field label="Seller name on Listing Agreement" labelHelp={TX_FIELD_HELP.sellerOnListingAgreement} hint="Optional. Seller name/vesting exactly as shown on the listing agreement." value={listing.sellerOnListingAgreement}>
                   <Input
                     value={listing.sellerOnListingAgreement}
                     onChange={e => setListing(p => ({ ...p, sellerOnListingAgreement: e.target.value }))}
                     placeholder="e.g. John Smith and Jane Smith, Trustees..."
                   />
                 </Field>
-                <Field label="Seller name on Prelim" labelHelp={TX_FIELD_HELP.sellerOnPrelim} hint="Optional. Seller name/vesting exactly as shown on the Preliminary Title Report.">
+                <Field label="Seller name on Prelim" labelHelp={TX_FIELD_HELP.sellerOnPrelim} hint="Optional. Seller name/vesting exactly as shown on the Preliminary Title Report." value={listing.sellerOnPrelim}>
                   <Input
                     value={listing.sellerOnPrelim}
                     onChange={e => setListing(p => ({ ...p, sellerOnPrelim: e.target.value }))}
@@ -1961,6 +1978,7 @@ export default function AddProjectPage() {
                   label="Seller Name Match?"
                   labelHelp={TX_FIELD_HELP.listingSellerNameMatch}
                   className="md:col-span-2"
+                  empty={!listingSellerNameMatchStatus}
                   hint={autoListingSellerNameMatch
                     ? "Auto-calculated from both names. You can override if needed."
                     : "Pending until both listing agreement and prelim seller names are filled."}
@@ -2000,7 +2018,7 @@ export default function AddProjectPage() {
                     />
                   </Field>
                 )}
-                <Field label="NHD Company" labelHelp={TX_FIELD_HELP.nhdCompany}>
+                <Field label="NHD Company" labelHelp={TX_FIELD_HELP.nhdCompany} value={listing.nhdCompany}>
                   <Input value={listing.nhdCompany} onChange={e => setListing(p => ({ ...p, nhdCompany: e.target.value }))} />
                 </Field>
                 <div className="flex items-end gap-2 rounded-md border border-border/70 bg-secondary/20 p-2.5">
@@ -2509,13 +2527,13 @@ export default function AddProjectPage() {
                 />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <Field label="First Name">
+                <Field label="First Name" value={escrow.firstName}>
                   <Input
                     value={escrow.firstName}
                     onChange={e => setEscrow({ ...escrow, firstName: e.target.value, name: combinePartyName(e.target.value, escrow.lastName) })}
                   />
                 </Field>
-                <Field label="Last Name">
+                <Field label="Last Name" value={escrow.lastName}>
                   <Input
                     value={escrow.lastName}
                     onChange={e => setEscrow({ ...escrow, lastName: e.target.value, name: combinePartyName(escrow.firstName, e.target.value) })}
@@ -2524,14 +2542,14 @@ export default function AddProjectPage() {
                 <Field label="Preferred Name" hint="Optional. Shown in emails and Overview when different from legal name.">
                   <Input value={escrow.preferredName} onChange={e => setEscrow({ ...escrow, preferredName: e.target.value })} />
                 </Field>
-                <Field label="Email"><Input type="email" value={escrow.email} onChange={e => setEscrow({ ...escrow, email: e.target.value })} /></Field>
-                <Field label="Phone"><Input value={escrow.phone} onChange={e => setEscrow({ ...escrow, phone: sanitizeDigits(e.target.value) })} /></Field>
-                <Field label="Company Name"><Input value={escrow.company} onChange={e => setEscrow({ ...escrow, company: e.target.value })} /></Field>
-                <Field label="Company Street Address" className="md:col-span-2"><Input value={escrow.address} onChange={e => setEscrow({ ...escrow, address: e.target.value })} /></Field>
-                <Field label="City"><Input value={escrow.city} onChange={e => setEscrow({ ...escrow, city: e.target.value })} /></Field>
+                <Field label="Email" value={escrow.email}><Input type="email" value={escrow.email} onChange={e => setEscrow({ ...escrow, email: e.target.value })} /></Field>
+                <Field label="Phone" value={escrow.phone}><Input value={escrow.phone} onChange={e => setEscrow({ ...escrow, phone: sanitizeDigits(e.target.value) })} /></Field>
+                <Field label="Company Name" value={escrow.company}><Input value={escrow.company} onChange={e => setEscrow({ ...escrow, company: e.target.value })} /></Field>
+                <Field label="Company Street Address" className="md:col-span-2" value={escrow.address}><Input value={escrow.address} onChange={e => setEscrow({ ...escrow, address: e.target.value })} /></Field>
+                <Field label="City" value={escrow.city}><Input value={escrow.city} onChange={e => setEscrow({ ...escrow, city: e.target.value })} /></Field>
                 <div className="grid grid-cols-2 gap-3">
-                  <Field label="State"><Input value={escrow.state} onChange={e => setEscrow({ ...escrow, state: e.target.value })} /></Field>
-                  <Field label="Zip"><Input value={escrow.zip} onChange={e => setEscrow({ ...escrow, zip: e.target.value })} /></Field>
+                  <Field label="State" value={escrow.state}><Input value={escrow.state} onChange={e => setEscrow({ ...escrow, state: e.target.value })} /></Field>
+                  <Field label="Zip" value={escrow.zip}><Input value={escrow.zip} onChange={e => setEscrow({ ...escrow, zip: e.target.value })} /></Field>
                 </div>
               </div>
             </PartyGroup>
@@ -2596,13 +2614,13 @@ export default function AddProjectPage() {
                 />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <Field label="First Name">
+                <Field label="First Name" value={lender.firstName}>
                   <Input
                     value={lender.firstName}
                     onChange={e => setLender({ ...lender, firstName: e.target.value, name: combinePartyName(e.target.value, lender.lastName) })}
                   />
                 </Field>
-                <Field label="Last Name">
+                <Field label="Last Name" value={lender.lastName}>
                   <Input
                     value={lender.lastName}
                     onChange={e => setLender({ ...lender, lastName: e.target.value, name: combinePartyName(lender.firstName, e.target.value) })}
@@ -2611,7 +2629,7 @@ export default function AddProjectPage() {
                 <Field label="Preferred Name" hint="Optional. Shown in Overview when different from legal name.">
                   <Input value={lender.preferredName} onChange={e => setLender({ ...lender, preferredName: e.target.value })} />
                 </Field>
-                <Field label="Company"><Input value={lender.company} onChange={e => setLender({ ...lender, company: e.target.value })} /></Field>
+                <Field label="Company" value={lender.company}><Input value={lender.company} onChange={e => setLender({ ...lender, company: e.target.value })} /></Field>
               </div>
             </PartyGroup>
             </div>
@@ -2959,6 +2977,9 @@ function Field({
   className = "",
   invalid = false,
   suggested = false,
+  /** When true (or when `value` is blank), show a soft empty outline so blank fields are scannable. */
+  empty,
+  value,
 }: {
   label: string;
   hint?: string;
@@ -2967,14 +2988,22 @@ function Field({
   className?: string;
   invalid?: boolean;
   suggested?: boolean;
+  empty?: boolean;
+  value?: string | null;
 }) {
+  const isEmpty = empty ?? (value != null ? !String(value).trim() : false);
   return (
     <div
       className={cn(
-        "space-y-1.5 rounded-md border p-2.5",
-        invalid && "border-destructive/60 bg-destructive/5",
-        !invalid && suggested && "border-amber-500/40 bg-amber-500/10",
-        !invalid && !suggested && "border-border/70 bg-secondary/20",
+        "space-y-1.5 rounded-md border-2 p-2.5 transition-colors",
+        // Error after submit attempt
+        invalid && "border-destructive bg-destructive/10",
+        // Required still blank (pre-submit) — solid amber
+        !invalid && suggested && "border-amber-500 bg-amber-500/15",
+        // Optional / blank — dashed warm orange (noticeably unfinished)
+        !invalid && !suggested && isEmpty && "border-dashed border-orange-500/90 bg-orange-500/15 dark:border-orange-400 dark:bg-orange-500/20",
+        // Filled — cool emerald so it can’t be confused with blank/required
+        !invalid && !suggested && !isEmpty && "border-solid border-emerald-600/50 bg-emerald-500/10 dark:border-emerald-500/45 dark:bg-emerald-500/10",
         className,
       )}
     >
@@ -3000,8 +3029,16 @@ function DateRow({
   disabledHint?: string;
   labelHelp?: TransactionFieldHelp;
 }) {
+  const isEmpty = !disabled && !value.trim();
   return (
-    <div className="space-y-1.5 rounded-md border border-border/70 bg-secondary/20 p-2.5">
+    <div
+      className={cn(
+        "space-y-1.5 rounded-md border-2 p-2.5 transition-colors",
+        disabled && "border-border/70 bg-secondary/20",
+        !disabled && isEmpty && "border-dashed border-orange-500/90 bg-orange-500/15 dark:border-orange-400 dark:bg-orange-500/20",
+        !disabled && !isEmpty && "border-solid border-emerald-600/50 bg-emerald-500/10 dark:border-emerald-500/45 dark:bg-emerald-500/10",
+      )}
+    >
       <div className="flex items-center justify-between gap-2">
         <FieldLabelRow label={label} labelHelp={labelHelp} />
         {disabled && (
@@ -3027,8 +3064,15 @@ function YesNoField({
   onChange: (v: "yes" | "no" | "") => void;
   labelHelp?: TransactionFieldHelp;
 }) {
+  const isEmpty = !value;
   return (
-    <div className="space-y-1.5 rounded-md border border-border/70 bg-secondary/20 p-2.5">
+    <div
+      className={cn(
+        "space-y-1.5 rounded-md border-2 p-2.5 transition-colors",
+        isEmpty && "border-dashed border-orange-500/90 bg-orange-500/15 dark:border-orange-400 dark:bg-orange-500/20",
+        !isEmpty && "border-solid border-emerald-600/50 bg-emerald-500/10 dark:border-emerald-500/45 dark:bg-emerald-500/10",
+      )}
+    >
       <FieldLabelRow label={label} labelHelp={labelHelp} />
       <div className="flex gap-2">
         {(["yes", "no"] as const).map(v => (
@@ -3128,16 +3172,16 @@ function AgentForm({ value, onChange }: { value: AgentParty; onChange: (v: Agent
   const setLast = (v: string) => onChange({ ...value, lastName: v, name: combinePartyName(value.firstName, v) });
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-      <Field label="First Name"><Input value={value.firstName} onChange={e => setFirst(e.target.value)} /></Field>
-      <Field label="Last Name"><Input value={value.lastName} onChange={e => setLast(e.target.value)} /></Field>
+      <Field label="First Name" value={value.firstName}><Input value={value.firstName} onChange={e => setFirst(e.target.value)} /></Field>
+      <Field label="Last Name" value={value.lastName}><Input value={value.lastName} onChange={e => setLast(e.target.value)} /></Field>
       <Field label="Preferred Name" hint="Optional. Shown in emails and Overview when different from legal name.">
         <Input value={value.preferredName} onChange={e => set("preferredName", e.target.value)} />
       </Field>
-      <Field label="Email"><Input type="email" value={value.email} onChange={e => set("email", e.target.value)} /></Field>
-      <Field label="Phone"><Input value={value.phone} onChange={e => set("phone", sanitizeDigits(e.target.value))} /></Field>
-      <Field label="License Number"><Input value={value.licenseNumber} onChange={e => set("licenseNumber", sanitizeDigits(e.target.value))} /></Field>
-      <Field label="Brokerage"><Input value={value.brokerage} onChange={e => set("brokerage", e.target.value)} /></Field>
-      <Field label="Brokerage License Number"><Input value={value.brokerageLicense} onChange={e => set("brokerageLicense", sanitizeDigits(e.target.value))} /></Field>
+      <Field label="Email" value={value.email}><Input type="email" value={value.email} onChange={e => set("email", e.target.value)} /></Field>
+      <Field label="Phone" value={value.phone}><Input value={value.phone} onChange={e => set("phone", sanitizeDigits(e.target.value))} /></Field>
+      <Field label="License Number" value={value.licenseNumber}><Input value={value.licenseNumber} onChange={e => set("licenseNumber", sanitizeDigits(e.target.value))} /></Field>
+      <Field label="Brokerage" value={value.brokerage}><Input value={value.brokerage} onChange={e => set("brokerage", e.target.value)} /></Field>
+      <Field label="Brokerage License Number" value={value.brokerageLicense}><Input value={value.brokerageLicense} onChange={e => set("brokerageLicense", sanitizeDigits(e.target.value))} /></Field>
       <Field label="Agent Notes" className="md:col-span-2" hint="Notes specific to this agent (e.g. always add environmental to JCP report)">
         <Textarea value={value.notes} onChange={e => set("notes", e.target.value)} rows={2} />
       </Field>
@@ -3158,14 +3202,14 @@ function SimpleForm({
   const setLast = (v: string) => onChange({ ...value, lastName: v, name: combinePartyName(value.firstName, v) });
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-      <Field label="First Name"><Input value={value.firstName} onChange={e => setFirst(e.target.value)} /></Field>
-      <Field label="Last Name"><Input value={value.lastName} onChange={e => setLast(e.target.value)} /></Field>
+      <Field label="First Name" value={value.firstName}><Input value={value.firstName} onChange={e => setFirst(e.target.value)} /></Field>
+      <Field label="Last Name" value={value.lastName}><Input value={value.lastName} onChange={e => setLast(e.target.value)} /></Field>
       <Field label="Preferred Name" hint="Optional. Shown in emails and Overview when different from legal name.">
         <Input value={value.preferredName} onChange={e => onChange({ ...value, preferredName: e.target.value })} />
       </Field>
-      <Field label="Email"><Input type="email" value={value.email} onChange={e => onChange({ ...value, email: e.target.value })} /></Field>
+      <Field label="Email" value={value.email}><Input type="email" value={value.email} onChange={e => onChange({ ...value, email: e.target.value })} /></Field>
       {showPhone ? (
-        <Field label="Phone"><Input value={value.phone} onChange={e => onChange({ ...value, phone: sanitizeDigits(e.target.value) })} /></Field>
+        <Field label="Phone" value={value.phone}><Input value={value.phone} onChange={e => onChange({ ...value, phone: sanitizeDigits(e.target.value) })} /></Field>
       ) : null}
     </div>
   );
@@ -3177,17 +3221,17 @@ function PersonForm({ value, onChange }: { value: PersonParty; onChange: (v: Per
   const setLast = (v: string) => onChange({ ...value, lastName: v, name: combinePartyName(value.firstName, v) });
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-      <Field label="First Name"><Input value={value.firstName} onChange={e => setFirst(e.target.value)} /></Field>
-      <Field label="Last Name"><Input value={value.lastName} onChange={e => setLast(e.target.value)} /></Field>
+      <Field label="First Name" value={value.firstName}><Input value={value.firstName} onChange={e => setFirst(e.target.value)} /></Field>
+      <Field label="Last Name" value={value.lastName}><Input value={value.lastName} onChange={e => setLast(e.target.value)} /></Field>
       <Field label="Preferred Name" hint="Optional. Shown in emails and Overview when different from legal name.">
         <Input value={value.preferredName} onChange={e => set("preferredName", e.target.value)} />
       </Field>
-      <Field label="Email"><Input type="email" value={value.email} onChange={e => set("email", e.target.value)} /></Field>
-      <Field label="Phone"><Input value={value.phone} onChange={e => set("phone", sanitizeDigits(e.target.value))} /></Field>
-      <Field label="Salutation"><Input value={value.salutation} onChange={e => set("salutation", e.target.value)} placeholder="Mr., Mrs., Dr." /></Field>
-      <Field label="Title"><Input value={value.title} onChange={e => set("title", e.target.value)} /></Field>
-      <Field label="Entity Type"><Input value={value.entityType} onChange={e => set("entityType", e.target.value)} placeholder="Individual, Trust, LLC..." /></Field>
-      <Field label="Entity Name"><Input value={value.entityName} onChange={e => set("entityName", e.target.value)} /></Field>
+      <Field label="Email" value={value.email}><Input type="email" value={value.email} onChange={e => set("email", e.target.value)} /></Field>
+      <Field label="Phone" value={value.phone}><Input value={value.phone} onChange={e => set("phone", sanitizeDigits(e.target.value))} /></Field>
+      <Field label="Salutation" value={value.salutation}><Input value={value.salutation} onChange={e => set("salutation", e.target.value)} placeholder="Mr., Mrs., Dr." /></Field>
+      <Field label="Title" value={value.title}><Input value={value.title} onChange={e => set("title", e.target.value)} /></Field>
+      <Field label="Entity Type" value={value.entityType}><Input value={value.entityType} onChange={e => set("entityType", e.target.value)} placeholder="Individual, Trust, LLC..." /></Field>
+      <Field label="Entity Name" value={value.entityName}><Input value={value.entityName} onChange={e => set("entityName", e.target.value)} /></Field>
     </div>
   );
 }

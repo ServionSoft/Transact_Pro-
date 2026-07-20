@@ -567,9 +567,19 @@ export default function TransactionTimelineEditor(props: TransactionTimelineEdit
                             aria-invalid={invalidFieldIds[row.fieldId] || undefined}
                             onChange={(e) => handleFormDateChange(row.fieldId, e.target.value)}
                             className={cn(
-                              "h-8 w-[140px] text-xs",
-                              invalidFieldIds[row.fieldId] && "border-destructive focus-visible:ring-destructive",
-                              !invalidFieldIds[row.fieldId] && suggestedFieldIds[row.fieldId] && "border-amber-500/60 bg-amber-500/10 focus-visible:ring-amber-500/40",
+                              "h-8 w-[140px] text-xs border-2",
+                              invalidFieldIds[row.fieldId] && "border-destructive bg-destructive/10 focus-visible:ring-destructive",
+                              !invalidFieldIds[row.fieldId] && suggestedFieldIds[row.fieldId] && "border-amber-500 bg-amber-500/15 focus-visible:ring-amber-500/40",
+                              !invalidFieldIds[row.fieldId] &&
+                                !suggestedFieldIds[row.fieldId] &&
+                                !row.disabled &&
+                                !String(row.storedValue ?? "").trim() &&
+                                "border-dashed border-orange-500 bg-orange-500/15 dark:border-orange-400",
+                              !invalidFieldIds[row.fieldId] &&
+                                !suggestedFieldIds[row.fieldId] &&
+                                !row.disabled &&
+                                !!String(row.storedValue ?? "").trim() &&
+                                "border-solid border-emerald-600/50 bg-emerald-500/10 dark:border-emerald-500/45",
                             )}
                           />
                         )
@@ -580,7 +590,12 @@ export default function TransactionTimelineEditor(props: TransactionTimelineEdit
                           autoComplete="off"
                           value={row.storedValue}
                           onChange={(e) => handleFormTextChange(row.fieldId, e.target.value)}
-                          className="h-8 text-xs"
+                          className={cn(
+                            "h-8 text-xs border-2",
+                            !String(row.storedValue ?? "").trim()
+                              ? "border-dashed border-orange-500 bg-orange-500/15 dark:border-orange-400"
+                              : "border-solid border-emerald-600/50 bg-emerald-500/10 dark:border-emerald-500/45",
+                          )}
                         />
                       )
                     ) : row.kind === "date" && props.canEdit && row.formManaged && !row.disabled ? (
