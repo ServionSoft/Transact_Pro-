@@ -2299,7 +2299,7 @@ export default function AddProjectPage() {
                   <Label className="text-xs text-muted-foreground">Saved contact</Label>
                   <ContactLinkPicker
                     variant="party"
-                    defaultCreateRole="Buyer's Agent Team Member/Assistant"
+                    defaultCreateRole="Agent Team Member/Assistant"
                     partyPlaceholder="Link assistant contact…"
                     value={buyerAgentAssistant.contactId ?? ""}
                     options={clientOptions}
@@ -2428,7 +2428,7 @@ export default function AddProjectPage() {
                   <Label className="text-xs text-muted-foreground">Saved contact</Label>
                   <ContactLinkPicker
                     variant="party"
-                    defaultCreateRole="Listing Agent Team Member/Assistant"
+                    defaultCreateRole="Agent Team Member/Assistant"
                     partyPlaceholder="Link assistant contact…"
                     value={listingAgentAssistant.contactId ?? ""}
                     options={clientOptions}
@@ -2466,7 +2466,7 @@ export default function AddProjectPage() {
                       <Label className="text-xs text-muted-foreground">Saved contact</Label>
                       <ContactLinkPicker
                         variant="party"
-                        defaultCreateRole="Seller"
+                        defaultCreateRole="Buyer/Seller"
                         partyPlaceholder="Link seller contact…"
                         value={s.contactId ?? ""}
                         options={clientOptions}
@@ -2643,7 +2643,7 @@ export default function AddProjectPage() {
                       <Label className="text-xs text-muted-foreground">Saved contact</Label>
                       <ContactLinkPicker
                         variant="party"
-                        defaultCreateRole="Buyer"
+                        defaultCreateRole="Buyer/Seller"
                         partyPlaceholder="Link buyer contact…"
                         value={b.contactId ?? ""}
                         options={clientOptions}

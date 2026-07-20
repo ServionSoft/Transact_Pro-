@@ -2,6 +2,7 @@ import type { Client, ClientDetails, ClientStatus } from "@/data/mockData";
 import { getApiBaseUrl } from "@/lib/apiConfig";
 import { ApiRequestError } from "@/api/storedFiles";
 import { authFetch } from "@/lib/authFetch";
+import { normalizeContactRole } from "@/constants/contactRoles";
 
 type ClientApiPayload = {
   id: string;
@@ -60,7 +61,7 @@ function mapClient(p: ClientApiPayload): Client {
     email: p.email,
     phone: p.phone,
     company: p.company,
-    role: p.role,
+    role: normalizeContactRole(p.role) || p.role,
     status: p.status,
     propertyAddress: p.propertyAddress,
     city: p.city,

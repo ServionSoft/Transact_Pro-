@@ -19,6 +19,7 @@ import { isTransactionProject } from "@/data/mockData";
 import { toast } from "sonner";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { clientAssistantLabel, getClientAssistants } from "@/types/domain";
+import { normalizeContactRole } from "@/constants/contactRoles";
 
 export default function ClientDetailPage() {
   const { id } = useParams();
@@ -102,7 +103,7 @@ export default function ClientDetailPage() {
   }
 
   const details = client.details ?? {};
-  const roleKey = client.role.trim().toLowerCase();
+  const roleKey = normalizeContactRole(client.role).trim().toLowerCase();
   const isAgent = roleKey === "agent";
   const isEscrowOfficer = roleKey === "escrow officer";
   const assistants = getClientAssistants(details);
@@ -182,7 +183,7 @@ export default function ClientDetailPage() {
 
       <PageHeader
         title={client.name}
-        subtitle={`${client.company} • ${client.role}`}
+        subtitle={`${client.company} • ${normalizeContactRole(client.role) || client.role}`}
         actions={
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => navigate(`/email?to=${client.email}`)} className="gap-2">

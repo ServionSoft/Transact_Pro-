@@ -10,6 +10,7 @@ import ClientForm, {
   normalizeClientForm,
   type ClientFormValues,
 } from "@/components/clients/ClientForm";
+import { normalizeContactRole } from "@/constants/contactRoles";
 import type { ClientDetails } from "@/types/domain";
 import PageHeader from "@/components/shared/PageHeader";
 import { getApiBaseUrl } from "@/lib/apiConfig";
@@ -51,7 +52,7 @@ function toFormValues(client: {
     email: client.email,
     phone: client.phone,
     company: client.company,
-    role: client.role?.trim() || "Other",
+    role: normalizeContactRole(client.role) || "Other",
     status: client.status,
     propertyAddress: client.propertyAddress,
     city: client.city,

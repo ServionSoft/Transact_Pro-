@@ -8,11 +8,13 @@
  *   Listing Agent's TC, Buyer's Agent's TC,
  *     Transaction Coordinator                           -> TC
  *   Escrow Officer                                      -> Escrow Officer (unchanged)
- *   Escrow Assistant/Team Member                        -> Escrow Assistant
+ *   Listing Agent Team Member/Assistant,
+ *     Buyer's Agent Team Member/Assistant,
+ *     Listing Agent's Assistant,
+ *     Buyer's Agent's Assistant/Team Member             -> Agent Team Member/Assistant
+ *   Escrow Assistant/Team Member, Escrow Assistant      -> Other
  *   Lender, Lender Assistant                            -> Lender
- *   Listing Agent's Assistant,
- *     Buyer's Agent's Assistant/Team Member,
- *     Assistant, Other, anything unrecognized           -> Other
+ *   Assistant, Other, anything unrecognized             -> Other
  *
  * Run:
  *   npm run db:remap:contact-roles          # local + render when .env.render exists
@@ -43,9 +45,12 @@ const REMAP: Record<string, string> = {
   "Buyer's Agent's TC": "TC",
   "Transaction Coordinator": "TC",
   "Escrow Officer": "Escrow Officer",
-  "Escrow Assistant/Team Member": "Escrow Assistant",
-  "Listing Agent's Assistant": "Other",
-  "Buyer's Agent's Assistant/Team Member": "Other",
+  "Escrow Assistant/Team Member": "Other",
+  "Escrow Assistant": "Other",
+  "Listing Agent's Assistant": "Agent Team Member/Assistant",
+  "Buyer's Agent's Assistant/Team Member": "Agent Team Member/Assistant",
+  "Listing Agent Team Member/Assistant": "Agent Team Member/Assistant",
+  "Buyer's Agent Team Member/Assistant": "Agent Team Member/Assistant",
   Lender: "Lender",
   "Lender Assistant": "Lender",
   Assistant: "Other",
@@ -54,10 +59,10 @@ const REMAP: Record<string, string> = {
 /** Values that are already current — leave untouched. */
 const CURRENT = new Set([
   "Agent",
-  "Buyer/Seller",
   "TC",
   "Escrow Officer",
-  "Escrow Assistant",
+  "Buyer/Seller",
+  "Agent Team Member/Assistant",
   "Lender",
   "Other",
 ]);
