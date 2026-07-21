@@ -1,5 +1,6 @@
 import type { TransactionFieldHelp } from "@/lib/transactionFieldHelp";
 import { TX_FIELD_HELP } from "@/lib/transactionFieldHelp";
+import { formatUsDateDisplay } from "@/lib/displayFormat";
 import {
   addBusinessDays,
   addCalendarDays,
@@ -865,7 +866,7 @@ export function formatTimelineDisplayDate(value: string): string {
   if (status) return formatTimelineStatusLabel(status);
   const parsed = parseSortDate(value);
   if (parsed === null) return value;
-  return new Date(parsed).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "2-digit" });
+  return formatUsDateDisplay(value);
 }
 
 /** Plain-text timeline block for email bodies and {{timeline_table}} token. */

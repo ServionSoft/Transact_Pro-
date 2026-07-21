@@ -50,6 +50,7 @@ import {
   autoSellerNameMatch,
   resolveSellerNameMatchStatus,
 } from "@/lib/sellerNameMatch";
+import { formatUsdDisplay, formatUsDateDisplay } from "@/lib/displayFormat";
 
 type TxType = "Listing" | "Buyer File";
 type LoanType = "Conventional" | "FHA/VA" | "All Cash" | "Other";
@@ -1780,11 +1781,17 @@ export default function AddProjectPage() {
           <Section title="Transaction Details" tone="financial" visible={currentStep === "transaction"} open={open.transaction} onToggle={() => toggle("transaction")}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <Field label="Purchase Price ($)" value={transaction.purchasePrice}>
-                <Input
-                  value={transaction.purchasePrice}
-                  onChange={e => setTransaction(p => ({ ...p, purchasePrice: sanitizeDecimal(e.target.value) }))}
-                  placeholder="$1,250,000"
-                />
+                <div className="flex items-center gap-2">
+                  <span className="shrink-0 text-lg font-semibold leading-none text-foreground">$</span>
+                  <div className="min-w-0 flex-1">
+                    <Input
+                      value={transaction.purchasePrice}
+                      onChange={e => setTransaction(p => ({ ...p, purchasePrice: sanitizeDecimal(e.target.value) }))}
+                      placeholder="1250000"
+                      inputMode="decimal"
+                    />
+                  </div>
+                </div>
               </Field>
               {!isListing && (
                 <YesNoField
@@ -1816,7 +1823,17 @@ export default function AddProjectPage() {
               {transaction.ftc === "yes" && (
                 <>
                   <Field label="FTC Amount ($)" labelHelp={TX_FIELD_HELP.ftcAmount} value={transaction.ftcAmount}>
-                    <Input value={transaction.ftcAmount} onChange={e => setTransaction(p => ({ ...p, ftcAmount: sanitizeDecimal(e.target.value) }))} placeholder="$5,000" />
+                    <div className="flex items-center gap-2">
+                      <span className="shrink-0 text-lg font-semibold leading-none text-foreground">$</span>
+                      <div className="min-w-0 flex-1">
+                        <Input
+                          value={transaction.ftcAmount}
+                          onChange={e => setTransaction(p => ({ ...p, ftcAmount: sanitizeDecimal(e.target.value) }))}
+                          placeholder="5000"
+                          inputMode="decimal"
+                        />
+                      </div>
+                    </div>
                   </Field>
                   <Field label="FTC Paid By" labelHelp={TX_FIELD_HELP.ftcPaidBy} value={transaction.ftcPaidBy}>
                     <Select value={transaction.ftcPaidBy} onValueChange={(v) => setTransaction(p => ({ ...p, ftcPaidBy: v }))}>
@@ -2083,10 +2100,21 @@ export default function AddProjectPage() {
                   <ReviewItem label="Primary Contact" value={linkedPrimaryContact ? labelFromClient(linkedPrimaryContact) : "Not selected"} />
                   <ReviewItem label="Address" value={property.address || "Not set"} />
                   <ReviewItem label="Next Step" value={nextStep || "Not set"} />
-                  <ReviewItem label="Next Step Date" value={nextStepDate || "Not set"} highlight={!nextStepDate.trim()} />
+                  <ReviewItem
+                    label="Next Step Date"
+                    value={nextStepDate ? formatUsDateDisplay(nextStepDate) : "Not set"}
+                    highlight={!nextStepDate.trim()}
+                  />
                   {showPostContractSections && (
                     <>
-                      <ReviewItem label="Purchase Price" value={transaction.purchasePrice || "Not set"} />
+                      <ReviewItem
+                        label="Purchase Price"
+                        value={
+                          transaction.purchasePrice.trim()
+                            ? formatUsdDisplay(transaction.purchasePrice)
+                            : "Not set"
+                        }
+                      />
                       <ReviewItem label="Loan Type" value={transaction.loanType} />
                     </>
                   )}

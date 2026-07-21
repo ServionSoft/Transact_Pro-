@@ -13,6 +13,7 @@ import {
   isBuyerTransaction,
   propertyStreet,
 } from "@/lib/transactionListUtils";
+import { formatUsDateDisplay } from "@/lib/displayFormat";
 import { Skeleton } from "@/components/ui/skeleton";
 
 type Props = {
@@ -112,7 +113,9 @@ export default function TransactionsKanban({ rows, search, loading }: Props) {
                     ) : null}
                     <div className="flex items-center justify-between border-t border-border pt-2 text-xs">
                       <span className={cn("tabular-nums", dueDateClass(dueBucket))}>
-                        {project.nextStepDate?.trim() ? `Due ${project.nextStepDate}` : "No date"}
+                        {project.nextStepDate?.trim()
+                          ? `Due ${formatUsDateDisplay(project.nextStepDate)}`
+                          : "No date"}
                       </span>
                       <span className="font-medium tabular-nums text-foreground">{project.listPrice || "—"}</span>
                     </div>

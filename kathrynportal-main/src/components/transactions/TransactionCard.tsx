@@ -12,6 +12,7 @@ import {
   propertySubline,
   transactionTypeLabel,
 } from "@/lib/transactionListUtils";
+import { formatUsDateDisplay } from "@/lib/displayFormat";
 import TransactionRowMenu from "./TransactionRowMenu";
 
 type Props = {
@@ -71,7 +72,7 @@ export default function TransactionCard({ project, clientEmail, compact = false 
           <div className="flex items-center justify-between gap-2 text-xs">
             <span className="text-muted-foreground">Next step</span>
             <span className={cn("tabular-nums", dueDateClass(dueBucket))}>
-              {project.nextStepDate?.trim() || "—"}
+              {project.nextStepDate?.trim() ? formatUsDateDisplay(project.nextStepDate) : "—"}
             </span>
           </div>
         </div>

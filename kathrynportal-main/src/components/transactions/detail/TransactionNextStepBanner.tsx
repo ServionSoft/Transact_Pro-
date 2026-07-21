@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Clock, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { dueDateBucket, dueDateClass } from "@/lib/transactionListUtils";
+import { formatUsDateDisplay } from "@/lib/displayFormat";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -49,7 +50,7 @@ export default function TransactionNextStepBanner({
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium leading-snug text-foreground">{nextStep || "No next step set"}</p>
           <p className={cn("mt-0.5 text-xs tabular-nums", dueDateClass(dueBucket))}>
-            {nextStepDate?.trim() ? `Due ${nextStepDate}` : "No due date"}
+            {nextStepDate?.trim() ? `Due ${formatUsDateDisplay(nextStepDate)}` : "No due date"}
           </p>
         </div>
       </div>

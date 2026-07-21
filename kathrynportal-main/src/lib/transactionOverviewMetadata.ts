@@ -1,4 +1,5 @@
 import type { Project } from "@/data/mockData";
+import { formatUsdDisplay } from "@/lib/displayFormat";
 import { resolveEffectiveSellerMatchLabel } from "@/lib/sellerNameMatch";
 import { buildOverviewTimelineRows, type TimelineOverviewRow } from "@/lib/transactionTimelineFields";
 
@@ -12,7 +13,9 @@ function asRecord(v: unknown): Record<string, unknown> | null {
 }
 
 function str(v: unknown): string {
-  return typeof v === "string" ? v.trim() : "";
+  if (typeof v === "string") return v.trim();
+  if (typeof v === "number" && Number.isFinite(v)) return String(v);
+  return "";
 }
 
 function yesNo(v: unknown): string {
@@ -71,12 +74,12 @@ export function getTransactionDetailRows(metadata: Record<string, unknown> | und
     if (r) rows.push(r);
   };
 
-  push(row("Purchase price", str(t.purchasePrice)));
+  push(row("Purchase price", formatUsdDisplay(str(t.purchasePrice)) || str(t.purchasePrice)));
   push(row("DocuSign", yesNo(t.docuSign)));
   push(row("Loan type", str(t.loanType)));
   push(row("SPBB %", str(t.spbbPct)));
   push(row("FTC", yesNo(t.ftc)));
-  push(row("FTC amount", str(t.ftcAmount)));
+  push(row("FTC amount", formatUsdDisplay(str(t.ftcAmount)) || str(t.ftcAmount)));
   push(row("FTC paid by", str(t.ftcPaidBy)));
   push(row("RPA seller", str(t.rpaSeller)));
   push(row("Prelim seller", str(t.prelimSeller)));

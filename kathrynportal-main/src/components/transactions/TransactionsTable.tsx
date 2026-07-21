@@ -12,6 +12,7 @@ import {
   propertyStreet,
   propertySubline,
 } from "@/lib/transactionListUtils";
+import { formatUsDateDisplay } from "@/lib/displayFormat";
 import TransactionRowMenu from "./TransactionRowMenu";
 
 type Props = {
@@ -108,7 +109,7 @@ export default function TransactionsTable({ rows, clientEmailById, loading }: Pr
                 <TableCell className="hidden xl:table-cell">
                   <p className="max-w-[180px] truncate text-xs text-muted-foreground">{project.nextStep || "—"}</p>
                   <p className={cn("text-xs tabular-nums", dueDateClass(dueBucket))}>
-                    {project.nextStepDate?.trim() || "—"}
+                    {project.nextStepDate?.trim() ? formatUsDateDisplay(project.nextStepDate) : "—"}
                   </p>
                 </TableCell>
                 <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>

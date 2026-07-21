@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { dueDateBucket, dueDateClass, isBuyerTransaction, transactionTypeLabel } from "@/lib/transactionListUtils";
+import { formatTimelineDisplayDate } from "@/lib/transactionTimelineFields";
+import { formatUsDateDisplay } from "@/lib/displayFormat";
 import type { PartyGroup } from "@/lib/transactionMetadataParties";
 import { resolveProjectEscrowOfficer } from "@/lib/transactionMetadataParties";
 import {
@@ -122,7 +124,7 @@ export default function TransactionOverviewTab({
     { label: "Escrow company", value: project.escrowCompany || "—" },
     { label: "Stage", value: project.stage },
     { label: "Transaction type", value: transactionTypeLabel(project.type) },
-    { label: "Created", value: project.createdAt || "—" },
+    { label: "Created", value: formatUsDateDisplay(project.createdAt) || project.createdAt || "—" },
     { label: "Files stored", value: String(filesCount) },
   ];
 
@@ -155,7 +157,11 @@ export default function TransactionOverviewTab({
         <StatTile
           label="Deadlines"
           value={String(deadlinesCount)}
-          sub={nextDeadline ? `${nextDeadline.title} · ${nextDeadline.date}` : "No upcoming"}
+          sub={
+            nextDeadline
+              ? `${nextDeadline.title} · ${formatTimelineDisplayDate(nextDeadline.date)}`
+              : "No upcoming"
+          }
           icon={Calendar}
           onClick={() => onNavigateTab("calendar")}
         />
@@ -227,6 +233,7 @@ export default function TransactionOverviewTab({
           <ul className="grid grid-cols-1 gap-1.5 md:grid-cols-2 xl:grid-cols-3">
             {timelineRows.map((row) => {
               const bucket = row.isTextField ? "none" : dueDateBucket(row.value);
+              const display = row.isTextField ? row.value : formatTimelineDisplayDate(row.value);
               return (
                 <li
                   key={row.title}
@@ -239,7 +246,7 @@ export default function TransactionOverviewTab({
                       row.isTextField ? "text-foreground" : dueDateClass(bucket),
                     )}
                   >
-                    {row.value}
+                    {display}
                   </span>
                 </li>
               );

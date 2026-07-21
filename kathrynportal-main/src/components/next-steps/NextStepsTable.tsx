@@ -14,6 +14,7 @@ import {
   propertyStreet,
   propertySubline,
 } from "@/lib/transactionListUtils";
+import { formatUsDateDisplay } from "@/lib/displayFormat";
 
 export type NextStepTableRow = ProjectListItem & {
   agentName: string;
@@ -261,7 +262,10 @@ export default function NextStepsTable({ rows, clientEmailById, loading }: Props
               const dueBucket = dueDateBucket(project.nextStepDate);
               const isOverdue = dueBucket === "overdue";
               const stepLabel = project.nextStep?.trim() || "—";
-              const dateLabel = project.nextStepDate?.trim() || "—";
+              const dateLabel = project.nextStepDate?.trim()
+                ? formatUsDateDisplay(project.nextStepDate)
+                : "—";
+              const coeLabel = project.coeDate?.trim() ? formatUsDateDisplay(project.coeDate) : "—";
               const subline = propertySubline(project.propertyAddress);
 
               return (
@@ -376,7 +380,7 @@ export default function NextStepsTable({ rows, clientEmailById, loading }: Props
                       compactCellClass,
                     )}
                   >
-                    {project.coeDate?.trim() || "—"}
+                    {coeLabel}
                   </TableCell>
                   <TableCell className={cn("hidden xl:table-cell", compactCellClass)}>
                     {project.notesPreview ? (
