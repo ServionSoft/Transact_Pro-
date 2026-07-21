@@ -40,7 +40,6 @@ import {
   getTimelineRequiredValidationItems,
   parseCustomTimelineFromMetadata,
   parseTimelineOffsetsFromMetadata,
-  readTimelineFieldValue,
   serializeCustomTimelineForMetadata,
   type CustomTimelineState,
   type TimelineFieldId,
@@ -789,8 +788,6 @@ export default function AddProjectPage() {
     isListing,
     contractAccepted,
   ]);
-  const timelineRequiredDone = timelineRequiredItems.filter((item) => item.valid).length;
-  const timelineRequiredTotal = timelineRequiredItems.length;
   const stepOrder: WorkflowStep[] = isListing
     ? showPostContractSections
       ? ["general", "parties", "property", "listing", "transaction", "timeline", "review"]
@@ -812,7 +809,7 @@ export default function AddProjectPage() {
     nextStep,
     nextStepDate,
     purchasePrice: transaction.purchasePrice,
-    requirePurchasePrice: showPostContractSections,
+    requirePurchasePrice: false,
     property,
     transaction,
     escrow,
@@ -1782,13 +1779,11 @@ export default function AddProjectPage() {
           {showPostContractSections && (
           <Section title="Transaction Details" tone="financial" visible={currentStep === "transaction"} open={open.transaction} onToggle={() => toggle("transaction")}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <Field label="Purchase Price ($) *" invalid={showFieldError("price")} suggested={showFieldSuggested("price")} value={transaction.purchasePrice}>
+              <Field label="Purchase Price ($)" value={transaction.purchasePrice}>
                 <Input
                   value={transaction.purchasePrice}
                   onChange={e => setTransaction(p => ({ ...p, purchasePrice: sanitizeDecimal(e.target.value) }))}
                   placeholder="$1,250,000"
-                  required={showPostContractSections}
-                  aria-invalid={showFieldError("price")}
                 />
               </Field>
               {!isListing && (
@@ -2120,23 +2115,8 @@ export default function AddProjectPage() {
                 <div className="rounded-md border border-border/70 bg-secondary/20 p-3 space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Timeline</p>
                   <p className="text-xs text-muted-foreground">
-                    {timelineRequiredDone}/{timelineRequiredTotal} required timeline dates set.
-                    {timelineRequiredDone < timelineRequiredTotal
-                      ? " Complete missing dates before submitting."
-                      : " Required timeline dates are complete."}
+                    Timeline dates are optional at create — add Contract, Acceptance, COE, and other dates later when known.
                   </p>
-                  {timelineRequiredItems.map((item) => (
-                    <ReviewItem
-                      key={item.key}
-                      label={item.label}
-                      value={
-                        item.valid
-                          ? readTimelineReviewValue(item.fieldId, timeline, cop, sprp, isAllCash, noHOA)
-                          : "Not set"
-                      }
-                      highlight={!item.valid}
-                    />
-                  ))}
                   {reviewTimelinePreview.length > 0 ? (
                     <div className="mt-3 space-y-2 border-t border-border/60 pt-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -3127,19 +3107,6 @@ function PartyGroup({
       </CollapsibleContent>
     </Collapsible>
   );
-}
-
-function readTimelineReviewValue(
-  fieldId: TimelineFieldId,
-  timeline: TimelineFormState,
-  cop: { intoContract: string; coe: string },
-  sprp: { intoContract: string; coe: string },
-  isAllCash: boolean,
-  noHOA: boolean,
-): string {
-  if ((fieldId === "preapproval" || fieldId === "loanContingency") && isAllCash) return "N/A — All Cash";
-  if (fieldId === "reviewCommIntDiscl" && noHOA) return "N/A — No HOA";
-  return readTimelineFieldValue(fieldId, timeline, cop, sprp) || "Not set";
 }
 
 function ReviewItem({

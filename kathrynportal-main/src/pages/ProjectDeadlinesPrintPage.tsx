@@ -241,10 +241,10 @@ export default function ProjectDeadlinesPrintPage() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => navigate(`/projects/${project.id}`)}
+          onClick={() => navigate(`/projects/${project.id}`, { state: projectDetailState("calendar") })}
           className="h-10 w-full justify-start gap-1 sm:w-auto"
         >
-          <ArrowLeft className="h-3.5 w-3.5 shrink-0" /> Back to transaction
+          <ArrowLeft className="h-3.5 w-3.5 shrink-0" /> Back to timeline
         </Button>
         <div className="grid min-w-0 grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-2">
           <Button variant="outline" size="sm" className="h-10 gap-1 px-2 text-xs sm:px-3 sm:text-sm" onClick={() => window.print()}>
@@ -291,8 +291,12 @@ export default function ProjectDeadlinesPrintPage() {
           <span>Deadlines that fall on weekends or holidays move to the following business day.</span>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <span>Prepared for client presentation.</span>
-            <Link to={`/projects/${project.id}`} className="no-print underline underline-offset-2">
-              Open transaction
+            <Link
+              to={`/projects/${project.id}`}
+              state={projectDetailState("calendar")}
+              className="no-print underline underline-offset-2"
+            >
+              Open timeline
             </Link>
           </div>
         </footer>

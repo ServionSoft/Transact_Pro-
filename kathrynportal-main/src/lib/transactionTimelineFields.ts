@@ -159,7 +159,6 @@ export const TIMELINE_FIELD_DEFS: TimelineFieldDef[] = [
     kind: "date",
     section: "timeline",
     order: 10,
-    isRequired: (ctx) => ctx.timelineApplies,
   },
   {
     id: "acceptanceDate",
@@ -168,7 +167,6 @@ export const TIMELINE_FIELD_DEFS: TimelineFieldDef[] = [
     section: "timeline",
     order: 20,
     defaultAnchorField: "estimatedCOE",
-    isRequired: (ctx) => ctx.timelineApplies,
   },
   {
     id: "preapproval",
@@ -178,7 +176,6 @@ export const TIMELINE_FIELD_DEFS: TimelineFieldDef[] = [
     order: 30,
     isDisabled: (ctx) => ctx.isAllCash,
     disabledHint: ALL_CASH_HINT,
-    isRequired: (ctx) => ctx.timelineApplies && !ctx.isAllCash,
   },
   { id: "verificationOfFunds", title: "Verification of Funds", kind: "date", section: "timeline", order: 40 },
   { id: "emdToEscrow", title: "EMD to Escrow", kind: "date", section: "timeline", order: 50, labelHelp: TX_FIELD_HELP.emdToEscrow, defaultAnchorField: "acceptanceDate", suggestedOffsetDays: 3, suggestedOffsetType: "business" },
@@ -190,7 +187,6 @@ export const TIMELINE_FIELD_DEFS: TimelineFieldDef[] = [
     // Ordered just below Verification of Property Condition (150) and above Possession (160).
     order: 155,
     labelHelp: TX_FIELD_HELP.estimatedCoe,
-    isRequired: (ctx) => ctx.timelineApplies && ctx.isBuyerFile,
   },
   { id: "sellerDisclosuresToBuyer", title: "Seller Disclosures to Buyer", kind: "date", section: "timeline", order: 70, defaultAnchorField: "acceptanceDate", suggestedOffsetDays: 7, suggestedOffsetType: "calendar" },
   { id: "investigationContingency", title: "Investigation Contingency Removal", kind: "date", section: "timeline", order: 80, defaultAnchorField: "acceptanceDate", suggestedOffsetDays: 17, suggestedOffsetType: "calendar" },
@@ -213,7 +209,6 @@ export const TIMELINE_FIELD_DEFS: TimelineFieldDef[] = [
     labelHelp: TX_FIELD_HELP.reviewCommIntDiscl,
     isDisabled: (ctx) => ctx.noHOA,
     disabledHint: NO_HOA_HINT,
-    isRequired: (ctx) => ctx.timelineApplies && ctx.hoaYes,
   },
   { id: "appraisalContingency", title: "Appraisal Contingency Removal", kind: "date", section: "timeline", order: 130 },
   {
@@ -224,7 +219,6 @@ export const TIMELINE_FIELD_DEFS: TimelineFieldDef[] = [
     order: 140,
     isDisabled: (ctx) => ctx.isAllCash,
     disabledHint: ALL_CASH_HINT,
-    isRequired: (ctx) => ctx.timelineApplies && !ctx.isAllCash,
   },
   {
     id: "verificationOfPropertyCondition",

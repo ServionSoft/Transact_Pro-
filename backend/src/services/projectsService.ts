@@ -615,64 +615,20 @@ function strMeta(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
-function listingContractAccepted(metadata: Record<string, unknown> | undefined): boolean {
-  return metadata?.contractAccepted === true;
+/** Purchase price is optional at create/update — fill when known (Buyer soft-open workflow). */
+function requiresPurchasePrice(_type: string, _metadata: Record<string, unknown> | undefined): boolean {
+  return false;
 }
 
-/** Purchase price is post-contract for listings; always required for buyer files. */
-function requiresPurchasePrice(type: string, metadata: Record<string, unknown> | undefined): boolean {
-  if (type === "Listing") return listingContractAccepted(metadata);
-  return true;
-}
-
+/**
+ * Timeline milestone dates are optional at create/update. TCs often open a Buyer file
+ * before Acceptance / COE / Preapproval / Loan CR are confirmed.
+ */
 function validateTimelineMetadata(
-  type: string,
-  metadata: Record<string, unknown> | undefined,
+  _type: string,
+  _metadata: Record<string, unknown> | undefined,
 ): ServiceError | null {
-  const md = metadata ?? {};
-  const isListing = type === "Listing";
-  const contractAccepted = listingContractAccepted(md);
-  const timelineApplies = !isListing || contractAccepted;
-  if (!timelineApplies) return null;
-
-  const tx =
-    md.transaction && typeof md.transaction === "object" && !Array.isArray(md.transaction)
-      ? (md.transaction as Record<string, unknown>)
-      : null;
-  const prop =
-    md.property && typeof md.property === "object" && !Array.isArray(md.property)
-      ? (md.property as Record<string, unknown>)
-      : null;
-  const tl =
-    md.timeline && typeof md.timeline === "object" && !Array.isArray(md.timeline)
-      ? (md.timeline as Record<string, unknown>)
-      : {};
-
-  const isAllCash = strMeta(tx?.loanType) === "All Cash";
-  const hoaYes = strMeta(prop?.hoa) === "yes";
-
-  const required: Array<{ key: string; title: string }> = [
-    { key: "contractDate", title: "Contract Date" },
-    { key: "acceptanceDate", title: "Acceptance Date" },
-  ];
-  if (!isListing) {
-    required.push({ key: "estimatedCOE", title: "Estimated COE" });
-  }
-  if (!isAllCash) {
-    required.push({ key: "preapproval", title: "Preapproval" });
-    required.push({ key: "loanContingency", title: "Loan Contingency Removal" });
-  }
-  if (hoaYes) {
-    required.push({ key: "reviewCommIntDiscl", title: "Review of Comm Int Discl Contingency Removal" });
-  }
-
-  const missing = required.filter(({ key }) => !strMeta(tl[key]));
-  if (missing.length === 0) return null;
-  return {
-    status: 400,
-    code: "PROJECT_TIMELINE_REQUIRED",
-    message: `Missing required timeline fields: ${missing.map((m) => m.title).join(", ")}.`,
-  };
+  return null;
 }
 
 function validateCreateInput(input: ProjectCreateInput): ServiceError | null {

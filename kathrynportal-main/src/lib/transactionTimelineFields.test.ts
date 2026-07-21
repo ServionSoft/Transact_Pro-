@@ -43,7 +43,7 @@ describe("transactionTimelineFields", () => {
       requiredContext: { ...ctx, timelineApplies: true, isBuyerFile: true },
     });
     expect(rows.find((r) => r.fieldId === "contractDate")?.storedValue).toBe("2026-06-09");
-    expect(rows.find((r) => r.fieldId === "contractDate")?.required).toBe(true);
+    expect(rows.find((r) => r.fieldId === "contractDate")?.required).toBe(false);
   });
 
   it("computes offset dates from anchor", () => {
@@ -73,27 +73,28 @@ describe("transactionTimelineFields", () => {
     expect(bundle.weekendNote).toBeTruthy();
   });
 
-  it("skips loan fields when all cash", () => {
-    const allCashCtx = { ...buyerCtx, isAllCash: true };
+  it("does not require timeline dates to create (soft open)", () => {
     const items = getTimelineRequiredValidationItems(
       { timeline: DEFAULT_TIMELINE, cop: { intoContract: "", coe: "" }, sprp: { intoContract: "", coe: "" } },
-      allCashCtx,
+      buyerCtx,
     );
+    expect(items).toHaveLength(0);
+    expect(items.some((i) => i.fieldId === "contractDate")).toBe(false);
+    expect(items.some((i) => i.fieldId === "acceptanceDate")).toBe(false);
     expect(items.some((i) => i.fieldId === "preapproval")).toBe(false);
     expect(items.some((i) => i.fieldId === "loanContingency")).toBe(false);
-    expect(items.some((i) => i.fieldId === "contractDate")).toBe(true);
+    expect(items.some((i) => i.fieldId === "estimatedCOE")).toBe(false);
   });
 
-  it("requires comm int discl only when HOA is yes", () => {
-    const noHoaCtx = { ...buyerCtx, hoaYes: false, noHOA: true };
+  it("treats timeline field required flags as soft (none hard-required)", () => {
     expect(resolveTimelineFieldRequired(
-      { id: "reviewCommIntDiscl", title: "Review of Comm Int Discl Contingency Removal", kind: "date", section: "timeline", order: 120, isDisabled: (c) => c.noHOA, isRequired: (c) => c.timelineApplies && c.hoaYes },
-      noHoaCtx,
+      { id: "reviewCommIntDiscl", title: "Review of Comm Int Discl Contingency Removal", kind: "date", section: "timeline", order: 120, isDisabled: (c) => c.noHOA },
+      buyerCtx,
     )).toBe(false);
     expect(resolveTimelineFieldRequired(
-      { id: "reviewCommIntDiscl", title: "Review of Comm Int Discl Contingency Removal", kind: "date", section: "timeline", order: 120, isDisabled: (c) => c.noHOA, isRequired: (c) => c.timelineApplies && c.hoaYes },
+      { id: "contractDate", title: "Contract Date", kind: "date", section: "timeline", order: 10 },
       buyerCtx,
-    )).toBe(true);
+    )).toBe(false);
   });
 
   it("parses and serializes custom timeline metadata", () => {
