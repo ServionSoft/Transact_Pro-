@@ -287,14 +287,13 @@ export default function ClientForm({
         </div>
         {showEmail ? (
           <div className="space-y-2">
-            <Label htmlFor="email">Email *</Label>
+            <Label htmlFor="email">Email</Label>
             <Input
               id="email"
               type="email"
               value={values.email}
               onChange={(e) => onChange("email", e.target.value)}
               placeholder="sarah@realty.com"
-              required
             />
           </div>
         ) : null}

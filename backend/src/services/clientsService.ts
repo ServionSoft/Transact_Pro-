@@ -156,10 +156,7 @@ function validateClientInput(input: ClientUpsertInput, resolvedName: string): Se
   if (!normalizeText(input.preferredName)) {
     return { status: 400, code: "CLIENT_PREFERRED_NAME_REQUIRED", message: "Preferred name is required." };
   }
-  const lender = isLenderRole(input.role);
-  if (!lender && !email) {
-    return { status: 400, code: "CLIENT_EMAIL_REQUIRED", message: "Client email is required." };
-  }
+  // Email is optional (add later); validate format only when provided. Lender omits email entirely.
   if (email) {
     const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
     if (!emailOk) {

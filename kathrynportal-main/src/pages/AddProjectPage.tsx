@@ -3106,7 +3106,7 @@ function PartyGroup({
   title,
   action,
   children,
-  defaultOpen = true,
+  defaultOpen = false,
 }: {
   title: string;
   action?: React.ReactNode;

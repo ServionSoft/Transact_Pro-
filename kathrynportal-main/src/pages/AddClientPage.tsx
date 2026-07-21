@@ -56,13 +56,8 @@ export default function AddClientPage() {
       navigate("/clients");
       return;
     }
-    const isLender = form.role.trim().toLowerCase() === "lender";
     if (!form.firstName.trim() || !form.lastName.trim() || !form.preferredName.trim()) {
       toast.error("First name, last name, and preferred name are required.");
-      return;
-    }
-    if (!isLender && !form.email.trim()) {
-      toast.error("Email is required for this contact type.");
       return;
     }
     const normalized = normalizeClientForm(form);

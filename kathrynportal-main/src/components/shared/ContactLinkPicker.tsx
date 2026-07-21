@@ -116,13 +116,8 @@ export function ContactLinkPicker({
 
   const submitNewContact = async (e: React.FormEvent) => {
     e.preventDefault();
-    const isLender = createForm.role.trim().toLowerCase() === "lender";
     if (!createForm.firstName.trim() || !createForm.lastName.trim() || !createForm.preferredName.trim()) {
       toast.error("First name, last name, and preferred name are required.");
-      return;
-    }
-    if (!isLender && !createForm.email.trim()) {
-      toast.error("Email is required for this contact type.");
       return;
     }
     setSaving(true);

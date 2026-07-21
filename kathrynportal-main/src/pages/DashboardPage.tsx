@@ -33,6 +33,7 @@ import { hasPermission } from "@/lib/permissions";
 import { listProjectsFromApi, listCalendarEventsApi, type ProjectListItem, type CalendarEventApi } from "@/api/projects";
 import { listClientsFromApi } from "@/api/clients";
 import { cn } from "@/lib/utils";
+import { formatUsDateDisplay } from "@/lib/displayFormat";
 import PageHeader from "@/components/shared/PageHeader";
 import StatusBadge from "@/components/shared/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -691,7 +692,9 @@ export default function DashboardPage() {
                 {upcomingDeadlineSlice.length > 0 ? (
                   <>
                     {upcomingDeadlineSlice.length} deadline{upcomingDeadlineSlice.length === 1 ? "" : "s"} on{" "}
-                    <span className="font-medium text-foreground/80">{upcomingDeadlineSlice[0].date}</span>
+                    <span className="font-medium text-foreground/80">
+                      {formatUsDateDisplay(upcomingDeadlineSlice[0].date) || upcomingDeadlineSlice[0].date}
+                    </span>
                     {upcomingDeadlineSlice.length > 6 ? " — scroll for full list" : null}
                   </>
                 ) : (
@@ -724,7 +727,9 @@ export default function DashboardPage() {
                       <p className="text-xs font-medium line-clamp-2">{event.title}</p>
           </div>
                     <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-1">{event.propertyAddress}</p>
-                    <p className="text-[10px] text-primary font-medium mt-0.5">{event.date}</p>
+                    <p className="text-[10px] text-primary font-medium mt-0.5">
+                      {formatUsDateDisplay(event.date) || event.date}
+                    </p>
                   </>
                 );
                 return (
