@@ -168,8 +168,6 @@ function getTransactionFormValidation(input: TransactionFormValidationInput): {
   const { property, transaction, escrow } = input;
   if (property.zip && !/^\d+$/.test(property.zip)) formatErrors.push("ZIP must contain numbers only.");
   if (property.yearBuilt && !/^\d+$/.test(property.yearBuilt)) formatErrors.push("Year Built must contain numbers only.");
-  if (property.squareFeet && !/^\d+$/.test(property.squareFeet)) formatErrors.push("Square Feet must contain numbers only.");
-  if (property.lotSize && !/^\d+(\.\d+)?$/.test(property.lotSize)) formatErrors.push("Lot Size must be a valid number.");
   if (property.mlsNumber && !/^\d+$/.test(property.mlsNumber)) formatErrors.push("MLS # must contain numbers only.");
   if (transaction.purchasePrice.trim() && !/^\d+(\.\d+)?$/.test(transaction.purchasePrice.trim())) {
     formatErrors.push("Purchase Price must be a valid number.");
@@ -1960,8 +1958,20 @@ export default function AddProjectPage() {
                 </Select>
               </Field>
               <Field label="Year Built" className="xl:col-span-1" value={property.yearBuilt}><Input value={property.yearBuilt} onChange={e => setProperty(p => ({ ...p, yearBuilt: sanitizeDigits(e.target.value) }))} /></Field>
-              <Field label="Square Feet (home)" className="xl:col-span-1" value={property.squareFeet}><Input value={property.squareFeet} onChange={e => setProperty(p => ({ ...p, squareFeet: sanitizeDigits(e.target.value) }))} /></Field>
-              <Field label="Lot Size" className="xl:col-span-1" value={property.lotSize}><Input value={property.lotSize} onChange={e => setProperty(p => ({ ...p, lotSize: sanitizeDecimal(e.target.value) }))} /></Field>
+              <Field label="Square Feet (home)" className="xl:col-span-1" value={property.squareFeet}>
+                <Input
+                  value={property.squareFeet}
+                  onChange={e => setProperty(p => ({ ...p, squareFeet: e.target.value }))}
+                  placeholder="e.g. 2,450 sq ft"
+                />
+              </Field>
+              <Field label="Lot Size" className="xl:col-span-1" value={property.lotSize}>
+                <Input
+                  value={property.lotSize}
+                  onChange={e => setProperty(p => ({ ...p, lotSize: e.target.value }))}
+                  placeholder="e.g. 0.25 acres"
+                />
+              </Field>
               <Field label="Disclosure Link" labelHelp={TX_FIELD_HELP.disclosureLink} className="xl:col-span-2" value={property.disclosureLink}>
                 <Input value={property.disclosureLink} onChange={e => setProperty(p => ({ ...p, disclosureLink: e.target.value }))} placeholder="https://..." />
               </Field>
