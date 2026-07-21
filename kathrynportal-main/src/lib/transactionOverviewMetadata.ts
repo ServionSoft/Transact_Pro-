@@ -1,5 +1,5 @@
 import type { Project } from "@/data/mockData";
-import { formatUsdDisplay } from "@/lib/displayFormat";
+import { formatUsdDisplay, formatPercentDisplay } from "@/lib/displayFormat";
 import { resolveEffectiveSellerMatchLabel } from "@/lib/sellerNameMatch";
 import { buildOverviewTimelineRows, type TimelineOverviewRow } from "@/lib/transactionTimelineFields";
 
@@ -77,7 +77,7 @@ export function getTransactionDetailRows(metadata: Record<string, unknown> | und
   push(row("Purchase price", formatUsdDisplay(str(t.purchasePrice)) || str(t.purchasePrice)));
   push(row("DocuSign", yesNo(t.docuSign)));
   push(row("Loan type", str(t.loanType)));
-  push(row("SPBB %", str(t.spbbPct)));
+  push(row("SPBB %", formatPercentDisplay(str(t.spbbPct)) || str(t.spbbPct)));
   push(row("FTC", yesNo(t.ftc)));
   push(row("FTC amount", formatUsdDisplay(str(t.ftcAmount)) || str(t.ftcAmount)));
   push(row("FTC paid by", str(t.ftcPaidBy)));

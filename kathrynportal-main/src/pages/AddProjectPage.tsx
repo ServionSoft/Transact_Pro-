@@ -50,7 +50,7 @@ import {
   autoSellerNameMatch,
   resolveSellerNameMatchStatus,
 } from "@/lib/sellerNameMatch";
-import { formatUsdDisplay, formatUsDateDisplay } from "@/lib/displayFormat";
+import { formatUsdDisplay, formatUsDateDisplay, normalizePercentStorage, formatPercentDisplay } from "@/lib/displayFormat";
 
 type TxType = "Listing" | "Buyer File";
 type LoanType = "Conventional" | "FHA/VA" | "All Cash" | "Other";
@@ -76,13 +76,13 @@ function sanitizeDigits(value: string): string {
 
 function sanitizeDecimal(value: string): string {
   const cleaned = value.replace(/[^0-9.]/g, "");
-  const [whole, ...rest] = cleaned.split(".");
-  const decimal = rest.join("");
-  return decimal.length > 0 ? `${whole}.${decimal}` : whole;
-}
-
-function sanitizePercent(value: string): string {
-  return sanitizeDecimal(value).replace(/^(\d+(\.\d{0,2})?).*$/, "$1");
+  const firstDot = cleaned.indexOf(".");
+  if (firstDot === -1) return cleaned;
+  const whole = cleaned.slice(0, firstDot);
+  const after = cleaned.slice(firstDot + 1).replace(/\./g, "");
+  // Keep trailing "." while typing (e.g. "2." → "2.5")
+  if (cleaned.endsWith(".") && after === "") return `${whole}.`;
+  return after.length > 0 ? `${whole}.${after}` : whole;
 }
 
 type TransactionFormValidationInput = {
@@ -174,7 +174,9 @@ function getTransactionFormValidation(input: TransactionFormValidationInput): {
   if (transaction.purchasePrice.trim() && !/^\d+(\.\d+)?$/.test(transaction.purchasePrice.trim())) {
     formatErrors.push("Purchase Price must be a valid number.");
   }
-  if (transaction.spbbPct && !/^\d+(\.\d{1,2})?$/.test(transaction.spbbPct)) formatErrors.push("SPBB % must be a valid percentage.");
+  if (transaction.spbbPct.trim() && !/^\d+(\.\d+)?$/.test(transaction.spbbPct.trim())) {
+    formatErrors.push("SPBB % must be a valid percentage.");
+  }
   if (transaction.ftcAmount && !/^\d+(\.\d+)?$/.test(transaction.ftcAmount)) formatErrors.push("FTC Amount must be a valid number.");
   if (escrow.phone && !/^\d+$/.test(escrow.phone)) formatErrors.push("Escrow phone must contain numbers only.");
   if (input.emailsToValidate.some((email) => !isValidEmail(email))) {
@@ -1018,7 +1020,14 @@ export default function AddProjectPage() {
       if (md.sellers && Array.isArray(md.sellers) && md.sellers.length > 0) setSellers(md.sellers.map(hydratePerson));
       if (md.buyers && Array.isArray(md.buyers) && md.buyers.length > 0) setBuyers(md.buyers.map(hydratePerson));
       if (md.listing && typeof md.listing === "object") setListing((prev) => ({ ...prev, ...(md.listing as typeof prev) }));
-      if (md.transaction && typeof md.transaction === "object") setTransaction((prev) => ({ ...prev, ...(md.transaction as typeof prev) }));
+      if (md.transaction && typeof md.transaction === "object") {
+        const tx = md.transaction as Record<string, unknown>;
+        setTransaction((prev) => ({
+          ...prev,
+          ...tx,
+          spbbPct: tx.spbbPct != null ? normalizePercentStorage(String(tx.spbbPct)) : prev.spbbPct,
+        }));
+      }
       if (md.property && typeof md.property === "object") setProperty((prev) => ({ ...prev, ...(md.property as typeof prev) }));
     };
     if (existingProject) {
@@ -1248,8 +1257,14 @@ export default function AddProjectPage() {
     setSellers(asArray<PersonParty>(d.sellers, [blankPerson()]).map(hydratePerson));
     setBuyers(asArray<PersonParty>(d.buyers, [blankPerson()]).map(hydratePerson));
     if (d.listing && typeof d.listing === "object") setListing(prev => ({ ...prev, ...(d.listing as typeof prev) }));
-    if (d.transaction && typeof d.transaction === "object")
-      setTransaction(prev => ({ ...prev, ...(d.transaction as typeof prev) }));
+    if (d.transaction && typeof d.transaction === "object") {
+      const tx = d.transaction as Record<string, unknown>;
+      setTransaction((prev) => ({
+        ...prev,
+        ...tx,
+        spbbPct: tx.spbbPct != null ? normalizePercentStorage(String(tx.spbbPct)) : prev.spbbPct,
+      }));
+    }
     if (d.property && typeof d.property === "object") setProperty(prev => ({ ...prev, ...(d.property as typeof prev) }));
     setContractAccepted(Boolean(d.contractAccepted));
 
@@ -1811,8 +1826,18 @@ export default function AddProjectPage() {
                   </SelectContent>
                 </Select>
               </Field>
-              <Field label="SPBB %" labelHelp={TX_FIELD_HELP.spbbPct} value={transaction.spbbPct}>
-                <Input value={transaction.spbbPct} onChange={e => setTransaction(p => ({ ...p, spbbPct: sanitizePercent(e.target.value) }))} placeholder="2.5%" />
+              <Field label="SPBB" labelHelp={TX_FIELD_HELP.spbbPct} value={transaction.spbbPct}>
+                <div className="flex items-center gap-2">
+                  <div className="min-w-0 flex-1">
+                    <Input
+                      value={transaction.spbbPct}
+                      onChange={e => setTransaction(p => ({ ...p, spbbPct: sanitizeDecimal(e.target.value) }))}
+                      placeholder="2.5"
+                      inputMode="decimal"
+                    />
+                  </div>
+                  <span className="shrink-0 text-lg font-semibold leading-none text-foreground">%</span>
+                </div>
               </Field>
               <YesNoField
                 label="FTC?"
@@ -2116,6 +2141,14 @@ export default function AddProjectPage() {
                         }
                       />
                       <ReviewItem label="Loan Type" value={transaction.loanType} />
+                      <ReviewItem
+                        label="SPBB"
+                        value={
+                          transaction.spbbPct.trim()
+                            ? formatPercentDisplay(transaction.spbbPct)
+                            : "Not set"
+                        }
+                      />
                     </>
                   )}
                   {isListing && (

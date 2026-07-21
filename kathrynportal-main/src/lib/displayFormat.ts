@@ -31,3 +31,20 @@ export function formatUsdDisplay(value: string | number | null | undefined): str
   if (!Number.isFinite(n)) return raw;
   return `$${n.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 }
+
+/** Normalize percent for storage: plain number string (e.g. "2.5"), no % suffix. */
+export function normalizePercentStorage(value: string | null | undefined): string {
+  const trimmed = (value ?? "").trim().replace(/%/g, "");
+  if (!trimmed) return "";
+  const cleaned = trimmed.replace(/[^0-9.]/g, "");
+  const [whole, ...rest] = cleaned.split(".");
+  const decimal = rest.join("");
+  return decimal.length > 0 ? `${whole}.${decimal}` : whole;
+}
+
+/** Format a percent for UI (e.g. 2.5%). Storage stays a plain number. */
+export function formatPercentDisplay(value: string | number | null | undefined): string {
+  const raw = normalizePercentStorage(value == null ? "" : String(value));
+  if (!raw) return "";
+  return `${raw}%`;
+}
