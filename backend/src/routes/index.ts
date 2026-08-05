@@ -12,6 +12,7 @@ import { registerTeamMembersRoutes } from "./teamMembersRouter.js";
 import { registerProjectsRoutes } from "./projectsRouter.js";
 import { registerEmailTemplatesRoutes } from "./emailTemplatesRouter.js";
 import { registerEsignRoutes } from "./esignRouter.js";
+import { registerRandomValuesRoutes } from "./randomValuesRouter.js";
 
 export function registerRoutes(app: Express, config: AppConfig): void {
   app.get("/health", async (_req: Request, res: Response) => {
@@ -44,4 +45,5 @@ export function registerRoutes(app: Express, config: AppConfig): void {
   registerRoleProfilesRoutes(app, config, pool);
   registerSmtpSettingsRoutes(app, config, pool);
   registerDocusignSettingsRoutes(app, config, pool);
+  registerRandomValuesRoutes(app, pool);
 }
