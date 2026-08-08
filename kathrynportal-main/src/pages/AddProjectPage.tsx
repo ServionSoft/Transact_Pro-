@@ -50,7 +50,7 @@ import {
   autoSellerNameMatch,
   resolveSellerNameMatchStatus,
 } from "@/lib/sellerNameMatch";
-import { formatUsdDisplay, formatUsDateDisplay, normalizePercentStorage, formatPercentDisplay } from "@/lib/displayFormat";
+import { formatUsdDisplay, formatUsDateDisplay, normalizePercentStorage, formatPercentDisplay, formatUsdInputDisplay } from "@/lib/displayFormat";
 
 type TxType = "Listing" | "Buyer File";
 type LoanType = "Conventional" | "FHA/VA" | "All Cash" | "Other";
@@ -1798,9 +1798,9 @@ export default function AddProjectPage() {
                   <span className="shrink-0 text-lg font-semibold leading-none text-foreground">$</span>
                   <div className="min-w-0 flex-1">
                     <Input
-                      value={transaction.purchasePrice}
+                      value={formatUsdInputDisplay(transaction.purchasePrice)}
                       onChange={e => setTransaction(p => ({ ...p, purchasePrice: sanitizeDecimal(e.target.value) }))}
-                      placeholder="1250000"
+                      placeholder="1,250,000"
                       inputMode="decimal"
                     />
                   </div>
@@ -1850,9 +1850,9 @@ export default function AddProjectPage() {
                       <span className="shrink-0 text-lg font-semibold leading-none text-foreground">$</span>
                       <div className="min-w-0 flex-1">
                         <Input
-                          value={transaction.ftcAmount}
+                          value={formatUsdInputDisplay(transaction.ftcAmount)}
                           onChange={e => setTransaction(p => ({ ...p, ftcAmount: sanitizeDecimal(e.target.value) }))}
-                          placeholder="5000"
+                          placeholder="5,000"
                           inputMode="decimal"
                         />
                       </div>
@@ -2549,9 +2549,15 @@ export default function AddProjectPage() {
                         }}
                       />
                     </div>
-                    <PersonForm value={s} onChange={(v) => {
-                      const next = [...sellers]; next[i] = v; setSellers(next);
-                    }} />
+                    <PersonForm
+                      value={s}
+                      onChange={(v) => {
+                        const next = [...sellers]; next[i] = v; setSellers(next);
+                      }}
+                      requiredFields={
+                        !isListing ? { firstName: true, lastName: true } : undefined
+                      }
+                    />
                   </div>
                 ))}
               </div>
@@ -2726,9 +2732,13 @@ export default function AddProjectPage() {
                         }}
                       />
                     </div>
-                    <PersonForm value={b} onChange={(v) => {
-                      const next = [...buyers]; next[i] = v; setBuyers(next);
-                    }} />
+                    <PersonForm
+                      value={b}
+                      onChange={(v) => {
+                        const next = [...buyers]; next[i] = v; setBuyers(next);
+                      }}
+                      requiredFields={{ firstName: true, lastName: true, email: true }}
+                    />
                   </div>
                 ))}
               </div>
@@ -2959,6 +2969,15 @@ export default function AddProjectPage() {
 
 /* ---------- Reusable building blocks ---------- */
 
+/** After a collapsible expands, bring it into the viewport so fields aren't below the fold. */
+function scrollExpandedBlockIntoView(el: HTMLElement | null) {
+  if (!el) return;
+  // Brief delay so Collapsible content / nested fields have height before scrolling.
+  window.setTimeout(() => {
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, 80);
+}
+
 function Section({
   title, subtitle, open, onToggle, children, tone = "default", visible = true,
 }: {
@@ -2970,6 +2989,15 @@ function Section({
   tone?: "default" | "core" | "financial" | "property" | "timeline" | "parties" | "listing";
   visible?: boolean;
 }) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const prevOpenRef = useRef(open);
+
+  useEffect(() => {
+    const wasOpen = prevOpenRef.current;
+    prevOpenRef.current = open;
+    if (!wasOpen && open) scrollExpandedBlockIntoView(rootRef.current);
+  }, [open]);
+
   if (!visible) return null;
   const toneStyles: Record<NonNullable<typeof tone>, string> = {
     default: "border-border",
@@ -2990,7 +3018,13 @@ function Section({
     listing: "bg-indigo-500/10",
   };
   return (
-    <div className={cn("rounded-lg border bg-card overflow-x-hidden", toneStyles[tone])}>
+    <div
+      ref={rootRef}
+      className={cn(
+        "rounded-lg border bg-card overflow-x-hidden scroll-mt-20 scroll-mb-36",
+        toneStyles[tone],
+      )}
+    >
       <button
         type="button"
         onClick={onToggle}
@@ -3157,26 +3191,39 @@ function PartyGroup({
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  const handleOpenChange = (next: boolean) => {
+    setOpen(next);
+    if (next) scrollExpandedBlockIntoView(rootRef.current);
+  };
+
   return (
-    <Collapsible open={open} onOpenChange={setOpen} className="rounded-lg border border-accent/30 bg-accent/5">
-      <div className="flex items-center justify-between gap-2 px-3 py-2">
-        <CollapsibleTrigger asChild>
-          <button type="button" className="flex min-w-0 flex-1 items-center gap-2 text-left">
-            <ChevronDown
-              className={cn(
-                "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200",
-                open && "rotate-180",
-              )}
-            />
-            <span className="text-sm font-semibold text-foreground">{title}</span>
-          </button>
-        </CollapsibleTrigger>
-        {action ? <div className="shrink-0" onClick={(e) => e.stopPropagation()}>{action}</div> : null}
-      </div>
-      <CollapsibleContent>
-        <div className="border-t border-accent/20 px-3 pb-3 pt-3">{children}</div>
-      </CollapsibleContent>
-    </Collapsible>
+    <div ref={rootRef} className="scroll-mt-20 scroll-mb-36">
+      <Collapsible
+        open={open}
+        onOpenChange={handleOpenChange}
+        className="rounded-lg border border-accent/30 bg-accent/5"
+      >
+        <div className="flex items-center justify-between gap-2 px-3 py-2">
+          <CollapsibleTrigger asChild>
+            <button type="button" className="flex min-w-0 flex-1 items-center gap-2 text-left">
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200",
+                  open && "rotate-180",
+                )}
+              />
+              <span className="text-sm font-semibold text-foreground">{title}</span>
+            </button>
+          </CollapsibleTrigger>
+          {action ? <div className="shrink-0" onClick={(e) => e.stopPropagation()}>{action}</div> : null}
+        </div>
+        <CollapsibleContent>
+          <div className="border-t border-accent/20 px-3 pb-3 pt-3">{children}</div>
+        </CollapsibleContent>
+      </Collapsible>
+    </div>
   );
 }
 
@@ -3253,18 +3300,51 @@ function SimpleForm({
   );
 }
 
-function PersonForm({ value, onChange }: { value: PersonParty; onChange: (v: PersonParty) => void }) {
+function PersonForm({
+  value,
+  onChange,
+  requiredFields,
+}: {
+  value: PersonParty;
+  onChange: (v: PersonParty) => void;
+  /** Buyer-file rules: Seller first+last; Buyer first+last+email. Soft Create still does not block file create. */
+  requiredFields?: { firstName?: boolean; lastName?: boolean; email?: boolean };
+}) {
   const set = (k: keyof PersonParty, v: string) => onChange({ ...value, [k]: v });
   const setFirst = (v: string) => onChange({ ...value, firstName: v, name: combinePartyName(v, value.lastName) });
   const setLast = (v: string) => onChange({ ...value, lastName: v, name: combinePartyName(value.firstName, v) });
+  const reqFirst = Boolean(requiredFields?.firstName);
+  const reqLast = Boolean(requiredFields?.lastName);
+  const reqEmail = Boolean(requiredFields?.email);
+  const firstEmpty = !value.firstName.trim();
+  const lastEmpty = !value.lastName.trim();
+  const emailEmpty = !value.email.trim();
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-      <Field label="First Name" value={value.firstName}><Input value={value.firstName} onChange={e => setFirst(e.target.value)} /></Field>
-      <Field label="Last Name" value={value.lastName}><Input value={value.lastName} onChange={e => setLast(e.target.value)} /></Field>
+      <Field
+        label={reqFirst ? "First Name *" : "First Name"}
+        value={value.firstName}
+        suggested={reqFirst && firstEmpty}
+      >
+        <Input value={value.firstName} onChange={e => setFirst(e.target.value)} />
+      </Field>
+      <Field
+        label={reqLast ? "Last Name *" : "Last Name"}
+        value={value.lastName}
+        suggested={reqLast && lastEmpty}
+      >
+        <Input value={value.lastName} onChange={e => setLast(e.target.value)} />
+      </Field>
       <Field label="Preferred Name" hint="Optional. Shown in emails and Overview when different from legal name.">
         <Input value={value.preferredName} onChange={e => set("preferredName", e.target.value)} />
       </Field>
-      <Field label="Email" value={value.email}><Input type="email" value={value.email} onChange={e => set("email", e.target.value)} /></Field>
+      <Field
+        label={reqEmail ? "Email *" : "Email"}
+        value={value.email}
+        suggested={reqEmail && emailEmpty}
+      >
+        <Input type="email" value={value.email} onChange={e => set("email", e.target.value)} />
+      </Field>
       <Field label="Phone" value={value.phone}><Input value={value.phone} onChange={e => set("phone", sanitizeDigits(e.target.value))} /></Field>
       <Field label="Salutation" value={value.salutation}><Input value={value.salutation} onChange={e => set("salutation", e.target.value)} placeholder="Mr., Mrs., Dr." /></Field>
       <Field label="Title" value={value.title}><Input value={value.title} onChange={e => set("title", e.target.value)} /></Field>

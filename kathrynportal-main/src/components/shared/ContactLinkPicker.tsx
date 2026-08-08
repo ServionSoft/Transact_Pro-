@@ -35,7 +35,10 @@ import { hasPermission } from "@/lib/permissions";
 import { toast } from "sonner";
 
 function displayContactLabel(c: Client): string {
-  const primary = (c.preferredName && c.preferredName.trim()) || c.name;
+  const first = (c.firstName ?? "").trim();
+  const last = (c.lastName ?? "").trim();
+  const legal = [first, last].filter(Boolean).join(" ");
+  const primary = legal || (c.name ?? "").trim() || (c.preferredName ?? "").trim() || "Contact";
   const company = c.company?.trim() || "";
   const role = c.role?.trim() || "Other";
   return company ? `${primary} + ${company} (${role})` : `${primary} (${role})`;
@@ -115,7 +118,10 @@ export function ContactLinkPicker({
   };
 
   const submitNewContact = async (e: React.FormEvent) => {
+    // Dialog is portaled in the DOM but still under transaction-form in the React tree;
+    // without stopPropagation, submit bubbles and creates/navigates the whole project.
     e.preventDefault();
+    e.stopPropagation();
     if (!createForm.firstName.trim() || !createForm.lastName.trim() || !createForm.preferredName.trim()) {
       toast.error("First name, last name, and preferred name are required.");
       return;
@@ -239,7 +245,16 @@ export function ContactLinkPicker({
             <Button type="button" variant="outline" onClick={() => setCreateOpen(false)} disabled={saving}>
               Cancel
             </Button>
-            <Button type="submit" form="contact-link-create-form" disabled={saving}>
+            <Button
+              type="button"
+              disabled={saving}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const form = document.getElementById("contact-link-create-form");
+                if (form instanceof HTMLFormElement) form.requestSubmit();
+              }}
+            >
               {saving ? "Saving…" : "Save & select"}
             </Button>
           </DialogFooter>

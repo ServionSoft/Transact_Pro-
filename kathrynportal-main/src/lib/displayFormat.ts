@@ -32,6 +32,32 @@ export function formatUsdDisplay(value: string | number | null | undefined): str
   return `$${n.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 }
 
+/**
+ * Format a money amount for controlled inputs: thousand commas, no `$`.
+ * Storage stays digits-only (e.g. "1250000"); display shows "1,250,000".
+ */
+export function formatUsdInputDisplay(value: string | null | undefined): string {
+  const raw = (value ?? "").trim();
+  if (!raw) return "";
+
+  const keepTrailingDot = raw.endsWith(".");
+  const dotIndex = raw.indexOf(".");
+  const wholeRaw = dotIndex === -1 ? raw : raw.slice(0, dotIndex);
+  const fracRaw = dotIndex === -1 ? null : raw.slice(dotIndex + 1);
+
+  const wholeDigits = wholeRaw.replace(/\D/g, "");
+  const withCommas = wholeDigits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+
+  if (keepTrailingDot && (fracRaw === null || fracRaw === "")) {
+    return `${withCommas}.`;
+  }
+  if (fracRaw != null) {
+    const fracDigits = fracRaw.replace(/\D/g, "");
+    return `${withCommas}.${fracDigits}`;
+  }
+  return withCommas;
+}
+
 /** Normalize percent for storage: plain number string (e.g. "2.5"), no % suffix. */
 export function normalizePercentStorage(value: string | null | undefined): string {
   const trimmed = (value ?? "").trim().replace(/%/g, "");

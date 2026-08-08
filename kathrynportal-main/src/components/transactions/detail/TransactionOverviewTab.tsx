@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Calendar, CheckSquare, ChevronRight, FileText, Paperclip } from "lucide-react";
 import { motion } from "framer-motion";
@@ -53,6 +54,31 @@ function StatTile({ label, value, sub, progress, icon: Icon, onClick }: StatTile
   );
 }
 
+/** Overview stores disclosure URLs as plain text; make them openable. */
+function hrefForExternalUrl(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return trimmed;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
+function overviewDetailValue(row: OverviewDetailRow): ReactNode {
+  if (row.label === "Disclosure link") {
+    const href = hrefForExternalUrl(row.value);
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="break-all text-accent underline-offset-2 hover:underline"
+      >
+        {row.value}
+      </a>
+    );
+  }
+  return row.value;
+}
+
 function DetailRows({ rows, className, columns = 2 }: { rows: OverviewDetailRow[]; className?: string; columns?: 1 | 2 }) {
   return (
     <div
@@ -62,7 +88,7 @@ function DetailRows({ rows, className, columns = 2 }: { rows: OverviewDetailRow[
       )}
     >
       {rows.map((r) => (
-        <DetailRow key={r.label} label={r.label} value={r.value} className="text-xs" />
+        <DetailRow key={r.label} label={r.label} value={overviewDetailValue(r)} className="text-xs" />
       ))}
     </div>
   );

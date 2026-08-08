@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatUsdDisplay, formatUsDateDisplay, formatPercentDisplay } from "./displayFormat";
+import { formatUsdDisplay, formatUsDateDisplay, formatPercentDisplay, formatUsdInputDisplay } from "./displayFormat";
 
 describe("displayFormat", () => {
   it("formats ISO dates as MM/DD/YYYY", () => {
@@ -11,6 +11,13 @@ describe("displayFormat", () => {
     expect(formatUsdDisplay("12506666")).toBe("$12,506,666");
     expect(formatUsdDisplay(1250.5)).toBe("$1,250.5");
     expect(formatUsdDisplay("")).toBe("");
+  });
+
+  it("formats money for inputs with commas and no $", () => {
+    expect(formatUsdInputDisplay("1250000")).toBe("1,250,000");
+    expect(formatUsdInputDisplay("1250.5")).toBe("1,250.5");
+    expect(formatUsdInputDisplay("1250.")).toBe("1,250.");
+    expect(formatUsdInputDisplay("")).toBe("");
   });
 
   it("formats percent for display without requiring % in storage", () => {
